@@ -1,113 +1,78 @@
 # srt_stitcher_app.py
-
 import streamlit as st
-import tempfile
-import pysrt
-import os
-from app.lang_detect import detect_language_from_srt, get_lang_display
-from app.style_utils import get_style_config
-from app.user_settings import save_user_styles, load_user_styles
-from app.font_preview import render_font_sample
-from app.style_defaults import get_style_defaults
+import pysubs2
+from app.state import initialize_session_state
+from app.styles import LANG_CONFIG
+from app.language import detect_language_from_file
+from app.ui import render_styling_dashboard
+from app.processing import generate_ass_file
+from app.preview import get_preview_lines, generate_unified_preview
 
-st.set_page_config(page_title="SrtStitcher", layout="centered")
-st.title("🎬 SrtStitcher: Dual-Language Subtitle Merger")
+# --- Initial Setup ---
+st.set_page_config(page_title="SRTStitcher Pro", layout="wide")
+initialize_session_state()
 
-st.header("📂 Upload Two Subtitles")
-uploaded_files = st.file_uploader("Upload two .srt files", type="srt", accept_multiple_files=True)
+# --- Main App ---
+st.title("🎬 SRTStitcher Pro")
 
-if len(uploaded_files) != 2:
-    st.warning("Please upload exactly two .srt files.")
-    st.stop()
+st.header("1. Upload Subtitles")
+upload_cols = st.columns(2)
+native_file = upload_cols[0].file_uploader("Upload Native Language Subtitle (.srt)", type="srt")
+target_file = upload_cols[1].file_uploader("Upload Target Language Subtitle (.srt, e.g., German, Chinese)", type="srt")
 
-# Ask user for desired resolution
-st.header("📐 Select Target Video Resolution")
-res_options = {"720p": (1280, 720), "1080p": (1920, 1080), "2160p (4K)": (3840, 2160)}
-res_label = st.selectbox("Choose resolution for .ass file positioning:", list(res_options.keys()), index=1)
-playresx, playresy = res_options[res_label]
+# --- Language Detection & Manual Override ---
+if native_file and st.session_state.native_lang == "Native":
+    lang_code = detect_language_from_file(native_file)
+    st.session_state.native_lang = LANG_CONFIG.get(lang_code, {}).get("display_name", "Unknown")
 
-# Assign roles dynamically and detect languages
-subs = []
-for file in uploaded_files:
-    srt_text = file.read().decode("utf-8")
-    srt_obj = pysrt.from_string(srt_text)
-    lang_code = detect_language_from_srt(srt_obj)
-    lang_label = get_lang_display(lang_code)
-    custom_label = st.text_input(f"Language label for `{file.name}`", value=lang_label)
-    subs.append((custom_label, srt_obj))
+if target_file and st.session_state.target_lang == "Target":
+    lang_code = detect_language_from_file(target_file)
+    st.session_state.target_lang_code = lang_code
+    config = LANG_CONFIG.get(lang_code)
+    if config:
+        st.session_state.target_lang = config["display_name"]
+        st.session_state.romanization_lang = config["romanization_name"]
+        if config["romanize_function"] is None:
+            st.session_state.styles["Romanized"]["enabled"] = False
+    else:
+        st.session_state.target_lang = "Unsupported"
+        st.session_state.romanization_lang = "N/A"
 
-# Display customizable styles per language
-st.header("🎨 Customize Styles")
-style_inputs = {}
-positions = ["Top", "Bottom", "Left", "Right"]
+# Manual Override UI (optional, can be added here if needed)
 
-for label, _ in subs:
-    st.subheader(f"Style for {label}")
-    style = get_style_config(label)
+# --- Main Content Layout (Controls & Preview) ---
+main_cols = st.columns([0.6, 0.4])
 
-    font = st.text_input(f"Font ({label})", value=style["font"], key=f"font_{label}")
-    color = st.color_picker(f"Font Color ({label})", value=style["color"], key=f"color_{label}")
-    size = st.slider(f"Font Size ({label})", 20, 80, style["size"], key=f"size_{label}")
-    position = st.selectbox(f"Position ({label})", positions, index=positions.index(style["position"]), key=f"position_{label}")
+with main_cols[0]:
+    st.header(f"3. Customize Styles")
+    romanization_possible = LANG_CONFIG.get(st.session_state.target_lang_code, {}).get("romanize_function") is not None
+    render_styling_dashboard(["Bottom", "Top", "Romanized"], romanization_possible)
 
-    if st.button(f"💾 Save as default for {label}"):
-        all_styles = load_user_styles()
-        all_styles[label] = {"font": font, "color": color, "size": size, "position": position}
-        save_user_styles(all_styles)
-        st.success(f"Saved settings for {label}")
+with main_cols[1]:
+    st.header("2. Visual Preview")
+    if native_file and target_file:
+        preview_lines = get_preview_lines(native_file, target_file)
+        if preview_lines:
+            romanize_func = LANG_CONFIG.get(st.session_state.target_lang_code, {}).get("romanize_function")
+            romanized_text = romanize_func(preview_lines["target"]) if romanize_func else ""
+            
+            st.markdown(generate_unified_preview(
+                st.session_state.styles, 
+                preview_lines["native"], 
+                preview_lines["target"], 
+                romanized_text
+            ), unsafe_allow_html=True)
+        else:
+            st.warning("Could not generate preview. Files might be empty or out of sync.")
+    else:
+        st.info("Upload both subtitle files to see the preview.")
 
-    style_inputs[label] = {"font": font, "color": color, "size": size, "position": position}
-
-    # Font preview inline
-    preview_path = f"assets/font_previews/{label}_preview.png"
-    render_font_sample(font_name=font, text=f"Sample text in {label}", lang=label, size=size, output_path=preview_path)
-    st.image(preview_path, caption=f"Preview for {label}", width=480)
-
-# Generate .ass file
-if st.button("✨ Generate .ass Subtitle File"):
-    def fmt_time(t):
-        return f"{t.hours}:{t.minutes:02}:{t.seconds:02}.{int(t.milliseconds/10):02}"
-
-    def rgb_to_ass(hex_color):
-        hex_color = hex_color.lstrip("#")
-        bgr = hex_color[4:6] + hex_color[2:4] + hex_color[0:2]
-        return f"&H00{bgr.upper()}"
-
-    # Build .ass header
-    header = f"""[Script Info]
-Title: Dual-language subs
-ScriptType: v4.00+
-PlayResX: {playresx}
-PlayResY: {playresy}
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-"""
-
-    align_map = {"Bottom": 2, "Top": 8, "Left": 1, "Right": 3}
-    events = ""
-    styles = ""
-
-    for label in style_inputs:
-        s = style_inputs[label]
-        styles += f"Style: {label},{s['font']},{s['size']},{rgb_to_ass(s['color'])},&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,{align_map[s['position']]},50,50,50,1\n"
-
-    header += styles + "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-
-    # Add dialogue lines
-    for i in range(max(len(subs[0][1]), len(subs[1][1]))):
-        for label, srt in subs:
-            if i < len(srt):
-                line = srt[i]
-                text = line.text.replace("\n", "\\N")
-                events += f"Dialogue: 0,{fmt_time(line.start)},{fmt_time(line.end)},{label},,0,0,0,,{text}\n"
-
-    ass_content = header + events
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".ass", mode="w", encoding="utf-8") as f:
-        f.write(ass_content)
-        temp_path = f.name
-
-    with open(temp_path, "rb") as f:
-        st.success("✅ Subtitle file generated!")
-        st.download_button("📥 Download .ass file", f, file_name="dual_subs.ass", mime="text/plain")
+    # --- Generation Button ---
+    if native_file and target_file:
+        if st.button("✨ Generate Stitched .ass File", type="primary"):
+            with st.spinner("Generating file..."):
+                temp_file_path = generate_ass_file(native_file, target_file, st.session_state.styles, st.session_state.target_lang_code)
+                if temp_file_path:
+                    st.success("✅ Subtitle file generated!")
+                    with open(temp_file_path, "rb") as f:
+                        st.download_button("📥 Download .ass file", f, file_name="stitched_subs.ass")

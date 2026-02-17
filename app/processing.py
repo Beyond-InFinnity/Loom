@@ -4,15 +4,23 @@ import pysubs2
 import tempfile
 from .styles import LANG_CONFIG
 
+
+def _load_subs(source):
+    """Load subtitles from either a file path (str) or a Streamlit file object."""
+    if isinstance(source, str):
+        return pysubs2.load(source)
+    source.seek(0)
+    return pysubs2.SSAFile.from_string(source.getvalue().decode("utf-8"))
+
+
 def generate_ass_file(native_file, target_file, styles, target_lang_code):
     """
-    Generates the final .ass file from the uploaded subs and current styles.
+    Generates the final .ass file from subtitle sources and current styles.
+    Accepts either file path strings or Streamlit uploaded file objects.
     """
     try:
-        native_file.seek(0)
-        target_file.seek(0)
-        native_subs = pysubs2.SSAFile.from_string(native_file.getvalue().decode("utf-8"))
-        target_subs = pysubs2.SSAFile.from_string(target_file.getvalue().decode("utf-8"))
+        native_subs = _load_subs(native_file)
+        target_subs = _load_subs(target_file)
         
         stitched_subs = pysubs2.SSAFile()
 

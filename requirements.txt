@@ -2,3 +2,5 @@ streamlit
 pysubs2
 pypinyin
 langdetect
+langcodes
+ffmpeg-python

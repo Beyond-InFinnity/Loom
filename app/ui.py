@@ -1,65 +1,95 @@
 # app/ui.py
 import streamlit as st
-import pysubs2
-from .styles import FONT_LIST
+import os
+import tempfile
+import tkinter as tk
+from tkinter import filedialog
 
-def hex_to_rgb(h): return tuple(int(h.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-def rgb_to_hex(rgb): return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+def browse_callback():
+    """
+    Callback function for the 'Browse...' button.
+    Opens a native file dialog and updates st.session_state["mkv_path_input"] if a file is selected.
+    """
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    root.wm_attributes('-topmost', 1)  # Bring the dialog to the front
+    file_path = filedialog.askopenfilename(filetypes=[("MKV files", "*.mkv")])
+    root.destroy()
+    if file_path:
+        st.session_state["mkv_path_input"] = file_path
 
-def render_styling_dashboard(track_keys, romanization_possible):
-    """Renders the entire styling dashboard with its tabs and controls."""
-    tab_names = [f"Bottom ({st.session_state.native_lang})", f"Top ({st.session_state.target_lang})", st.session_state.romanization_lang]
-    tabs = st.tabs(tab_names)
+def render_mkv_path_input():
+    """
+    Renders the text input for the MKV file path and a 'Browse...' button.
+    Returns the path string from session state.
+    """
+    cols = st.columns([3, 1])
+    
+    with cols[0]:
+        # The value is now read directly from session_state, which is updated by the callback
+        path_input = st.text_input("MKV Path", key="mkv_path_input",
+                                   value=st.session_state.get("mkv_path_input", ""))
+    
+    with cols[1]:
+        # Add some vertical space to align the button with the text input
+        st.write("<br>", unsafe_allow_html=True)
+        st.button("Browse...", on_click=browse_callback)
 
-    for i, tab in enumerate(tabs):
-        track_name = track_keys[i]
-        s = st.session_state.styles[track_name]
+    # No need for st.rerun() here, as the button's on_click callback directly modifies
+    # session state, and Streamlit will rerun automatically on state change or widget interaction.
+    return st.session_state.get("mkv_path_input")
 
-        with tab:
-            # Enable/disable checkbox for Top and Romanized tracks
-            if track_name != "Bottom":
-                disable_toggle = (track_name == "Romanized" and not romanization_possible)
-                s['enabled'] = st.checkbox("Enable this track", value=s['enabled'], key=f"enabled_{track_name}", disabled=disable_toggle)
+def render_hybrid_selector(label, options, key):
+    """
+    Renders a selectbox with provided options (MKV tracks) and an option to upload a custom file.
+    Always returns a file path string (saving uploads to temp if needed).
+    
+    Args:
+        label (str): The label for the selectbox.
+        options (list): A list of dictionaries, where each dict represents an MKV track
+                        like {'id': index, 'label': "Track X - [Lang]", 'path': temp_path, 'source': 'mkv'}.
+        key (str): A unique key for the Streamlit components.
+    
+    Returns:
+        str: The path to the selected subtitle file, or None if no file is selected.
+    """
+    display_options = {"-- Select a source --": None}
+    for opt in options:
+        display_options[opt['label']] = opt['path']
+    display_options["📂 Upload Custom File..."] = "upload"
+    
+    selection_label = st.selectbox(
+        label,
+        list(display_options.keys()),
+        key=f"{key}_selector"
+    )
+    
+    selected_value = display_options[selection_label]
+    
+    file_path = None
+    
+    if selected_value == "upload":
+        uploaded_file = st.file_uploader(
+            "Upload a .srt or .ass file",
+            type=["srt", "ass", "ssa"],
+            key=f"{key}_uploader"
+        )
+        if uploaded_file:
+            # Save the uploaded file to the session's temp directory
+            temp_dir = st.session_state.get('temp_dir')
+            if not temp_dir:
+                st.error("Temporary directory not initialized.")
+                return None
             
-            # Only show controls if the track is enabled
-            if s['enabled']:
-                _render_track_controls(track_name, s)
+            # Create a unique filename to avoid conflicts
+            unique_filename = f"{key}_{uploaded_file.name}"
+            save_path = os.path.join(temp_dir, unique_filename)
+            
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getvalue())
+            file_path = save_path
+    else:
+        file_path = selected_value
 
-def _render_track_controls(track_name, s):
-    """Renders the set of style controls for a single track."""
-    st.markdown("##### Character")
-    char_col1, char_col2 = st.columns(2)
-    font_index = FONT_LIST.index(s['fontname']) if s['fontname'] in FONT_LIST else 0
-    s['fontname'] = char_col1.selectbox("Font Name", FONT_LIST, index=font_index, key=f"font_{track_name}")
-    s['bold'] = char_col1.checkbox("Bold", s['bold'], key=f"bold_{track_name}")
-    s['fontsize'] = char_col2.slider("Font Size", 10, 150, s['fontsize'], key=f"size_{track_name}")
-    s['italic'] = char_col2.checkbox("Italic", s['italic'], key=f"italic_{track_name}")
+    return file_path
 
-    st.markdown("---")
-    st.markdown("##### Color & Windowing")
-    st.write("Primary Color")
-    pc_col1, pc_col2 = st.columns([1, 2])
-    pc_hex = pc_col1.color_picker("Text Color", rgb_to_hex((s['primarycolor'].r, s['primarycolor'].g, s['primarycolor'].b)), key=f"pc_hex_{track_name}")
-    pc_opacity = pc_col2.slider("Text Opacity (%)", 0, 100, round((255 - s['primarycolor'].a) / 2.55), key=f"pc_alpha_{track_name}")
-    s['primarycolor'] = pysubs2.Color(*hex_to_rgb(pc_hex), 255 - int(pc_opacity * 2.55))
-
-    st.write("Background Box")
-    s['back_none'] = st.checkbox("None", s['back_none'], key=f"back_none_{track_name}")
-    bc_col1, bc_col2 = st.columns([1, 2])
-    bc_hex = bc_col1.color_picker("Box Color", rgb_to_hex((s['backcolor'].r, s['backcolor'].g, s['backcolor'].b)), key=f"bc_hex_{track_name}", disabled=s['back_none'])
-    bc_opacity = bc_col2.slider("Box Opacity (%)", 0, 100, round((255 - s['backcolor'].a) / 2.55), key=f"bc_alpha_{track_name}", disabled=s['back_none'])
-    s['backcolor'] = pysubs2.Color(*hex_to_rgb(bc_hex), 255 - int(bc_opacity * 2.55))
-
-    st.markdown("---")
-    st.markdown("##### Edge Features")
-    st.write("Outline")
-    s['outline_none'] = st.checkbox("None", s['outline_none'], key=f"outline_none_{track_name}")
-    oc_col1, oc_col2 = st.columns([1, 2])
-    oc_hex = oc_col1.color_picker("Outline Color", rgb_to_hex((s['outlinecolor'].r, s['outlinecolor'].g, s['outlinecolor'].b)), key=f"oc_hex_{track_name}", disabled=s['outline_none'])
-    oc_opacity = oc_col2.slider("Outline Opacity (%)", 0, 100, round((255 - s['outlinecolor'].a) / 2.55), key=f"oc_alpha_{track_name}", disabled=s['outline_none'])
-    s['outlinecolor'] = pysubs2.Color(*hex_to_rgb(oc_hex), 255 - int(oc_opacity * 2.55))
-    s['outline'] = st.slider("Outline Width", 0.0, 10.0, s['outline'], 0.5, key=f"outline_{track_name}", disabled=s['outline_none'])
-
-    st.write("Shadow")
-    s['shadow_none'] = st.checkbox("None", s['shadow_none'], key=f"shadow_none_{track_name}")
-    s['shadow'] = st.slider("Shadow Distance", 0.0, 10.0, s['shadow'], 0.5, key=f"shadow_{track_name}", disabled=s['shadow_none'])

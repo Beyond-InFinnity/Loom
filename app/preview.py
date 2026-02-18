@@ -1,6 +1,7 @@
 # app/preview.py
 import base64
 import os
+import re
 import pysubs2
 
 
@@ -12,77 +13,86 @@ def _load_subs(source):
     return pysubs2.SSAFile.from_string(source.getvalue().decode("utf-8"))
 
 
-def get_preview_lines(native_file, target_file):
+def _clean_text(text):
+    """Strip ASS override tags and normalize line breaks for display.
+
+    Removes {override blocks} like {\\an8}, {\\i1}, {\\fs20\\c&H...}, then
+    converts ASS/SRT line-break sequences to spaces.
     """
-    Finds two corresponding subtitle lines from the middle of two files based on time overlap.
-    Accepts either file path strings or Streamlit uploaded file objects.
+    text = re.sub(r'\{[^}]*\}', '', text)
+    text = text.replace(r'\N', ' ').replace(r'\n', ' ').replace('\n', ' ')
+    return text.strip()
+
+
+def get_lines_at_timestamp(native_file, target_file, timestamp_seconds):
+    """Return the active subtitle text for each track at the given timestamp.
+
+    Scans each subtitle file independently for the first event whose time range
+    covers timestamp_seconds (event.start <= ts_ms <= event.end). pysubs2
+    stores all times in milliseconds, so the input seconds value is converted.
+
+    Returns an empty string for a track when no event is active at that moment
+    (a dialogue gap). This is correct behaviour — it accurately reflects what
+    the video shows and is useful feedback to the user.
+
+    Args:
+        native_file: Path string to the native subtitle file.
+        target_file: Path string to the target subtitle file.
+        timestamp_seconds: Timestamp in seconds (int or float).
+
+    Returns:
+        dict with keys "native" and "target", each a clean display string.
     """
+    result = {"native": "", "target": ""}
     if not native_file or not target_file:
-        return None
+        return result
+
+    ts_ms = int(timestamp_seconds * 1000)
 
     try:
-        native_subs = _load_subs(native_file)
-        target_subs = _load_subs(target_file)
-
-        if not native_subs or not target_subs:
-            return None
-
-        anchor_line = target_subs[len(target_subs) // 2]
-        corresponding_line = None
-        for line in native_subs:
-            if line.start < anchor_line.end and line.end > anchor_line.start:
-                corresponding_line = line
+        for event in _load_subs(native_file):
+            if event.start <= ts_ms <= event.end:
+                result["native"] = _clean_text(event.text)
                 break
-        
-        if corresponding_line is None:
-            corresponding_line = native_subs[len(native_subs) // 2]
-
-        return {
-            "native": corresponding_line.text.replace(r"\N", " "),
-            "target": anchor_line.text.replace(r"\N", " ")
-        }
     except Exception as e:
-        print(f"Error getting preview lines: {e}")
-        return None
+        print(f"Error looking up native subtitle at {timestamp_seconds}s: {e}")
+
+    try:
+        for event in _load_subs(target_file):
+            if event.start <= ts_ms <= event.end:
+                result["target"] = _clean_text(event.text)
+                break
+    except Exception as e:
+        print(f"Error looking up target subtitle at {timestamp_seconds}s: {e}")
+
+    return result
 
 def generate_unified_preview(styles, native_text, target_text, pinyin_text,
+                             resolution=(1920, 1080),
                              background_image_path=None):
-    """Generates HTML/CSS for a unified preview of all text tracks.
+    """Generates a full HTML document for a unified preview of all text tracks.
 
-    Layout: an outer flex container fills the iframe and centers an inner 16:9
-    div.  The inner div is constrained by max-width/max-height so it always
-    fits within the iframe regardless of how wide Streamlit makes the content
-    area.  Subtitle divs are positioned absolutely inside the inner div, so
-    percentage positions (bottom:5%, top:10%) are relative to the video area —
-    not the iframe — even when the image is letterboxed or pillarboxed.
+    Returns a complete <!DOCTYPE html> document so that height: 100% cascades
+    correctly from the iframe root — without this, percentage heights on divs
+    are undefined and the video frame div expands to its natural image size,
+    overflowing the iframe and pushing bottom-positioned subtitles off-screen.
 
-    When background_image_path is provided, the video frame is shown as the
-    background.  Falls back to a dark background when no frame is available.
+    The inner video-frame div uses:
+        width: min(100%, calc(100vh * W / H))
+        height: auto; aspect-ratio: W / H
+    This picks whichever is the binding constraint (full container width vs.
+    the width that would fill the viewport height at the given ratio) and
+    derives height from it, guaranteeing the frame always fits in the 600px
+    iframe without overflow. Subtitle percentage positions are relative to
+    this div, so they scale correctly with the displayed frame.
     """
+    b64_image_src = "data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=="
     if background_image_path and os.path.exists(background_image_path):
         with open(background_image_path, "rb") as img_f:
             b64 = base64.b64encode(img_f.read()).decode()
-        frame_bg = (
-            f"background-image:url('data:image/jpeg;base64,{b64}');"
-            "background-size:100% 100%;background-position:center;"
-            "background-repeat:no-repeat;"
-        )
-    else:
-        frame_bg = "background-color:#111;"
+        b64_image_src = f"data:image/jpeg;base64,{b64}"
 
-    # Outer container: fills iframe, black surround, centers the video area
-    html = (
-        '<div style="width:100%;height:100%;display:flex;'
-        'align-items:center;justify-content:center;background:black;'
-        'margin:0;padding:0;overflow:hidden;">'
-    )
-    # Inner container: 16:9 video area, constrained to fit within the iframe.
-    # Subtitle positions are relative to this div.
-    html += (
-        f'<div style="position:relative;aspect-ratio:16/9;'
-        f'max-width:100%;max-height:100%;{frame_bg}">'
-    )
-
+    subtitle_overlays_html = []
     texts = {"Bottom": native_text, "Top": target_text, "Romanized": pinyin_text}
     positions = {"Bottom": "bottom:5%;", "Top": "top:10%;", "Romanized": "top:3%;"}
 
@@ -98,7 +108,6 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
         shadow = 0.0 if config.get('shadow_none', True) else config['shadow']
         outline = 0.0 if config.get('outline_none', True) else config['outline']
 
-        # Build text-shadow parts, filtering out empties to avoid trailing commas
         shadow_parts = []
         if shadow > 0:
             shadow_parts.append(f"{shadow}px {shadow}px 3px rgba(0,0,0,0.8)")
@@ -123,7 +132,56 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
             f"background-color:rgba({bc.r},{bc.g},{bc.b},{back_alpha});"
             f"padding:5px 10px;box-sizing:border-box;{text_shadow_css}"
         )
-        html += f'<div style="{style_str}">{text_content}</div>'
+        subtitle_overlays_html.append(f'<div style="{style_str}">{text_content}</div>')
+    overlay_html_string = ''.join(subtitle_overlays_html)
 
-    html += '</div></div>'
-    return html
+    w, h = resolution
+
+    return f'''<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  html, body {{
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #0e1117;
+  }}
+  .outer {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100%;
+    background-color: #0e1117;
+    overflow: hidden;
+  }}
+  .video-frame {{
+    position: relative;
+    /* Width = the smaller of: full container width, or the width that fills
+       the viewport height at the video's aspect ratio. Height is then derived
+       from width via aspect-ratio, so the frame always fits without overflow. */
+    width: min(100%, calc(100vh * {w} / {h}));
+    height: auto;
+    aspect-ratio: {w} / {h};
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    background-color: #000;
+  }}
+  .video-frame img {{
+    display: block;
+    width: 100%;
+    height: 100%;
+  }}
+</style>
+</head>
+<body>
+  <div class="outer">
+    <div class="video-frame">
+      <img src="{b64_image_src}" alt="">
+      {overlay_html_string}
+    </div>
+  </div>
+</body>
+</html>'''

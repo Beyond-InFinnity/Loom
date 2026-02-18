@@ -1,6 +1,8 @@
 streamlit
 pysubs2
 pypinyin
+pykakasi
 langdetect
 langcodes
+language_data
 ffmpeg-python

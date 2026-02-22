@@ -8,6 +8,16 @@ from langdetect.lang_detect_exception import LangDetectException
 # Make langdetect deterministic across runs
 DetectorFactory.seed = 0
 
+# Cantonese-specific characters that do not appear in standard Mandarin text.
+# Presence of 2+ distinct markers in a text sample strongly indicates Cantonese.
+_CANTONESE_MARKERS = frozenset('係喺囉咁嘅咗啩咋喎')
+
+
+def _detect_cantonese(text_sample: str) -> bool:
+    """Return True if *text_sample* contains 2+ distinct Cantonese-specific markers."""
+    found = {c for c in text_sample if c in _CANTONESE_MARKERS}
+    return len(found) >= 2
+
 
 def _dominant_script(text):
     """
@@ -52,7 +62,7 @@ def _dominant_script(text):
     return None
 
 
-def _refine_cjk_detection(raw_code, text, metadata_lang=None):
+def _refine_cjk_detection(raw_code, text, metadata_lang=None, track_title=None):
     """
     When the dominant script is CJK ideographs, langdetect's result is
     unreliable — it can't distinguish Chinese from Korean using Han
@@ -66,6 +76,8 @@ def _refine_cjk_detection(raw_code, text, metadata_lang=None):
     - If the text is purely CJK ideographs, it's Chinese. Use MKV metadata to
       disambiguate the variant (Traditional vs Simplified, Mandarin vs Cantonese)
       since this is impossible from text content alone.
+    - Track title containing "canto"/"cantonese" is treated as a Cantonese signal.
+    - For Traditional Chinese results, run Cantonese discriminator on text content.
     """
     # Count script proportions among non-Latin, non-space characters.
     # Latin characters are excluded because many CJK subtitle tracks contain
@@ -100,32 +112,73 @@ def _refine_cjk_detection(raw_code, text, metadata_lang=None):
         return "ko"
 
     # Pure CJK ideographs — this is Chinese, not Korean.
+
+    # Track title check: "CantoCaptions", "Cantonese", etc. → definitive Cantonese.
+    # "CHT" / "Traditional" / "Taiwan" → Traditional Mandarin.
+    # "CHS" / "Simplified" → Simplified Mandarin.
+    if track_title:
+        title_lower = track_title.lower()
+        if "canto" in title_lower:
+            return "yue"
+        if "cht" in title_lower or "traditional" in title_lower or "taiwan" in title_lower:
+            # Run Cantonese discriminator — a track titled "Traditional" with
+            # Cantonese vernacular is still Cantonese.
+            if _detect_cantonese(text):
+                return "yue"
+            return "zh-Hant"
+        if "chs" in title_lower or "simplified" in title_lower:
+            return "zh-Hans"
+
     # Use metadata to disambiguate variant if available.
+    resolved_code = None
     if metadata_lang:
         meta_lower = metadata_lang.lower()
-        # Common MKV metadata codes for Chinese variants
+        # Common MKV metadata codes for Chinese variants.
+        # Checked longest-key-first so "zh-hans" matches before "zh".
         chinese_meta_map = {
-            "zho": "zh", "chi": "zh", "zh": "zh",
             "zh-hans": "zh-Hans", "zh-hant": "zh-Hant",
-            "zh-tw": "zh-TW", "zh-hk": "zh-HK", "zh-cn": "zh-CN",
+            "zh-tw": "zh-Hant", "zh-hk": "zh-HK", "zh-cn": "zh-Hans",
             "yue": "yue",  # Cantonese
             "cmn": "zh",   # Mandarin
+            "chs": "zh-Hans", "cht": "zh-Hant",
+            "zho": "zh", "chi": "zh", "zh": "zh",
         }
-        for key, code in chinese_meta_map.items():
-            if meta_lower == key or meta_lower.startswith(key):
-                return code
+        # Exact match first, then prefix match (longest key first).
+        if meta_lower in chinese_meta_map:
+            resolved_code = chinese_meta_map[meta_lower]
+        else:
+            for key, code in sorted(chinese_meta_map.items(), key=lambda x: -len(x[0])):
+                if meta_lower.startswith(key):
+                    resolved_code = code
+                    break
 
-        # Metadata exists but isn't a recognized Chinese variant — it might be
-        # wrong (e.g., tagged 'ko' but content is Chinese). Ignore it.
+    if resolved_code is None:
+        # No useful metadata. Check if langdetect at least got Chinese.
+        if raw_code and raw_code.startswith("zh"):
+            resolved_code = raw_code
+        else:
+            # langdetect got it wrong (e.g., said 'ko' for Chinese text).
+            # Default to zh-Hant since Traditional Chinese is more common in
+            # subtitle files that lack metadata (fansubs, anime, etc.)
+            resolved_code = "zh-Hant"
 
-    # No useful metadata. Check if langdetect at least got Chinese.
-    if raw_code and raw_code.startswith("zh"):
-        return raw_code
+    # Direct Cantonese metadata → return immediately, no discriminator needed.
+    if resolved_code == "yue":
+        return "yue"
 
-    # langdetect got it wrong (e.g., said 'ko' for Chinese text).
-    # Default to zh-Hant since Traditional Chinese is more common in
-    # subtitle files that lack metadata (fansubs, anime, etc.)
-    return "zh-Hant"
+    # Simplified Chinese → no Cantonese ambiguity, return directly.
+    if resolved_code in ("zh-Hans", "zh-CN", "zh"):
+        # "zh" without further qualification defaults to Simplified
+        if resolved_code == "zh":
+            return "zh-Hans"
+        return resolved_code
+
+    # Traditional Chinese variants (zh-Hant, zh-TW, zh-HK) — run Cantonese
+    # discriminator on text content.  zh-HK is especially likely to be Cantonese.
+    if _detect_cantonese(text):
+        return "yue"
+
+    return resolved_code
 
 
 def _sample_text(subs, sample_size):
@@ -148,7 +201,7 @@ def _sample_text(subs, sample_size):
     return text_sample if text_sample.strip() else None
 
 
-def detect_language(file_path, sample_size=50, metadata_lang=None):
+def detect_language(file_path, sample_size=50, metadata_lang=None, track_title=None):
     """
     Detects language from a subtitle file on disk. Uses a two-stage approach:
     1. Unicode script analysis to identify the writing system
@@ -164,9 +217,11 @@ def detect_language(file_path, sample_size=50, metadata_lang=None):
         sample_size: Number of subtitle lines to sample for detection.
         metadata_lang: Optional MKV metadata language tag (e.g., 'chi', 'zh-TW').
                        Used as a hint for variant disambiguation, not trusted blindly.
+        track_title: Optional MKV track title string (e.g., 'CantoCaptions').
+                     Used to detect Cantonese tracks by title convention.
 
     Returns:
-        A language code string (e.g., 'en', 'ja', 'zh-Hant') or None.
+        A language code string (e.g., 'en', 'ja', 'zh-Hant', 'yue') or None.
     """
     if not file_path:
         return None
@@ -185,7 +240,7 @@ def detect_language(file_path, sample_size=50, metadata_lang=None):
 
         # Stage 3: Reconcile script analysis with langdetect
         if script == "CJK":
-            return _refine_cjk_detection(raw_code, text_sample, metadata_lang)
+            return _refine_cjk_detection(raw_code, text_sample, metadata_lang, track_title)
 
         if script == "Hiragana_Katakana":
             return "ja"

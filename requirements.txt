@@ -6,3 +6,8 @@ langdetect
 langcodes
 language_data
 ffmpeg-python
+pycantonese
+opencc-python-reimplemented
+pytesseract
+Pillow
+playwright

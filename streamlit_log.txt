@@ -1,0 +1,2232 @@
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.0.111:8501
+
+--- Debugging Streams for Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv ---
+Found Stream 0: Type=video, Codec=hevc, Tags={'Source': 'BFI Video GBR UHD Blu-ray (2024)', 'BPS': '59525407', 'DURATION': '03:26:58.656000000', 'NUMBER_OF_FRAMES': '297750', 'NUMBER_OF_BYTES': '92403194673', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 1: Type=audio, Codec=flac, Tags={'language': 'jpn', 'title': 'Unfiltered', 'Source': 'BFI Player via Amazon Prime Video WEB-DL', 'BPS': '357840', 'DURATION': '03:26:55.906000000', 'NUMBER_OF_FRAMES': '145499', 'NUMBER_OF_BYTES': '555363532', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 2: Type=audio, Codec=flac, Tags={'language': 'jpn', 'title': 'Filtered', 'Source': 'BFI Video GBR UHD Blu-ray (2024)', 'BPS': '180863', 'DURATION': '03:26:57.867000000', 'NUMBER_OF_FRAMES': '145522', 'NUMBER_OF_BYTES': '280741785', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 3: Type=audio, Codec=ac3, Tags={'language': 'eng', 'title': 'Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie', 'Source': 'Criterion Collection USA UHD Blu-ray (2024)', 'BPS': '192000', 'DURATION': '03:26:58.624000000', 'NUMBER_OF_FRAMES': '388082', 'NUMBER_OF_BYTES': '298046976', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 4: Type=audio, Codec=ac3, Tags={'language': 'eng', 'title': 'Commentary by Japanese film expert Michael Jeck', 'Source': 'Criterion Collection USA UHD Blu-ray (2024)', 'BPS': '192000', 'DURATION': '03:26:58.624000000', 'NUMBER_OF_FRAMES': '388082', 'NUMBER_OF_BYTES': '298046976', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 5: Type=audio, Codec=ac3, Tags={'language': 'eng', 'title': 'Commentary by film critic Adrian Martin', 'Source': 'BFI Video GBR UHD Blu-ray (2024)', 'BPS': '112000', 'DURATION': '03:26:57.856000000', 'NUMBER_OF_FRAMES': '388058', 'NUMBER_OF_BYTES': '173849984', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 6: Type=subtitle, Codec=subrip, Tags={'language': 'eng', 'title': 'Criterion', 'Source': 'Criterion Collection USA UHD Blu-ray (2024)', 'BPS': '25', 'DURATION': '03:26:32.216000000', 'NUMBER_OF_FRAMES': '1342', 'NUMBER_OF_BYTES': '39831', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 7: Type=subtitle, Codec=hdmv_pgs_subtitle, Tags={'language': 'eng', 'title': 'Criterion / PGS', 'Source': 'Criterion Collection USA UHD Blu-ray (2024)', 'BPS': '15403', 'DURATION': '03:26:32.216000000', 'NUMBER_OF_FRAMES': '2684', 'NUMBER_OF_BYTES': '23861142', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 8: Type=subtitle, Codec=subrip, Tags={'language': 'eng', 'title': 'BFI', 'Source': 'BFI Video GBR UHD Blu-ray (2024)', 'BPS': '20', 'DURATION': '03:26:38.344000000', 'NUMBER_OF_FRAMES': '984', 'NUMBER_OF_BYTES': '31160', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 9: Type=subtitle, Codec=hdmv_pgs_subtitle, Tags={'language': 'eng', 'title': 'BFI / PGS', 'Source': 'BFI Video GBR UHD Blu-ray (2024)', 'BPS': '12078', 'DURATION': '03:26:38.345000000', 'NUMBER_OF_FRAMES': '1968', 'NUMBER_OF_BYTES': '18719430', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 10: Type=subtitle, Codec=subrip, Tags={'language': 'chi', 'title': 'Traditional', 'Source': 'iTunes WEB-DL', 'BPS': '21', 'DURATION': '03:26:33.159000000', 'NUMBER_OF_FRAMES': '1644', 'NUMBER_OF_BYTES': '33787', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 11: Type=subtitle, Codec=subrip, Tags={'language': 'dan', 'Source': 'iTunes WEB-DL', 'BPS': '23', 'DURATION': '03:26:22.135000000', 'NUMBER_OF_FRAMES': '1082', 'NUMBER_OF_BYTES': '36747', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 12: Type=subtitle, Codec=subrip, Tags={'language': 'fin', 'Source': 'iTunes WEB-DL', 'BPS': '24', 'DURATION': '03:26:22.135000000', 'NUMBER_OF_FRAMES': '1082', 'NUMBER_OF_BYTES': '37232', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 13: Type=subtitle, Codec=hdmv_pgs_subtitle, Tags={'language': 'fre', 'Source': 'La Rabbia FRA Blu-ray (2017)', 'BPS': '16139', 'DURATION': '03:26:36.009000000', 'NUMBER_OF_FRAMES': '2940', 'NUMBER_OF_BYTES': '25007699', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 14: Type=subtitle, Codec=hdmv_pgs_subtitle, Tags={'language': 'ger', 'Source': 'Trigon Film SUI Blu-ray (2013)', 'BPS': '16147', 'DURATION': '03:26:28.752000000', 'NUMBER_OF_FRAMES': '3142', 'NUMBER_OF_BYTES': '25006636', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 15: Type=subtitle, Codec=subrip, Tags={'language': 'ita', 'Source': 'Amazon Prime WEB-DL', 'BPS': '27', 'DURATION': '03:22:11.968000000', 'NUMBER_OF_FRAMES': '1358', 'NUMBER_OF_BYTES': '40979', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 16: Type=subtitle, Codec=hdmv_pgs_subtitle, Tags={'language': 'jpn', 'Source': 'Toho JPN UHD Blu-ray (2023)', 'BPS': '21107', 'DURATION': '03:22:52.623000000', 'NUMBER_OF_FRAMES': '3250', 'NUMBER_OF_BYTES': '32116356', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+Found Stream 17: Type=subtitle, Codec=subrip, Tags={'language': 'nor', 'Source': 'iTunes WEB-DL', 'BPS': '23', 'DURATION': '03:26:22.135000000', 'NUMBER_OF_FRAMES': '1082', 'NUMBER_OF_BYTES': '35777', '_STATISTICS_WRITING_APP': "mkvmerge v88.0 ('All I Know') 64-bit", '_STATISTICS_WRITING_DATE_UTC': '2024-11-19 22:31:22', '_STATISTICS_TAGS': 'BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES'}
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13.3.0 (conda-forge gcc 13.3.0-1)
+  configuration: --prefix=/home/connor/miniconda3/envs/srtstitcher --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --enable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --disable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-libopenvino --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --enable-librsvg --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/pkg-config
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+[matroska,webm @ 0x64581a460500] Invalid Block Addition value 0x0 for unknown Block Addition Mapping type 68766345, name "Dolby Vision enhancement-layer HEVC configuration"
+[matroska,webm @ 0x64581a460500] Could not find codec parameters for stream 7 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x64581a460500] Could not find codec parameters for stream 9 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x64581a460500] Could not find codec parameters for stream 13 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x64581a460500] Could not find codec parameters for stream 14 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x64581a460500] Could not find codec parameters for stream 16 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+Input #0, matroska,webm, from '/home/connor/Downloads/Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv':
+  Metadata:
+    title           : Seven Samurai (1954)
+    encoder         : libebml v1.4.5 + libmatroska v1.7.1
+    creation_time   : 2024-11-19T22:31:22.000000Z
+    IMDB            : tt0047478
+    TMDB            : movie/346
+  Duration: 03:26:58.66, start: 0.000000, bitrate: 60645 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+      Metadata:
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 59525407
+        DURATION        : 03:26:58.656000000
+        NUMBER_OF_FRAMES: 297750
+        NUMBER_OF_BYTES : 92403194673
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+      Side data:
+        DOVI configuration record: version: 1.0, profile: 7, level: 6, rpu flag: 1, el flag: 1, bl flag: 1, compatibility id: 6, compression: 0
+  Stream #0:1(jpn): Audio: flac, 48000 Hz, mono, s16 (default)
+      Metadata:
+        title           : Unfiltered
+        Source          : BFI Player via Amazon Prime Video WEB-DL
+        BPS             : 357840
+        DURATION        : 03:26:55.906000000
+        NUMBER_OF_FRAMES: 145499
+        NUMBER_OF_BYTES : 555363532
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:2(jpn): Audio: flac, 48000 Hz, mono, s16
+      Metadata:
+        title           : Filtered
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 180863
+        DURATION        : 03:26:57.867000000
+        NUMBER_OF_FRAMES: 145522
+        NUMBER_OF_BYTES : 280741785
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:3(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s (comment)
+      Metadata:
+        title           : Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:4(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s
+      Metadata:
+        title           : Commentary by Japanese film expert Michael Jeck
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:5(eng): Audio: ac3, 48000 Hz, stereo, fltp, 112 kb/s (comment)
+      Metadata:
+        title           : Commentary by film critic Adrian Martin
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 112000
+        DURATION        : 03:26:57.856000000
+        NUMBER_OF_FRAMES: 388058
+        NUMBER_OF_BYTES : 173849984
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:6(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:7(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : Criterion / PGS
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 15403
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 2684
+        NUMBER_OF_BYTES : 23861142
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:8(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:9(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : BFI / PGS
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 12078
+        DURATION        : 03:26:38.345000000
+        NUMBER_OF_FRAMES: 1968
+        NUMBER_OF_BYTES : 18719430
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:10(chi): Subtitle: subrip (srt)
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:11(dan): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:12(fin): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:13(fre): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : La Rabbia FRA Blu-ray (2017)
+        BPS             : 16139
+        DURATION        : 03:26:36.009000000
+        NUMBER_OF_FRAMES: 2940
+        NUMBER_OF_BYTES : 25007699
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:14(ger): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : Trigon Film SUI Blu-ray (2013)
+        BPS             : 16147
+        DURATION        : 03:26:28.752000000
+        NUMBER_OF_FRAMES: 3142
+        NUMBER_OF_BYTES : 25006636
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:15(ita): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Amazon Prime WEB-DL
+        BPS             : 27
+        DURATION        : 03:22:11.968000000
+        NUMBER_OF_FRAMES: 1358
+        NUMBER_OF_BYTES : 40979
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:16(jpn): Subtitle: hdmv_pgs_subtitle (pgssub) (hearing impaired)
+      Metadata:
+        Source          : Toho JPN UHD Blu-ray (2023)
+        BPS             : 21107
+        DURATION        : 03:22:52.623000000
+        NUMBER_OF_FRAMES: 3250
+        NUMBER_OF_BYTES : 32116356
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:17(nor): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 35777
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:18(spa): Subtitle: subrip (srt)
+      Metadata:
+        title           : Castilian
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:32.214000000
+        NUMBER_OF_FRAMES: 1414
+        NUMBER_OF_BYTES : 38707
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:19(swe): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Cineasterna WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37297
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+Stream mapping:
+  Stream #0:6 -> #0:0 (subrip (srt) -> subrip (srt))
+Press [q] to stop, [?] for help
+Output #0, srt, to '/tmp/tmp4z9pon2c/subtitle_1_6.srt':
+  Metadata:
+    title           : Seven Samurai (1954)
+    IMDB            : tt0047478
+    TMDB            : movie/346
+    encoder         : Lavf61.7.100
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0(eng): Subtitle: subrip
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+        encoder         : Lavc61.19.100 srt
+size=       2KiB time=00:04:07.37 bitrate=   0.1kbits/s speed= 495x    size=       3KiB time=00:05:45.22 bitrate=   0.1kbits/s speed= 345x    size=       5KiB time=00:07:40.58 bitrate=   0.1kbits/s speed= 307x    size=       6KiB time=00:09:28.15 bitrate=   0.1kbits/s speed= 284x    size=       7KiB time=00:11:07.00 bitrate=   0.1kbits/s speed= 267x    size=       7KiB time=00:13:02.32 bitrate=   0.1kbits/s speed= 261x    size=       9KiB time=00:14:49.80 bitrate=   0.1kbits/s speed= 254x    size=      10KiB time=00:16:14.97 bitrate=   0.1kbits/s speed= 244x    size=      11KiB time=00:17:47.19 bitrate=   0.1kbits/s speed= 237x    size=      11KiB time=00:19:58.03 bitrate=   0.1kbits/s speed= 240x    size=      12KiB time=00:20:51.41 bitrate=   0.1kbits/s speed= 227x    size=      13KiB time=00:23:14.72 bitrate=   0.1kbits/s speed= 232x    size=      13KiB time=00:25:01.70 bitrate=   0.1kbits/s speed= 231x    size=      15KiB time=00:26:56.24 bitrate=   0.1kbits/s speed= 231x    size=      15KiB time=00:28:52.89 bitrate=   0.1kbits/s speed= 231x    size=      17KiB time=00:30:31.24 bitrate=   0.1kbits/s speed= 229x    size=      18KiB time=00:31:58.29 bitrate=   0.1kbits/s speed= 226x    size=      19KiB time=00:34:06.00 bitrate=   0.1kbits/s speed= 227x    size=      20KiB time=00:35:22.57 bitrate=   0.1kbits/s speed= 223x    size=      21KiB time=00:37:01.59 bitrate=   0.1kbits/s speed= 222x    size=      22KiB time=00:39:22.86 bitrate=   0.1kbits/s speed= 225x    size=      23KiB time=00:41:04.71 bitrate=   0.1kbits/s speed= 224x    size=      24KiB time=00:43:06.50 bitrate=   0.1kbits/s speed= 225x    size=      25KiB time=00:44:32.96 bitrate=   0.1kbits/s speed= 223x    size=      26KiB time=00:46:23.86 bitrate=   0.1kbits/s speed= 223x    size=      26KiB time=00:48:22.06 bitrate=   0.1kbits/s speed= 223x    size=      27KiB time=00:50:06.37 bitrate=   0.1kbits/s speed= 223x    size=      29KiB time=00:52:02.07 bitrate=   0.1kbits/s speed= 223x    size=      30KiB time=00:54:07.74 bitrate=   0.1kbits/s speed= 224x    size=      31KiB time=00:55:49.38 bitrate=   0.1kbits/s speed= 223x    size=      32KiB time=00:57:21.68 bitrate=   0.1kbits/s speed= 222x    size=      33KiB time=00:59:09.17 bitrate=   0.1kbits/s speed= 222x    size=      34KiB time=01:00:40.26 bitrate=   0.1kbits/s speed= 221x    size=      34KiB time=01:02:33.54 bitrate=   0.1kbits/s speed= 221x    size=      35KiB time=01:04:27.65 bitrate=   0.1kbits/s speed= 221x    size=      36KiB time=01:05:00.31 bitrate=   0.1kbits/s speed= 217x    size=      37KiB time=01:07:53.65 bitrate=   0.1kbits/s speed= 220x    size=      37KiB time=01:09:26.74 bitrate=   0.1kbits/s speed= 219x    size=      38KiB time=01:11:22.27 bitrate=   0.1kbits/s speed= 220x    size=      39KiB time=01:13:21.52 bitrate=   0.1kbits/s speed= 220x    size=      40KiB time=01:15:10.71 bitrate=   0.1kbits/s speed= 220x    size=      41KiB time=01:16:39.59 bitrate=   0.1kbits/s speed= 219x    size=      42KiB time=01:18:44.93 bitrate=   0.1kbits/s speed= 220x    size=      42KiB time=01:20:07.01 bitrate=   0.1kbits/s speed= 218x    size=      43KiB time=01:22:16.43 bitrate=   0.1kbits/s speed= 219x    size=      44KiB time=01:23:49.98 bitrate=   0.1kbits/s speed= 219x    size=      44KiB time=01:25:25.20 bitrate=   0.1kbits/s speed= 218x    size=      45KiB time=01:27:34.00 bitrate=   0.1kbits/s speed= 219x    size=      46KiB time=01:29:17.97 bitrate=   0.1kbits/s speed= 219x    size=      48KiB time=01:30:47.36 bitrate=   0.1kbits/s speed= 218x    size=      48KiB time=01:32:13.02 bitrate=   0.1kbits/s speed= 217x    size=      49KiB time=01:34:33.08 bitrate=   0.1kbits/s speed= 218x    size=      49KiB time=01:35:28.34 bitrate=   0.1kbits/s speed= 216x    size=      50KiB time=01:38:05.50 bitrate=   0.1kbits/s speed= 218x    size=      52KiB time=01:40:08.46 bitrate=   0.1kbits/s speed= 218x    size=      53KiB time=01:41:59.99 bitrate=   0.1kbits/s speed= 219x    size=      55KiB time=01:43:29.03 bitrate=   0.1kbits/s speed= 218x    size=      55KiB time=01:45:08.42 bitrate=   0.1kbits/s speed= 217x    size=      56KiB time=01:46:42.48 bitrate=   0.1kbits/s speed= 217x    size=      57KiB time=01:53:18.33 bitrate=   0.1kbits/s speed= 227x    size=      58KiB time=01:55:23.50 bitrate=   0.1kbits/s speed= 227x    size=      59KiB time=01:57:12.36 bitrate=   0.1kbits/s speed= 227x    size=      60KiB time=01:58:44.66 bitrate=   0.1kbits/s speed= 226x    size=      60KiB time=02:00:49.99 bitrate=   0.1kbits/s speed= 227x    size=      61KiB time=02:02:16.74 bitrate=   0.1kbits/s speed= 226x    size=      62KiB time=02:03:54.72 bitrate=   0.1kbits/s speed= 225x    size=      63KiB time=02:06:05.56 bitrate=   0.1kbits/s speed= 226x    size=      64KiB time=02:08:12.10 bitrate=   0.1kbits/s speed= 226x    size=      64KiB time=02:08:43.51 bitrate=   0.1kbits/s speed= 224x    size=      65KiB time=02:11:30.96 bitrate=   0.1kbits/s speed= 225x    size=      66KiB time=02:13:22.87 bitrate=   0.1kbits/s speed= 225x    size=      67KiB time=02:14:07.45 bitrate=   0.1kbits/s speed= 223x    size=      67KiB time=02:15:38.17 bitrate=   0.1kbits/s speed= 223x    size=      67KiB time=02:15:38.17 bitrate=   0.1kbits/s speed= 220x    size=      67KiB time=02:19:06.13 bitrate=   0.1kbits/s speed= 223x    size=      68KiB time=02:20:49.65 bitrate=   0.1kbits/s speed= 222x    size=      68KiB time=02:21:06.21 bitrate=   0.1kbits/s speed= 220x    size=      68KiB time=02:22:36.92 bitrate=   0.1kbits/s speed= 219x    size=      68KiB time=02:24:28.57 bitrate=   0.1kbits/s speed= 219x    size=      69KiB time=02:26:22.15 bitrate=   0.1kbits/s speed= 220x    size=      70KiB time=02:27:34.84 bitrate=   0.1kbits/s speed= 219x    size=      71KiB time=02:29:07.90 bitrate=   0.1kbits/s speed= 218x    size=      71KiB time=02:30:32.06 bitrate=   0.1kbits/s speed= 218x    size=      72KiB time=02:32:11.20 bitrate=   0.1kbits/s speed= 217x    size=      72KiB time=02:33:15.64 bitrate=   0.1kbits/s speed= 216x    size=      72KiB time=02:34:37.68 bitrate=   0.1kbits/s speed= 216x    size=      73KiB time=02:36:23.79 bitrate=   0.1kbits/s speed= 216x    size=      73KiB time=02:37:36.32 bitrate=   0.1kbits/s speed= 215x    size=      74KiB time=02:38:33.38 bitrate=   0.1kbits/s speed= 214x    size=      75KiB time=02:40:20.32 bitrate=   0.1kbits/s speed= 214x    size=      75KiB time=02:41:48.24 bitrate=   0.1kbits/s speed= 213x    size=      76KiB time=02:43:17.16 bitrate=   0.1kbits/s speed= 213x    size=      76KiB time=02:44:15.84 bitrate=   0.1kbits/s speed= 212x    size=      76KiB time=02:45:51.15 bitrate=   0.1kbits/s speed= 212x    size=      77KiB time=02:46:09.00 bitrate=   0.1kbits/s speed= 210x    size=      77KiB time=02:48:19.13 bitrate=   0.1kbits/s speed= 210x    size=      77KiB time=02:49:48.43 bitrate=   0.1kbits/s speed= 210x    size=      78KiB time=02:50:22.34 bitrate=   0.1kbits/s speed= 209x    size=      78KiB time=02:52:06.19 bitrate=   0.1kbits/s speed= 209x    size=      78KiB time=02:53:54.21 bitrate=   0.1kbits/s speed= 209x    size=      79KiB time=02:55:24.72 bitrate=   0.1kbits/s speed= 208x    size=      79KiB time=02:55:24.72 bitrate=   0.1kbits/s speed= 206x    size=      79KiB time=02:58:01.42 bitrate=   0.1kbits/s speed= 207x    size=      79KiB time=02:58:57.60 bitrate=   0.1kbits/s speed= 206x    size=      80KiB time=03:00:01.62 bitrate=   0.1kbits/s speed= 206x    size=      80KiB time=03:02:00.41 bitrate=   0.1kbits/s speed= 206x    size=      81KiB time=03:03:25.08 bitrate=   0.1kbits/s speed= 206x    size=      82KiB time=03:04:00.15 bitrate=   0.1kbits/s speed= 204x    size=      82KiB time=03:05:55.85 bitrate=   0.1kbits/s speed= 205x    size=      82KiB time=03:07:49.76 bitrate=   0.1kbits/s speed= 205x    size=      83KiB time=03:09:21.10 bitrate=   0.1kbits/s speed= 205x    size=      83KiB time=03:10:45.56 bitrate=   0.1kbits/s speed= 204x    size=      84KiB time=03:12:03.14 bitrate=   0.1kbits/s speed= 204x    size=      84KiB time=03:12:36.17 bitrate=   0.1kbits/s speed= 203x    size=      84KiB time=03:15:06.94 bitrate=   0.1kbits/s speed= 204x    size=      85KiB time=03:16:36.33 bitrate=   0.1kbits/s speed= 203x    size=      85KiB time=03:17:30.67 bitrate=   0.1kbits/s speed= 203x    size=      85KiB time=03:17:30.67 bitrate=   0.1kbits/s speed= 201x    size=      85KiB time=03:19:41.22 bitrate=   0.1kbits/s speed= 201x    size=      86KiB time=03:21:00.21 bitrate=   0.1kbits/s speed= 201x    size=      86KiB time=03:22:15.66 bitrate=   0.1kbits/s speed= 201x    size=      86KiB time=03:22:15.66 bitrate=   0.1kbits/s speed= 199x    size=      86KiB time=03:22:15.66 bitrate=   0.1kbits/s speed= 197x    size=      86KiB time=03:26:07.90 bitrate=   0.1kbits/s speed= 199x    [out#0/srt @ 0x64581a522180] video:0KiB audio:0KiB subtitle:39KiB other streams:0KiB global headers:0KiB muxing overhead: 121.882453%
+size=      86KiB time=03:26:44.14 bitrate=   0.1kbits/s speed= 200x    
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13.3.0 (conda-forge gcc 13.3.0-1)
+  configuration: --prefix=/home/connor/miniconda3/envs/srtstitcher --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --enable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --disable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-libopenvino --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --enable-librsvg --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/pkg-config
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+[matroska,webm @ 0x5b8962145500] Invalid Block Addition value 0x0 for unknown Block Addition Mapping type 68766345, name "Dolby Vision enhancement-layer HEVC configuration"
+[matroska,webm @ 0x5b8962145500] Could not find codec parameters for stream 7 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5b8962145500] Could not find codec parameters for stream 9 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5b8962145500] Could not find codec parameters for stream 13 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5b8962145500] Could not find codec parameters for stream 14 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5b8962145500] Could not find codec parameters for stream 16 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+Input #0, matroska,webm, from '/home/connor/Downloads/Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv':
+  Metadata:
+    title           : Seven Samurai (1954)
+    encoder         : libebml v1.4.5 + libmatroska v1.7.1
+    creation_time   : 2024-11-19T22:31:22.000000Z
+    IMDB            : tt0047478
+    TMDB            : movie/346
+  Duration: 03:26:58.66, start: 0.000000, bitrate: 60645 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+      Metadata:
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 59525407
+        DURATION        : 03:26:58.656000000
+        NUMBER_OF_FRAMES: 297750
+        NUMBER_OF_BYTES : 92403194673
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+      Side data:
+        DOVI configuration record: version: 1.0, profile: 7, level: 6, rpu flag: 1, el flag: 1, bl flag: 1, compatibility id: 6, compression: 0
+  Stream #0:1(jpn): Audio: flac, 48000 Hz, mono, s16 (default)
+      Metadata:
+        title           : Unfiltered
+        Source          : BFI Player via Amazon Prime Video WEB-DL
+        BPS             : 357840
+        DURATION        : 03:26:55.906000000
+        NUMBER_OF_FRAMES: 145499
+        NUMBER_OF_BYTES : 555363532
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:2(jpn): Audio: flac, 48000 Hz, mono, s16
+      Metadata:
+        title           : Filtered
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 180863
+        DURATION        : 03:26:57.867000000
+        NUMBER_OF_FRAMES: 145522
+        NUMBER_OF_BYTES : 280741785
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:3(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s (comment)
+      Metadata:
+        title           : Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:4(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s
+      Metadata:
+        title           : Commentary by Japanese film expert Michael Jeck
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:5(eng): Audio: ac3, 48000 Hz, stereo, fltp, 112 kb/s (comment)
+      Metadata:
+        title           : Commentary by film critic Adrian Martin
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 112000
+        DURATION        : 03:26:57.856000000
+        NUMBER_OF_FRAMES: 388058
+        NUMBER_OF_BYTES : 173849984
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:6(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:7(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : Criterion / PGS
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 15403
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 2684
+        NUMBER_OF_BYTES : 23861142
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:8(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:9(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : BFI / PGS
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 12078
+        DURATION        : 03:26:38.345000000
+        NUMBER_OF_FRAMES: 1968
+        NUMBER_OF_BYTES : 18719430
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:10(chi): Subtitle: subrip (srt)
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:11(dan): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:12(fin): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:13(fre): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : La Rabbia FRA Blu-ray (2017)
+        BPS             : 16139
+        DURATION        : 03:26:36.009000000
+        NUMBER_OF_FRAMES: 2940
+        NUMBER_OF_BYTES : 25007699
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:14(ger): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : Trigon Film SUI Blu-ray (2013)
+        BPS             : 16147
+        DURATION        : 03:26:28.752000000
+        NUMBER_OF_FRAMES: 3142
+        NUMBER_OF_BYTES : 25006636
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:15(ita): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Amazon Prime WEB-DL
+        BPS             : 27
+        DURATION        : 03:22:11.968000000
+        NUMBER_OF_FRAMES: 1358
+        NUMBER_OF_BYTES : 40979
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:16(jpn): Subtitle: hdmv_pgs_subtitle (pgssub) (hearing impaired)
+      Metadata:
+        Source          : Toho JPN UHD Blu-ray (2023)
+        BPS             : 21107
+        DURATION        : 03:22:52.623000000
+        NUMBER_OF_FRAMES: 3250
+        NUMBER_OF_BYTES : 32116356
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:17(nor): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 35777
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:18(spa): Subtitle: subrip (srt)
+      Metadata:
+        title           : Castilian
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:32.214000000
+        NUMBER_OF_FRAMES: 1414
+        NUMBER_OF_BYTES : 38707
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:19(swe): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Cineasterna WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37297
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+Stream mapping:
+  Stream #0:8 -> #0:0 (subrip (srt) -> subrip (srt))
+Press [q] to stop, [?] for help
+Output #0, srt, to '/tmp/tmp4z9pon2c/subtitle_2_8.srt':
+  Metadata:
+    title           : Seven Samurai (1954)
+    IMDB            : tt0047478
+    TMDB            : movie/346
+    encoder         : Lavf61.7.100
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0(eng): Subtitle: subrip
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+        encoder         : Lavc61.19.100 srt
+size=       2KiB time=00:04:07.91 bitrate=   0.1kbits/s speed= 496x    size=       3KiB time=00:05:45.34 bitrate=   0.1kbits/s speed= 345x    size=       4KiB time=00:07:40.62 bitrate=   0.1kbits/s speed= 307x    size=       4KiB time=00:09:24.02 bitrate=   0.1kbits/s speed= 282x    size=       5KiB time=00:11:08.58 bitrate=   0.1kbits/s speed= 267x    size=       6KiB time=00:12:20.03 bitrate=   0.1kbits/s speed= 247x    size=       7KiB time=00:14:49.72 bitrate=   0.1kbits/s speed= 254x    size=       8KiB time=00:16:14.93 bitrate=   0.1kbits/s speed= 244x    size=       9KiB time=00:17:46.98 bitrate=   0.1kbits/s speed= 237x    size=       9KiB time=00:19:25.45 bitrate=   0.1kbits/s speed= 233x    size=      10KiB time=00:20:50.91 bitrate=   0.1kbits/s speed= 227x    size=      10KiB time=00:23:12.10 bitrate=   0.1kbits/s speed= 232x    size=      10KiB time=00:25:01.41 bitrate=   0.1kbits/s speed= 231x    size=      11KiB time=00:26:41.64 bitrate=   0.1kbits/s speed= 229x    size=      12KiB time=00:28:09.73 bitrate=   0.1kbits/s speed= 225x    size=      13KiB time=00:30:09.60 bitrate=   0.1kbits/s speed= 226x    size=      14KiB time=00:31:39.35 bitrate=   0.1kbits/s speed= 223x    size=      15KiB time=00:33:23.25 bitrate=   0.1kbits/s speed= 223x    size=      16KiB time=00:35:16.07 bitrate=   0.1kbits/s speed= 223x    size=      16KiB time=00:36:47.95 bitrate=   0.1kbits/s speed= 221x    size=      17KiB time=00:38:49.41 bitrate=   0.1kbits/s speed= 222x    size=      17KiB time=00:40:16.41 bitrate=   0.1kbits/s speed= 220x    size=      18KiB time=00:41:29.44 bitrate=   0.1kbits/s speed= 216x    size=      19KiB time=00:43:39.70 bitrate=   0.1kbits/s speed= 218x    size=      20KiB time=00:45:49.16 bitrate=   0.1kbits/s speed= 220x    size=      20KiB time=00:46:24.19 bitrate=   0.1kbits/s speed= 214x    size=      20KiB time=00:48:32.36 bitrate=   0.1kbits/s speed= 216x    size=      21KiB time=00:51:00.22 bitrate=   0.1kbits/s speed= 219x    size=      22KiB time=00:52:10.92 bitrate=   0.1kbits/s speed= 216x    size=      23KiB time=00:54:53.45 bitrate=   0.1kbits/s speed= 220x    size=      24KiB time=00:55:56.89 bitrate=   0.1kbits/s speed= 217x    size=      24KiB time=00:58:02.85 bitrate=   0.1kbits/s speed= 218x    size=      25KiB time=00:59:36.19 bitrate=   0.1kbits/s speed= 217x    size=      25KiB time=01:01:25.84 bitrate=   0.1kbits/s speed= 217x    size=      26KiB time=01:03:01.23 bitrate=   0.1kbits/s speed= 216x    size=      27KiB time=01:04:51.43 bitrate=   0.1kbits/s speed= 216x    size=      27KiB time=01:05:00.73 bitrate=   0.1kbits/s speed= 211x    size=      27KiB time=01:08:22.89 bitrate=   0.1kbits/s speed= 216x    size=      28KiB time=01:09:27.16 bitrate=   0.1kbits/s speed= 214x    size=      29KiB time=01:11:33.58 bitrate=   0.1kbits/s speed= 215x    size=      29KiB time=01:13:24.23 bitrate=   0.1kbits/s speed= 215x    size=      30KiB time=01:15:38.40 bitrate=   0.1kbits/s speed= 216x    size=      31KiB time=01:17:18.67 bitrate=   0.1kbits/s speed= 216x    size=      31KiB time=01:18:44.47 bitrate=   0.1kbits/s speed= 215x    size=      32KiB time=01:20:47.96 bitrate=   0.1kbits/s speed= 215x    size=      33KiB time=01:22:30.11 bitrate=   0.1kbits/s speed= 215x    size=      33KiB time=01:23:50.48 bitrate=   0.1kbits/s speed= 214x    size=      33KiB time=01:25:25.95 bitrate=   0.1kbits/s speed= 214x    size=      34KiB time=01:27:45.84 bitrate=   0.1kbits/s speed= 215x    size=      35KiB time=01:29:29.44 bitrate=   0.1kbits/s speed= 215x    size=      36KiB time=01:30:47.40 bitrate=   0.1kbits/s speed= 214x    size=      36KiB time=01:32:12.73 bitrate=   0.1kbits/s speed= 213x    size=      37KiB time=01:34:48.93 bitrate=   0.1kbits/s speed= 215x    size=      37KiB time=01:35:29.22 bitrate=   0.1kbits/s speed= 212x    size=      38KiB time=01:38:11.63 bitrate=   0.1kbits/s speed= 214x    size=      39KiB time=01:40:13.17 bitrate=   0.1kbits/s speed= 215x    size=      40KiB time=01:41:59.94 bitrate=   0.1kbits/s speed= 215x    size=      41KiB time=01:43:28.53 bitrate=   0.1kbits/s speed= 214x    size=      42KiB time=01:45:07.63 bitrate=   0.1kbits/s speed= 214x    size=      42KiB time=01:46:46.15 bitrate=   0.1kbits/s speed= 213x    size=      43KiB time=01:53:18.20 bitrate=   0.1kbits/s speed= 223x    size=      43KiB time=01:55:13.86 bitrate=   0.1kbits/s speed= 223x    size=      44KiB time=01:57:09.23 bitrate=   0.1kbits/s speed= 223x    size=      45KiB time=01:58:47.28 bitrate=   0.1kbits/s speed= 223x    size=      45KiB time=02:00:36.02 bitrate=   0.1kbits/s speed= 223x    size=      46KiB time=02:02:17.16 bitrate=   0.1kbits/s speed= 222x    size=      46KiB time=02:03:55.42 bitrate=   0.1kbits/s speed= 222x    size=      47KiB time=02:05:41.07 bitrate=   0.1kbits/s speed= 222x    size=      48KiB time=02:07:36.98 bitrate=   0.1kbits/s speed= 222x    size=      48KiB time=02:08:43.63 bitrate=   0.1kbits/s speed= 221x    size=      49KiB time=02:10:55.01 bitrate=   0.1kbits/s speed= 221x    size=      50KiB time=02:12:44.45 bitrate=   0.1kbits/s speed= 221x    size=      50KiB time=02:14:04.62 bitrate=   0.1kbits/s speed= 220x    size=      51KiB time=02:15:38.88 bitrate=   0.1kbits/s speed= 220x    size=      51KiB time=02:15:38.88 bitrate=   0.1kbits/s speed= 217x    size=      51KiB time=02:18:17.79 bitrate=   0.1kbits/s speed= 218x    size=      51KiB time=02:20:00.14 bitrate=   0.0kbits/s speed= 218x    size=      51KiB time=02:21:03.99 bitrate=   0.0kbits/s speed= 217x    size=      51KiB time=02:22:36.92 bitrate=   0.0kbits/s speed= 217x    size=      52KiB time=02:24:28.32 bitrate=   0.0kbits/s speed= 217x    size=      52KiB time=02:25:57.04 bitrate=   0.0kbits/s speed= 216x    size=      53KiB time=02:27:24.96 bitrate=   0.0kbits/s speed= 216x    size=      53KiB time=02:28:40.95 bitrate=   0.0kbits/s speed= 215x    size=      54KiB time=02:29:57.99 bitrate=   0.0kbits/s speed= 214x    size=      54KiB time=02:31:31.08 bitrate=   0.0kbits/s speed= 214x    size=      55KiB time=02:32:50.07 bitrate=   0.0kbits/s speed= 213x    size=      55KiB time=02:33:15.64 bitrate=   0.0kbits/s speed= 211x    size=      55KiB time=02:35:11.05 bitrate=   0.0kbits/s speed= 212x    size=      55KiB time=02:36:56.95 bitrate=   0.0kbits/s speed= 212x    size=      56KiB time=02:38:15.15 bitrate=   0.0kbits/s speed= 211x    size=      56KiB time=02:39:21.76 bitrate=   0.0kbits/s speed= 210x    size=      57KiB time=02:40:47.34 bitrate=   0.0kbits/s speed= 210x    size=      57KiB time=02:42:28.69 bitrate=   0.0kbits/s speed= 210x    size=      57KiB time=02:43:25.33 bitrate=   0.0kbits/s speed= 209x    size=      57KiB time=02:44:36.07 bitrate=   0.0kbits/s speed= 208x    size=      58KiB time=02:46:09.00 bitrate=   0.0kbits/s speed= 208x    size=      58KiB time=02:46:09.00 bitrate=   0.0kbits/s speed= 206x    size=      58KiB time=02:48:58.00 bitrate=   0.0kbits/s speed= 207x    size=      59KiB time=02:50:22.92 bitrate=   0.0kbits/s speed= 206x    size=      59KiB time=02:51:58.89 bitrate=   0.0kbits/s speed= 206x    size=      59KiB time=02:51:58.89 bitrate=   0.0kbits/s speed= 204x    size=      59KiB time=02:54:47.06 bitrate=   0.0kbits/s speed= 206x    size=      60KiB time=02:55:17.34 bitrate=   0.0kbits/s speed= 204x    size=      60KiB time=02:56:43.84 bitrate=   0.0kbits/s speed= 204x    size=      60KiB time=02:58:01.25 bitrate=   0.0kbits/s speed= 203x    size=      60KiB time=02:59:51.15 bitrate=   0.0kbits/s speed= 204x    size=      60KiB time=03:01:02.26 bitrate=   0.0kbits/s speed= 203x    size=      61KiB time=03:02:21.76 bitrate=   0.0kbits/s speed= 203x    size=      62KiB time=03:03:58.40 bitrate=   0.0kbits/s speed= 202x    size=      62KiB time=03:05:23.86 bitrate=   0.0kbits/s speed= 202x    size=      62KiB time=03:06:53.49 bitrate=   0.0kbits/s speed= 202x    size=      62KiB time=03:07:49.30 bitrate=   0.0kbits/s speed= 201x    size=      62KiB time=03:09:33.23 bitrate=   0.0kbits/s speed= 201x    size=      63KiB time=03:10:45.01 bitrate=   0.0kbits/s speed= 201x    size=      63KiB time=03:12:36.17 bitrate=   0.0kbits/s speed= 201x    size=      63KiB time=03:14:12.68 bitrate=   0.0kbits/s speed= 201x    size=      64KiB time=03:15:25.25 bitrate=   0.0kbits/s speed= 200x    size=      64KiB time=03:17:01.76 bitrate=   0.0kbits/s speed= 200x    size=      64KiB time=03:18:07.33 bitrate=   0.0kbits/s speed= 200x    size=      64KiB time=03:19:17.94 bitrate=   0.0kbits/s speed= 199x    size=      64KiB time=03:20:35.31 bitrate=   0.0kbits/s speed= 199x    size=      65KiB time=03:21:53.81 bitrate=   0.0kbits/s speed= 199x    size=      65KiB time=03:22:15.87 bitrate=   0.0kbits/s speed= 197x    size=      65KiB time=03:22:15.87 bitrate=   0.0kbits/s speed= 196x    size=      65KiB time=03:22:15.87 bitrate=   0.0kbits/s speed= 194x    [out#0/srt @ 0x5b8962207180] video:0KiB audio:0KiB subtitle:30KiB other streams:0KiB global headers:0KiB muxing overhead: 113.337612%
+size=      65KiB time=03:26:51.31 bitrate=   0.0kbits/s speed= 197x    
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13.3.0 (conda-forge gcc 13.3.0-1)
+  configuration: --prefix=/home/connor/miniconda3/envs/srtstitcher --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --enable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --disable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-libopenvino --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --enable-librsvg --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/pkg-config
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+[matroska,webm @ 0x59d028a35500] Invalid Block Addition value 0x0 for unknown Block Addition Mapping type 68766345, name "Dolby Vision enhancement-layer HEVC configuration"
+[matroska,webm @ 0x59d028a35500] Could not find codec parameters for stream 7 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x59d028a35500] Could not find codec parameters for stream 9 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x59d028a35500] Could not find codec parameters for stream 13 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x59d028a35500] Could not find codec parameters for stream 14 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x59d028a35500] Could not find codec parameters for stream 16 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+Input #0, matroska,webm, from '/home/connor/Downloads/Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv':
+  Metadata:
+    title           : Seven Samurai (1954)
+    encoder         : libebml v1.4.5 + libmatroska v1.7.1
+    creation_time   : 2024-11-19T22:31:22.000000Z
+    IMDB            : tt0047478
+    TMDB            : movie/346
+  Duration: 03:26:58.66, start: 0.000000, bitrate: 60645 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+      Metadata:
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 59525407
+        DURATION        : 03:26:58.656000000
+        NUMBER_OF_FRAMES: 297750
+        NUMBER_OF_BYTES : 92403194673
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+      Side data:
+        DOVI configuration record: version: 1.0, profile: 7, level: 6, rpu flag: 1, el flag: 1, bl flag: 1, compatibility id: 6, compression: 0
+  Stream #0:1(jpn): Audio: flac, 48000 Hz, mono, s16 (default)
+      Metadata:
+        title           : Unfiltered
+        Source          : BFI Player via Amazon Prime Video WEB-DL
+        BPS             : 357840
+        DURATION        : 03:26:55.906000000
+        NUMBER_OF_FRAMES: 145499
+        NUMBER_OF_BYTES : 555363532
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:2(jpn): Audio: flac, 48000 Hz, mono, s16
+      Metadata:
+        title           : Filtered
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 180863
+        DURATION        : 03:26:57.867000000
+        NUMBER_OF_FRAMES: 145522
+        NUMBER_OF_BYTES : 280741785
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:3(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s (comment)
+      Metadata:
+        title           : Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:4(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s
+      Metadata:
+        title           : Commentary by Japanese film expert Michael Jeck
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:5(eng): Audio: ac3, 48000 Hz, stereo, fltp, 112 kb/s (comment)
+      Metadata:
+        title           : Commentary by film critic Adrian Martin
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 112000
+        DURATION        : 03:26:57.856000000
+        NUMBER_OF_FRAMES: 388058
+        NUMBER_OF_BYTES : 173849984
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:6(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:7(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : Criterion / PGS
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 15403
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 2684
+        NUMBER_OF_BYTES : 23861142
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:8(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:9(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : BFI / PGS
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 12078
+        DURATION        : 03:26:38.345000000
+        NUMBER_OF_FRAMES: 1968
+        NUMBER_OF_BYTES : 18719430
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:10(chi): Subtitle: subrip (srt)
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:11(dan): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:12(fin): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:13(fre): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : La Rabbia FRA Blu-ray (2017)
+        BPS             : 16139
+        DURATION        : 03:26:36.009000000
+        NUMBER_OF_FRAMES: 2940
+        NUMBER_OF_BYTES : 25007699
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:14(ger): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : Trigon Film SUI Blu-ray (2013)
+        BPS             : 16147
+        DURATION        : 03:26:28.752000000
+        NUMBER_OF_FRAMES: 3142
+        NUMBER_OF_BYTES : 25006636
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:15(ita): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Amazon Prime WEB-DL
+        BPS             : 27
+        DURATION        : 03:22:11.968000000
+        NUMBER_OF_FRAMES: 1358
+        NUMBER_OF_BYTES : 40979
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:16(jpn): Subtitle: hdmv_pgs_subtitle (pgssub) (hearing impaired)
+      Metadata:
+        Source          : Toho JPN UHD Blu-ray (2023)
+        BPS             : 21107
+        DURATION        : 03:22:52.623000000
+        NUMBER_OF_FRAMES: 3250
+        NUMBER_OF_BYTES : 32116356
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:17(nor): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 35777
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:18(spa): Subtitle: subrip (srt)
+      Metadata:
+        title           : Castilian
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:32.214000000
+        NUMBER_OF_FRAMES: 1414
+        NUMBER_OF_BYTES : 38707
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:19(swe): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Cineasterna WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37297
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+Stream mapping:
+  Stream #0:10 -> #0:0 (subrip (srt) -> subrip (srt))
+Press [q] to stop, [?] for help
+Output #0, srt, to '/tmp/tmp4z9pon2c/subtitle_3_10.srt':
+  Metadata:
+    title           : Seven Samurai (1954)
+    IMDB            : tt0047478
+    TMDB            : movie/346
+    encoder         : Lavf61.7.100
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0(chi): Subtitle: subrip
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+        encoder         : Lavc61.19.100 srt
+size=       0KiB time=00:04:07.24 bitrate=   0.0kbits/s speed= 494x    size=       2KiB time=00:05:44.94 bitrate=   0.0kbits/s speed= 345x    size=       3KiB time=00:07:39.96 bitrate=   0.1kbits/s speed= 307x    size=       4KiB time=00:09:23.67 bitrate=   0.1kbits/s speed= 282x    size=       5KiB time=00:11:01.86 bitrate=   0.1kbits/s speed= 265x    size=       6KiB time=00:12:18.89 bitrate=   0.1kbits/s speed= 246x    size=       7KiB time=00:14:42.01 bitrate=   0.1kbits/s speed= 252x    size=       9KiB time=00:16:08.48 bitrate=   0.1kbits/s speed= 242x    size=      10KiB time=00:17:46.88 bitrate=   0.1kbits/s speed= 237x    size=      10KiB time=00:19:25.95 bitrate=   0.1kbits/s speed= 233x    size=      11KiB time=00:20:51.17 bitrate=   0.1kbits/s speed= 227x    size=      12KiB time=00:23:14.45 bitrate=   0.1kbits/s speed= 232x    size=      12KiB time=00:24:58.62 bitrate=   0.1kbits/s speed= 230x    size=      13KiB time=00:26:34.85 bitrate=   0.1kbits/s speed= 228x    size=      14KiB time=00:28:09.92 bitrate=   0.1kbits/s speed= 225x    size=      15KiB time=00:30:09.95 bitrate=   0.1kbits/s speed= 226x    size=      16KiB time=00:31:36.37 bitrate=   0.1kbits/s speed= 223x    size=      18KiB time=00:33:21.54 bitrate=   0.1kbits/s speed= 222x    size=      19KiB time=00:35:08.00 bitrate=   0.1kbits/s speed= 222x    size=      20KiB time=00:36:58.52 bitrate=   0.1kbits/s speed= 222x    size=      21KiB time=00:38:41.76 bitrate=   0.1kbits/s speed= 221x    size=      21KiB time=00:40:16.08 bitrate=   0.1kbits/s speed= 220x    size=      22KiB time=00:41:30.44 bitrate=   0.1kbits/s speed= 217x    size=      23KiB time=00:43:39.61 bitrate=   0.1kbits/s speed= 218x    size=      24KiB time=00:45:33.92 bitrate=   0.1kbits/s speed= 219x    size=      25KiB time=00:46:23.60 bitrate=   0.1kbits/s speed= 214x    size=      25KiB time=00:48:32.65 bitrate=   0.1kbits/s speed= 216x    size=      26KiB time=00:50:41.20 bitrate=   0.1kbits/s speed= 217x    size=      27KiB time=00:52:11.38 bitrate=   0.1kbits/s speed= 216x    size=      29KiB time=00:54:38.31 bitrate=   0.1kbits/s speed= 219x    size=      30KiB time=00:56:12.92 bitrate=   0.1kbits/s speed= 218x    size=      31KiB time=00:57:46.06 bitrate=   0.1kbits/s speed= 217x    size=      32KiB time=00:59:33.86 bitrate=   0.1kbits/s speed= 217x    size=      33KiB time=01:00:59.91 bitrate=   0.1kbits/s speed= 215x    size=      34KiB time=01:02:56.97 bitrate=   0.1kbits/s speed= 216x    size=      35KiB time=01:04:38.14 bitrate=   0.1kbits/s speed= 215x    size=      35KiB time=01:04:59.93 bitrate=   0.1kbits/s speed= 211x    size=      36KiB time=01:08:00.21 bitrate=   0.1kbits/s speed= 215x    size=      37KiB time=01:09:26.50 bitrate=   0.1kbits/s speed= 214x    size=      37KiB time=01:11:21.98 bitrate=   0.1kbits/s speed= 214x    size=      39KiB time=01:13:14.13 bitrate=   0.1kbits/s speed= 214x    size=      40KiB time=01:14:55.49 bitrate=   0.1kbits/s speed= 214x    size=      41KiB time=01:16:38.87 bitrate=   0.1kbits/s speed= 214x    size=      41KiB time=01:18:19.65 bitrate=   0.1kbits/s speed= 214x    size=      42KiB time=01:20:06.87 bitrate=   0.1kbits/s speed= 214x    size=      43KiB time=01:21:49.28 bitrate=   0.1kbits/s speed= 213x    size=      43KiB time=01:23:00.09 bitrate=   0.1kbits/s speed= 212x    size=      44KiB time=01:25:13.60 bitrate=   0.1kbits/s speed= 213x    size=      44KiB time=01:26:53.35 bitrate=   0.1kbits/s speed= 213x    size=      45KiB time=01:28:37.30 bitrate=   0.1kbits/s speed= 213x    size=      47KiB time=01:30:20.30 bitrate=   0.1kbits/s speed= 213x    size=      47KiB time=01:31:27.80 bitrate=   0.1kbits/s speed= 211x    size=      48KiB time=01:33:39.56 bitrate=   0.1kbits/s speed= 212x    size=      49KiB time=01:35:28.28 bitrate=   0.1kbits/s speed= 212x    size=      50KiB time=01:37:16.91 bitrate=   0.1kbits/s speed= 212x    size=      51KiB time=01:39:21.37 bitrate=   0.1kbits/s speed= 213x    size=      52KiB time=01:41:06.67 bitrate=   0.1kbits/s speed= 213x    size=      54KiB time=01:42:33.34 bitrate=   0.1kbits/s speed= 212x    size=      55KiB time=01:44:20.05 bitrate=   0.1kbits/s speed= 212x    size=      56KiB time=01:46:10.23 bitrate=   0.1kbits/s speed= 212x    size=      56KiB time=01:46:10.23 bitrate=   0.1kbits/s speed= 209x    size=      57KiB time=01:54:16.55 bitrate=   0.1kbits/s speed= 221x    size=      58KiB time=01:56:02.97 bitrate=   0.1kbits/s speed= 221x    size=      59KiB time=01:57:24.05 bitrate=   0.1kbits/s speed= 220x    size=      60KiB time=01:59:28.55 bitrate=   0.1kbits/s speed= 221x    size=      60KiB time=02:01:12.34 bitrate=   0.1kbits/s speed= 220x    size=      61KiB time=02:03:11.16 bitrate=   0.1kbits/s speed= 221x    size=      62KiB time=02:03:54.88 bitrate=   0.1kbits/s speed= 219x    size=      63KiB time=02:06:49.52 bitrate=   0.1kbits/s speed= 221x    size=      65KiB time=02:08:31.64 bitrate=   0.1kbits/s speed= 220x    size=      65KiB time=02:08:43.37 bitrate=   0.1kbits/s speed= 218x    size=      66KiB time=02:11:59.26 bitrate=   0.1kbits/s speed= 220x    size=      67KiB time=02:13:43.30 bitrate=   0.1kbits/s speed= 220x    size=      68KiB time=02:14:07.14 bitrate=   0.1kbits/s speed= 217x    size=      68KiB time=02:15:38.53 bitrate=   0.1kbits/s speed= 217x    size=      68KiB time=02:18:16.97 bitrate=   0.1kbits/s speed= 218x    size=      69KiB time=02:19:46.49 bitrate=   0.1kbits/s speed= 218x    size=      69KiB time=02:21:11.45 bitrate=   0.1kbits/s speed= 217x    size=      69KiB time=02:21:11.45 bitrate=   0.1kbits/s speed= 214x    size=      70KiB time=02:23:54.19 bitrate=   0.1kbits/s speed= 216x    size=      70KiB time=02:24:28.72 bitrate=   0.1kbits/s speed= 214x    size=      71KiB time=02:26:48.19 bitrate=   0.1kbits/s speed= 215x    size=      72KiB time=02:28:02.13 bitrate=   0.1kbits/s speed= 214x    size=      73KiB time=02:29:20.57 bitrate=   0.1kbits/s speed= 213x    size=      73KiB time=02:30:42.40 bitrate=   0.1kbits/s speed= 213x    size=      74KiB time=02:32:19.05 bitrate=   0.1kbits/s speed= 212x    size=      74KiB time=02:33:15.21 bitrate=   0.1kbits/s speed= 211x    size=      75KiB time=02:34:54.91 bitrate=   0.1kbits/s speed= 211x    size=      75KiB time=02:36:28.18 bitrate=   0.1kbits/s speed= 211x    size=      76KiB time=02:37:39.65 bitrate=   0.1kbits/s speed= 210x    size=      76KiB time=02:38:46.29 bitrate=   0.1kbits/s speed= 209x    size=      77KiB time=02:40:31.08 bitrate=   0.1kbits/s speed= 209x    size=      78KiB time=02:41:54.08 bitrate=   0.1kbits/s speed= 209x    size=      78KiB time=02:43:17.00 bitrate=   0.1kbits/s speed= 208x    size=      79KiB time=02:44:36.28 bitrate=   0.1kbits/s speed= 208x    size=      79KiB time=02:45:58.65 bitrate=   0.1kbits/s speed= 207x    size=      79KiB time=02:46:32.64 bitrate=   0.1kbits/s speed= 206x    size=      79KiB time=02:48:20.90 bitrate=   0.1kbits/s speed= 206x    size=      80KiB time=02:49:48.45 bitrate=   0.1kbits/s speed= 206x    size=      80KiB time=02:50:22.35 bitrate=   0.1kbits/s speed= 204x    size=      81KiB time=02:52:06.10 bitrate=   0.1kbits/s speed= 204x    size=      81KiB time=02:54:02.76 bitrate=   0.1kbits/s speed= 205x    size=      82KiB time=02:55:24.21 bitrate=   0.1kbits/s speed= 204x    size=      82KiB time=02:56:43.62 bitrate=   0.1kbits/s speed= 204x    size=      82KiB time=02:58:00.94 bitrate=   0.1kbits/s speed= 203x    size=      83KiB time=02:59:21.35 bitrate=   0.1kbits/s speed= 203x    size=      83KiB time=03:00:01.27 bitrate=   0.1kbits/s speed= 202x    size=      83KiB time=03:01:51.03 bitrate=   0.1kbits/s speed= 202x    size=      85KiB time=03:03:11.56 bitrate=   0.1kbits/s speed= 202x    size=      85KiB time=03:03:59.70 bitrate=   0.1kbits/s speed= 201x    size=      86KiB time=03:05:59.90 bitrate=   0.1kbits/s speed= 201x    size=      86KiB time=03:07:38.01 bitrate=   0.1kbits/s speed= 201x    size=      87KiB time=03:08:57.67 bitrate=   0.1kbits/s speed= 201x    size=      87KiB time=03:10:31.15 bitrate=   0.1kbits/s speed= 200x    size=      88KiB time=03:11:50.56 bitrate=   0.1kbits/s speed= 200x    size=      88KiB time=03:12:36.69 bitrate=   0.1kbits/s speed= 199x    size=      88KiB time=03:14:55.55 bitrate=   0.1kbits/s speed= 200x    size=      89KiB time=03:16:03.82 bitrate=   0.1kbits/s speed= 199x    size=      89KiB time=03:17:30.91 bitrate=   0.1kbits/s speed= 199x    size=      89KiB time=03:18:06.89 bitrate=   0.1kbits/s speed= 198x    size=      90KiB time=03:19:41.46 bitrate=   0.1kbits/s speed= 198x    size=      90KiB time=03:21:02.50 bitrate=   0.1kbits/s speed= 198x    size=      90KiB time=03:22:16.44 bitrate=   0.1kbits/s speed= 197x    size=      91KiB time=03:23:48.33 bitrate=   0.1kbits/s speed= 197x    size=      91KiB time=03:24:53.50 bitrate=   0.1kbits/s speed= 197x    size=      91KiB time=03:26:08.06 bitrate=   0.1kbits/s speed= 196x    [out#0/srt @ 0x59d028af7180] video:0KiB audio:0KiB subtitle:33KiB other streams:0KiB global headers:0KiB muxing overhead: 176.757333%
+size=      91KiB time=03:26:52.78 bitrate=   0.1kbits/s speed= 197x    
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13.3.0 (conda-forge gcc 13.3.0-1)
+  configuration: --prefix=/home/connor/miniconda3/envs/srtstitcher --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --enable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --disable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-libopenvino --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --enable-librsvg --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/pkg-config
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+[matroska,webm @ 0x5737630e5500] Invalid Block Addition value 0x0 for unknown Block Addition Mapping type 68766345, name "Dolby Vision enhancement-layer HEVC configuration"
+[matroska,webm @ 0x5737630e5500] Could not find codec parameters for stream 7 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5737630e5500] Could not find codec parameters for stream 9 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5737630e5500] Could not find codec parameters for stream 13 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5737630e5500] Could not find codec parameters for stream 14 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5737630e5500] Could not find codec parameters for stream 16 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+Input #0, matroska,webm, from '/home/connor/Downloads/Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv':
+  Metadata:
+    title           : Seven Samurai (1954)
+    encoder         : libebml v1.4.5 + libmatroska v1.7.1
+    creation_time   : 2024-11-19T22:31:22.000000Z
+    IMDB            : tt0047478
+    TMDB            : movie/346
+  Duration: 03:26:58.66, start: 0.000000, bitrate: 60645 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+      Metadata:
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 59525407
+        DURATION        : 03:26:58.656000000
+        NUMBER_OF_FRAMES: 297750
+        NUMBER_OF_BYTES : 92403194673
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+      Side data:
+        DOVI configuration record: version: 1.0, profile: 7, level: 6, rpu flag: 1, el flag: 1, bl flag: 1, compatibility id: 6, compression: 0
+  Stream #0:1(jpn): Audio: flac, 48000 Hz, mono, s16 (default)
+      Metadata:
+        title           : Unfiltered
+        Source          : BFI Player via Amazon Prime Video WEB-DL
+        BPS             : 357840
+        DURATION        : 03:26:55.906000000
+        NUMBER_OF_FRAMES: 145499
+        NUMBER_OF_BYTES : 555363532
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:2(jpn): Audio: flac, 48000 Hz, mono, s16
+      Metadata:
+        title           : Filtered
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 180863
+        DURATION        : 03:26:57.867000000
+        NUMBER_OF_FRAMES: 145522
+        NUMBER_OF_BYTES : 280741785
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:3(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s (comment)
+      Metadata:
+        title           : Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:4(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s
+      Metadata:
+        title           : Commentary by Japanese film expert Michael Jeck
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:5(eng): Audio: ac3, 48000 Hz, stereo, fltp, 112 kb/s (comment)
+      Metadata:
+        title           : Commentary by film critic Adrian Martin
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 112000
+        DURATION        : 03:26:57.856000000
+        NUMBER_OF_FRAMES: 388058
+        NUMBER_OF_BYTES : 173849984
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:6(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:7(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : Criterion / PGS
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 15403
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 2684
+        NUMBER_OF_BYTES : 23861142
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:8(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:9(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : BFI / PGS
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 12078
+        DURATION        : 03:26:38.345000000
+        NUMBER_OF_FRAMES: 1968
+        NUMBER_OF_BYTES : 18719430
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:10(chi): Subtitle: subrip (srt)
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:11(dan): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:12(fin): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:13(fre): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : La Rabbia FRA Blu-ray (2017)
+        BPS             : 16139
+        DURATION        : 03:26:36.009000000
+        NUMBER_OF_FRAMES: 2940
+        NUMBER_OF_BYTES : 25007699
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:14(ger): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : Trigon Film SUI Blu-ray (2013)
+        BPS             : 16147
+        DURATION        : 03:26:28.752000000
+        NUMBER_OF_FRAMES: 3142
+        NUMBER_OF_BYTES : 25006636
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:15(ita): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Amazon Prime WEB-DL
+        BPS             : 27
+        DURATION        : 03:22:11.968000000
+        NUMBER_OF_FRAMES: 1358
+        NUMBER_OF_BYTES : 40979
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:16(jpn): Subtitle: hdmv_pgs_subtitle (pgssub) (hearing impaired)
+      Metadata:
+        Source          : Toho JPN UHD Blu-ray (2023)
+        BPS             : 21107
+        DURATION        : 03:22:52.623000000
+        NUMBER_OF_FRAMES: 3250
+        NUMBER_OF_BYTES : 32116356
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:17(nor): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 35777
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:18(spa): Subtitle: subrip (srt)
+      Metadata:
+        title           : Castilian
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:32.214000000
+        NUMBER_OF_FRAMES: 1414
+        NUMBER_OF_BYTES : 38707
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:19(swe): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Cineasterna WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37297
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+Stream mapping:
+  Stream #0:11 -> #0:0 (subrip (srt) -> subrip (srt))
+Press [q] to stop, [?] for help
+Output #0, srt, to '/tmp/tmp4z9pon2c/subtitle_4_11.srt':
+  Metadata:
+    title           : Seven Samurai (1954)
+    IMDB            : tt0047478
+    TMDB            : movie/346
+    encoder         : Lavf61.7.100
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0(dan): Subtitle: subrip
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+        encoder         : Lavc61.19.100 srt
+size=       0KiB time=00:04:10.53 bitrate=   0.0kbits/s speed= 501x    size=       1KiB time=00:05:46.51 bitrate=   0.0kbits/s speed= 346x    size=       3KiB time=00:07:41.58 bitrate=   0.0kbits/s speed= 308x    size=       3KiB time=00:09:24.35 bitrate=   0.0kbits/s speed= 282x    size=       4KiB time=00:11:02.66 bitrate=   0.1kbits/s speed= 265x    size=       5KiB time=00:12:38.38 bitrate=   0.1kbits/s speed= 253x    size=       6KiB time=00:14:42.00 bitrate=   0.1kbits/s speed= 252x    size=       7KiB time=00:16:05.54 bitrate=   0.1kbits/s speed= 241x    size=       8KiB time=00:17:46.64 bitrate=   0.1kbits/s speed= 237x    size=       8KiB time=00:19:27.04 bitrate=   0.1kbits/s speed= 233x    size=       9KiB time=00:20:52.33 bitrate=   0.1kbits/s speed= 228x    size=      10KiB time=00:23:05.46 bitrate=   0.1kbits/s speed= 231x    size=      10KiB time=00:24:23.29 bitrate=   0.1kbits/s speed= 225x    size=      11KiB time=00:26:24.66 bitrate=   0.1kbits/s speed= 226x    size=      11KiB time=00:28:10.64 bitrate=   0.1kbits/s speed= 225x    size=      12KiB time=00:29:54.08 bitrate=   0.1kbits/s speed= 224x    size=      14KiB time=00:31:22.88 bitrate=   0.1kbits/s speed= 221x    size=      15KiB time=00:33:00.89 bitrate=   0.1kbits/s speed= 220x    size=      16KiB time=00:34:49.96 bitrate=   0.1kbits/s speed= 220x    size=      17KiB time=00:36:42.45 bitrate=   0.1kbits/s speed= 220x    size=      18KiB time=00:38:17.67 bitrate=   0.1kbits/s speed= 219x    size=      18KiB time=00:40:06.57 bitrate=   0.1kbits/s speed= 219x    size=      19KiB time=00:41:30.07 bitrate=   0.1kbits/s speed= 216x    size=      20KiB time=00:43:37.03 bitrate=   0.1kbits/s speed= 218x    size=      21KiB time=00:45:22.84 bitrate=   0.1kbits/s speed= 218x    size=      21KiB time=00:46:24.03 bitrate=   0.1kbits/s speed= 214x    size=      22KiB time=00:48:32.99 bitrate=   0.1kbits/s speed= 216x    size=      22KiB time=00:50:32.65 bitrate=   0.1kbits/s speed= 217x    size=      24KiB time=00:52:10.83 bitrate=   0.1kbits/s speed= 216x    size=      25KiB time=00:54:18.17 bitrate=   0.1kbits/s speed= 217x    size=      26KiB time=00:55:57.81 bitrate=   0.1kbits/s speed= 217x    size=      27KiB time=00:57:25.90 bitrate=   0.1kbits/s speed= 215x    size=      28KiB time=00:59:14.51 bitrate=   0.1kbits/s speed= 215x    size=      28KiB time=01:00:40.13 bitrate=   0.1kbits/s speed= 214x    size=      29KiB time=01:02:33.87 bitrate=   0.1kbits/s speed= 214x    size=      30KiB time=01:04:27.53 bitrate=   0.1kbits/s speed= 215x    size=      30KiB time=01:05:00.89 bitrate=   0.1kbits/s speed= 211x    size=      31KiB time=01:07:37.22 bitrate=   0.1kbits/s speed= 213x    size=      31KiB time=01:09:27.08 bitrate=   0.1kbits/s speed= 214x    size=      32KiB time=01:11:09.22 bitrate=   0.1kbits/s speed= 213x    size=      33KiB time=01:12:59.42 bitrate=   0.1kbits/s speed= 214x    size=      34KiB time=01:14:50.15 bitrate=   0.1kbits/s speed= 214x    size=      35KiB time=01:16:36.97 bitrate=   0.1kbits/s speed= 214x    size=      35KiB time=01:18:20.53 bitrate=   0.1kbits/s speed= 214x    size=      36KiB time=01:20:03.51 bitrate=   0.1kbits/s speed= 213x    size=      36KiB time=01:21:26.84 bitrate=   0.1kbits/s speed= 212x    size=      37KiB time=01:23:00.14 bitrate=   0.1kbits/s speed= 212x    size=      37KiB time=01:25:17.49 bitrate=   0.1kbits/s speed= 213x    size=      38KiB time=01:27:05.43 bitrate=   0.1kbits/s speed= 213x    size=      39KiB time=01:28:38.19 bitrate=   0.1kbits/s speed= 213x    size=      40KiB time=01:30:21.50 bitrate=   0.1kbits/s speed= 213x    size=      40KiB time=01:32:09.40 bitrate=   0.1kbits/s speed= 213x    size=      41KiB time=01:33:59.63 bitrate=   0.1kbits/s speed= 213x    size=      42KiB time=01:35:29.31 bitrate=   0.1kbits/s speed= 212x    size=      42KiB time=01:37:32.51 bitrate=   0.1kbits/s speed= 213x    size=      44KiB time=01:39:33.55 bitrate=   0.1kbits/s speed= 213x    size=      45KiB time=01:41:22.70 bitrate=   0.1kbits/s speed= 213x    size=      46KiB time=01:43:02.38 bitrate=   0.1kbits/s speed= 213x    size=      47KiB time=01:44:20.84 bitrate=   0.1kbits/s speed= 212x    size=      47KiB time=01:46:04.07 bitrate=   0.1kbits/s speed= 212x    size=      48KiB time=01:46:44.36 bitrate=   0.1kbits/s speed= 210x    size=      48KiB time=01:53:53.24 bitrate=   0.1kbits/s speed= 220x    size=      49KiB time=01:55:23.25 bitrate=   0.1kbits/s speed= 220x    size=      50KiB time=01:57:25.12 bitrate=   0.1kbits/s speed= 220x    size=      50KiB time=01:58:45.95 bitrate=   0.1kbits/s speed= 219x    size=      51KiB time=02:00:55.37 bitrate=   0.1kbits/s speed= 220x    size=      52KiB time=02:02:17.83 bitrate=   0.1kbits/s speed= 219x    size=      52KiB time=02:03:54.97 bitrate=   0.1kbits/s speed= 219x    size=      53KiB time=02:05:32.07 bitrate=   0.1kbits/s speed= 218x    size=      53KiB time=02:06:52.19 bitrate=   0.1kbits/s speed= 217x    size=      54KiB time=02:08:32.79 bitrate=   0.1kbits/s speed= 217x    size=      55KiB time=02:08:43.84 bitrate=   0.1kbits/s speed= 215x    size=      55KiB time=02:11:33.31 bitrate=   0.1kbits/s speed= 216x    size=      56KiB time=02:13:26.54 bitrate=   0.1kbits/s speed= 216x    size=      57KiB time=02:14:05.29 bitrate=   0.1kbits/s speed= 214x    size=      57KiB time=02:15:39.26 bitrate=   0.1kbits/s speed= 214x    size=      57KiB time=02:15:39.26 bitrate=   0.1kbits/s speed= 211x    size=      57KiB time=02:19:28.99 bitrate=   0.1kbits/s speed= 215x    size=      57KiB time=02:21:04.75 bitrate=   0.1kbits/s speed= 214x    size=      58KiB time=02:21:10.97 bitrate=   0.1kbits/s speed= 212x    size=      58KiB time=02:22:50.94 bitrate=   0.1kbits/s speed= 212x    size=      58KiB time=02:24:29.46 bitrate=   0.1kbits/s speed= 211x    size=      59KiB time=02:26:23.86 bitrate=   0.1kbits/s speed= 212x    size=      59KiB time=02:27:34.43 bitrate=   0.1kbits/s speed= 211x    size=      60KiB time=02:29:08.74 bitrate=   0.1kbits/s speed= 211x    size=      60KiB time=02:30:26.40 bitrate=   0.1kbits/s speed= 210x    size=      61KiB time=02:32:02.20 bitrate=   0.1kbits/s speed= 210x    size=      62KiB time=02:33:16.23 bitrate=   0.1kbits/s speed= 209x    size=      62KiB time=02:34:27.14 bitrate=   0.1kbits/s speed= 208x    size=      62KiB time=02:36:12.33 bitrate=   0.1kbits/s speed= 208x    size=      62KiB time=02:36:56.58 bitrate=   0.1kbits/s speed= 207x    size=      63KiB time=02:38:34.05 bitrate=   0.1kbits/s speed= 207x    size=      63KiB time=02:40:14.82 bitrate=   0.1kbits/s speed= 207x    size=      64KiB time=02:40:55.07 bitrate=   0.1kbits/s speed= 205x    size=      64KiB time=02:43:05.61 bitrate=   0.1kbits/s speed= 206x    size=      65KiB time=02:44:15.85 bitrate=   0.1kbits/s speed= 205x    size=      65KiB time=02:45:31.72 bitrate=   0.1kbits/s speed= 205x    size=      65KiB time=02:46:49.51 bitrate=   0.1kbits/s speed= 204x    size=      65KiB time=02:48:10.96 bitrate=   0.1kbits/s speed= 204x    size=      66KiB time=02:49:37.55 bitrate=   0.1kbits/s speed= 204x    size=      66KiB time=02:50:23.18 bitrate=   0.1kbits/s speed= 202x    size=      66KiB time=02:52:06.86 bitrate=   0.1kbits/s speed= 202x    size=      67KiB time=02:53:54.51 bitrate=   0.1kbits/s speed= 203x    size=      67KiB time=02:55:17.26 bitrate=   0.1kbits/s speed= 202x    size=      67KiB time=02:55:24.94 bitrate=   0.1kbits/s speed= 200x    size=      68KiB time=02:57:42.58 bitrate=   0.1kbits/s speed= 201x    size=      68KiB time=02:58:51.89 bitrate=   0.1kbits/s speed= 201x    size=      68KiB time=03:00:02.88 bitrate=   0.1kbits/s speed= 200x    size=      68KiB time=03:01:31.93 bitrate=   0.1kbits/s speed= 200x    size=      69KiB time=03:02:55.55 bitrate=   0.1kbits/s speed= 200x    size=      70KiB time=03:04:00.04 bitrate=   0.1kbits/s speed= 199x    size=      70KiB time=03:05:49.23 bitrate=   0.1kbits/s speed= 199x    size=      70KiB time=03:07:14.90 bitrate=   0.1kbits/s speed= 199x    size=      71KiB time=03:08:04.45 bitrate=   0.1kbits/s speed= 198x    size=      71KiB time=03:10:01.61 bitrate=   0.1kbits/s speed= 198x    size=      71KiB time=03:11:21.06 bitrate=   0.1kbits/s speed= 198x    size=      72KiB time=03:12:37.39 bitrate=   0.1kbits/s speed= 198x    size=      72KiB time=03:14:36.30 bitrate=   0.1kbits/s speed= 198x    size=      73KiB time=03:15:48.16 bitrate=   0.1kbits/s speed= 197x    size=      73KiB time=03:17:01.48 bitrate=   0.1kbits/s speed= 197x    size=      73KiB time=03:17:31.97 bitrate=   0.1kbits/s speed= 196x    size=      73KiB time=03:19:20.50 bitrate=   0.1kbits/s speed= 196x    size=      73KiB time=03:20:35.49 bitrate=   0.0kbits/s speed= 196x    size=      74KiB time=03:21:54.94 bitrate=   0.0kbits/s speed= 195x    size=      74KiB time=03:22:16.05 bitrate=   0.0kbits/s speed= 194x    size=      74KiB time=03:22:16.05 bitrate=   0.0kbits/s speed= 193x    size=      74KiB time=03:22:16.05 bitrate=   0.0kbits/s speed= 191x    [out#0/srt @ 0x5737631a7180] video:0KiB audio:0KiB subtitle:36KiB other streams:0KiB global headers:0KiB muxing overhead: 105.932457%
+size=      74KiB time=03:26:44.15 bitrate=   0.0kbits/s speed= 194x    
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13.3.0 (conda-forge gcc 13.3.0-1)
+  configuration: --prefix=/home/connor/miniconda3/envs/srtstitcher --cc=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-cc --cxx=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-c++ --nm=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-nm --ar=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/x86_64-conda-linux-gnu-ar --disable-doc --enable-openssl --enable-demuxer=dash --enable-hardcoded-tables --enable-libfreetype --enable-libharfbuzz --enable-libfontconfig --enable-libopenh264 --enable-libdav1d --disable-gnutls --enable-libmp3lame --enable-libvpx --enable-libass --enable-pthreads --enable-vaapi --enable-libopenvino --enable-gpl --enable-libx264 --enable-libx265 --enable-libaom --enable-libsvtav1 --enable-libxml2 --enable-pic --enable-shared --disable-static --enable-version3 --enable-zlib --enable-libopus --enable-librsvg --pkg-config=/home/conda/feedstock_root/build_artifacts/ffmpeg_1732155191655/_build_env/bin/pkg-config
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+[matroska,webm @ 0x5e92a48c1500] Invalid Block Addition value 0x0 for unknown Block Addition Mapping type 68766345, name "Dolby Vision enhancement-layer HEVC configuration"
+[matroska,webm @ 0x5e92a48c1500] Could not find codec parameters for stream 7 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5e92a48c1500] Could not find codec parameters for stream 9 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5e92a48c1500] Could not find codec parameters for stream 13 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5e92a48c1500] Could not find codec parameters for stream 14 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+[matroska,webm @ 0x5e92a48c1500] Could not find codec parameters for stream 16 (Subtitle: hdmv_pgs_subtitle (pgssub)): unspecified size
+Consider increasing the value for the 'analyzeduration' (0) and 'probesize' (5000000) options
+Input #0, matroska,webm, from '/home/connor/Downloads/Seven.Samurai.1954.2160p.UHD.Blu-ray.Remux.DV.HDR.HEVC.FLAC.1.0-CiNEPHiLES.mkv':
+  Metadata:
+    title           : Seven Samurai (1954)
+    encoder         : libebml v1.4.5 + libmatroska v1.7.1
+    creation_time   : 2024-11-19T22:31:22.000000Z
+    IMDB            : tt0047478
+    TMDB            : movie/346
+  Duration: 03:26:58.66, start: 0.000000, bitrate: 60645 kb/s
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+      Metadata:
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 59525407
+        DURATION        : 03:26:58.656000000
+        NUMBER_OF_FRAMES: 297750
+        NUMBER_OF_BYTES : 92403194673
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+      Side data:
+        DOVI configuration record: version: 1.0, profile: 7, level: 6, rpu flag: 1, el flag: 1, bl flag: 1, compatibility id: 6, compression: 0
+  Stream #0:1(jpn): Audio: flac, 48000 Hz, mono, s16 (default)
+      Metadata:
+        title           : Unfiltered
+        Source          : BFI Player via Amazon Prime Video WEB-DL
+        BPS             : 357840
+        DURATION        : 03:26:55.906000000
+        NUMBER_OF_FRAMES: 145499
+        NUMBER_OF_BYTES : 555363532
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:2(jpn): Audio: flac, 48000 Hz, mono, s16
+      Metadata:
+        title           : Filtered
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 180863
+        DURATION        : 03:26:57.867000000
+        NUMBER_OF_FRAMES: 145522
+        NUMBER_OF_BYTES : 280741785
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:3(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s (comment)
+      Metadata:
+        title           : Commentary by renowned scholars and critics David Desser, Joan Mellen, Stephen Prince, Tony Rayns, and Donald Richie
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:4(eng): Audio: ac3, 48000 Hz, mono, fltp, 192 kb/s
+      Metadata:
+        title           : Commentary by Japanese film expert Michael Jeck
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 192000
+        DURATION        : 03:26:58.624000000
+        NUMBER_OF_FRAMES: 388082
+        NUMBER_OF_BYTES : 298046976
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:5(eng): Audio: ac3, 48000 Hz, stereo, fltp, 112 kb/s (comment)
+      Metadata:
+        title           : Commentary by film critic Adrian Martin
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 112000
+        DURATION        : 03:26:57.856000000
+        NUMBER_OF_FRAMES: 388058
+        NUMBER_OF_BYTES : 173849984
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:6(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : Criterion
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 25
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 1342
+        NUMBER_OF_BYTES : 39831
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:7(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : Criterion / PGS
+        Source          : Criterion Collection USA UHD Blu-ray (2024)
+        BPS             : 15403
+        DURATION        : 03:26:32.216000000
+        NUMBER_OF_FRAMES: 2684
+        NUMBER_OF_BYTES : 23861142
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:8(eng): Subtitle: subrip (srt)
+      Metadata:
+        title           : BFI
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 20
+        DURATION        : 03:26:38.344000000
+        NUMBER_OF_FRAMES: 984
+        NUMBER_OF_BYTES : 31160
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:9(eng): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        title           : BFI / PGS
+        Source          : BFI Video GBR UHD Blu-ray (2024)
+        BPS             : 12078
+        DURATION        : 03:26:38.345000000
+        NUMBER_OF_FRAMES: 1968
+        NUMBER_OF_BYTES : 18719430
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:10(chi): Subtitle: subrip (srt)
+      Metadata:
+        title           : Traditional
+        Source          : iTunes WEB-DL
+        BPS             : 21
+        DURATION        : 03:26:33.159000000
+        NUMBER_OF_FRAMES: 1644
+        NUMBER_OF_BYTES : 33787
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:11(dan): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 36747
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:12(fin): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:13(fre): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : La Rabbia FRA Blu-ray (2017)
+        BPS             : 16139
+        DURATION        : 03:26:36.009000000
+        NUMBER_OF_FRAMES: 2940
+        NUMBER_OF_BYTES : 25007699
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:14(ger): Subtitle: hdmv_pgs_subtitle (pgssub)
+      Metadata:
+        Source          : Trigon Film SUI Blu-ray (2013)
+        BPS             : 16147
+        DURATION        : 03:26:28.752000000
+        NUMBER_OF_FRAMES: 3142
+        NUMBER_OF_BYTES : 25006636
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:15(ita): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Amazon Prime WEB-DL
+        BPS             : 27
+        DURATION        : 03:22:11.968000000
+        NUMBER_OF_FRAMES: 1358
+        NUMBER_OF_BYTES : 40979
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:16(jpn): Subtitle: hdmv_pgs_subtitle (pgssub) (hearing impaired)
+      Metadata:
+        Source          : Toho JPN UHD Blu-ray (2023)
+        BPS             : 21107
+        DURATION        : 03:22:52.623000000
+        NUMBER_OF_FRAMES: 3250
+        NUMBER_OF_BYTES : 32116356
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:17(nor): Subtitle: subrip (srt)
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 23
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 35777
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:18(spa): Subtitle: subrip (srt)
+      Metadata:
+        title           : Castilian
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:32.214000000
+        NUMBER_OF_FRAMES: 1414
+        NUMBER_OF_BYTES : 38707
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+  Stream #0:19(swe): Subtitle: subrip (srt)
+      Metadata:
+        Source          : Cineasterna WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37297
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+Stream mapping:
+  Stream #0:12 -> #0:0 (subrip (srt) -> subrip (srt))
+Press [q] to stop, [?] for help
+Output #0, srt, to '/tmp/tmp4z9pon2c/subtitle_5_12.srt':
+  Metadata:
+    title           : Seven Samurai (1954)
+    IMDB            : tt0047478
+    TMDB            : movie/346
+    encoder         : Lavf61.7.100
+  Chapters:
+    Chapter #0:0: start 0.000000, end 180.597000
+      Metadata:
+        title           : Main Titles
+    Chapter #0:1: start 180.597000, end 617.158000
+      Metadata:
+        title           : "Is There No God to Protect Us?"
+    Chapter #0:2: start 617.158000, end 1020.185000
+      Metadata:
+        title           : Shopping for Samurai
+    Chapter #0:3: start 1020.185000, end 1491.281000
+      Metadata:
+        title           : Death of a Thief
+    Chapter #0:4: start 1491.281000, end 1971.344000
+      Metadata:
+        title           : A Master and His Disciples
+    Chapter #0:5: start 1971.344000, end 2424.630000
+      Metadata:
+        title           : Samurai Auditions, Part I
+    Chapter #0:6: start 2424.630000, end 2986.191000
+      Metadata:
+        title           : Samurai Auditions, Part II
+    Chapter #0:7: start 2986.191000, end 3666.871000
+      Metadata:
+        title           : The Seventh Samurai
+    Chapter #0:8: start 3666.871000, end 4181.302000
+      Metadata:
+        title           : Frightened Village
+    Chapter #0:9: start 4181.302000, end 4450.946000
+      Metadata:
+        title           : False Alarm
+    Chapter #0:10: start 4450.946000, end 4955.742000
+      Metadata:
+        title           : Making Plans
+    Chapter #0:11: start 4955.742000, end 5188.766000
+      Metadata:
+        title           : "Still a Child"
+    Chapter #0:12: start 5188.766000, end 5651.729000
+      Metadata:
+        title           : Samurai Armor
+    Chapter #0:13: start 5651.729000, end 6023.851000
+      Metadata:
+        title           : The Secret Garden
+    Chapter #0:14: start 6023.851000, end 6397.766000
+      Metadata:
+        title           : Training
+    Chapter #0:15: start 6397.766000, end 6715.041000
+      Metadata:
+        title           : Intermission
+    Chapter #0:16: start 6715.041000, end 6924.542000
+      Metadata:
+        title           : Harvesting
+    Chapter #0:17: start 6924.542000, end 7140.633000
+      Metadata:
+        title           : Night Watch
+    Chapter #0:18: start 7140.633000, end 7491.192000
+      Metadata:
+        title           : Building Barricades
+    Chapter #0:19: start 7491.192000, end 7928.795000
+      Metadata:
+        title           : The Scouts
+    Chapter #0:20: start 7928.795000, end 8404.437000
+      Metadata:
+        title           : The Surprise Attack
+    Chapter #0:21: start 8404.437000, end 8540.573000
+      Metadata:
+        title           : Funeral
+    Chapter #0:22: start 8540.573000, end 9206.280000
+      Metadata:
+        title           : The First Battle
+    Chapter #0:23: start 9206.280000, end 9666.698000
+      Metadata:
+        title           : Night Skirmish
+    Chapter #0:24: start 9666.698000, end 10134.249000
+      Metadata:
+        title           : The Second Battle
+    Chapter #0:25: start 10134.249000, end 10824.021000
+      Metadata:
+        title           : Behind the Lines
+    Chapter #0:26: start 10824.021000, end 11617.856000
+      Metadata:
+        title           : That Night
+    Chapter #0:27: start 11617.856000, end 12160.148000
+      Metadata:
+        title           : The Last Battle
+    Chapter #0:28: start 12160.148000, end 12418.656000
+      Metadata:
+        title           : Finale
+  Stream #0:0(fin): Subtitle: subrip
+      Metadata:
+        Source          : iTunes WEB-DL
+        BPS             : 24
+        DURATION        : 03:26:22.135000000
+        NUMBER_OF_FRAMES: 1082
+        NUMBER_OF_BYTES : 37232
+        _STATISTICS_WRITING_APP: mkvmerge v88.0 ('All I Know') 64-bit
+        _STATISTICS_WRITING_DATE_UTC: 2024-11-19 22:31:22
+        _STATISTICS_TAGS: BPS DURATION NUMBER_OF_FRAMES NUMBER_OF_BYTES
+        encoder         : Lavc61.19.100 srt
+size=       0KiB time=00:04:10.53 bitrate=   0.0kbits/s speed= 501x    size=       1KiB time=00:06:00.89 bitrate=   0.0kbits/s speed= 361x    size=       3KiB time=00:07:41.58 bitrate=   0.0kbits/s speed= 308x    size=       3KiB time=00:09:24.35 bitrate=   0.0kbits/s speed= 282x    size=       4KiB time=00:10:16.23 bitrate=   0.1kbits/s speed= 246x    size=       5KiB time=00:12:38.38 bitrate=   0.1kbits/s speed= 253x    size=       6KiB time=00:14:26.28 bitrate=   0.1kbits/s speed= 247x    size=       7KiB time=00:15:57.49 bitrate=   0.1kbits/s speed= 239x    size=       8KiB time=00:17:43.47 bitrate=   0.1kbits/s speed= 236x    size=       8KiB time=00:19:27.04 bitrate=   0.1kbits/s speed= 233x    size=       9KiB time=00:20:52.33 bitrate=   0.1kbits/s speed= 228x    size=      10KiB time=00:23:08.26 bitrate=   0.1kbits/s speed= 231x    size=      10KiB time=00:24:23.29 bitrate=   0.1kbits/s speed= 225x    size=      11KiB time=00:26:24.66 bitrate=   0.1kbits/s speed= 226x    size=      11KiB time=00:28:02.80 bitrate=   0.1kbits/s speed= 224x    size=      13KiB time=00:29:54.08 bitrate=   0.1kbits/s speed= 224x    size=      14KiB time=00:31:18.87 bitrate=   0.1kbits/s speed= 221x    size=      15KiB time=00:33:00.89 bitrate=   0.1kbits/s speed= 220x    size=      16KiB time=00:34:49.96 bitrate=   0.1kbits/s speed= 220x    size=      17KiB time=00:36:42.45 bitrate=   0.1kbits/s speed= 220x    size=      18KiB time=00:38:17.67 bitrate=   0.1kbits/s speed= 219x    size=      18KiB time=00:40:06.57 bitrate=   0.1kbits/s speed= 219x    size=      19KiB time=00:41:30.07 bitrate=   0.1kbits/s speed= 216x    size=      20KiB time=00:43:40.49 bitrate=   0.1kbits/s speed= 218x    size=      21KiB time=00:45:38.77 bitrate=   0.1kbits/s speed= 219x    size=      21KiB time=00:46:24.03 bitrate=   0.1kbits/s speed= 214x    size=      22KiB time=00:48:32.99 bitrate=   0.1kbits/s speed= 216x    

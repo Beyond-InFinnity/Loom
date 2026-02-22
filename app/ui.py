@@ -43,31 +43,38 @@ def render_hybrid_selector(label, options, key):
     """
     Renders a selectbox with provided options (MKV tracks) and an option to upload a custom file.
     Always returns a file path string (saving uploads to temp if needed).
-    
+
+    Tracks with ``selectable=False`` (e.g. PGS image-based subtitles) are excluded
+    from the dropdown and shown as informational captions below it.
+
     Args:
         label (str): The label for the selectbox.
         options (list): A list of dictionaries, where each dict represents an MKV track
-                        like {'id': index, 'label': "Track X - [Lang]", 'path': temp_path, 'source': 'mkv'}.
+                        like {'id': index, 'label': "Track X - [Lang]", 'path': temp_path,
+                              'source': 'mkv', 'selectable': True}.
         key (str): A unique key for the Streamlit components.
-    
+
     Returns:
         str: The path to the selected subtitle file, or None if no file is selected.
     """
+    selectable = [opt for opt in options if opt.get('selectable', True)]
+    non_selectable = [opt for opt in options if not opt.get('selectable', True)]
+
     display_options = {"-- Select a source --": None}
-    for opt in options:
+    for opt in selectable:
         display_options[opt['label']] = opt['path']
     display_options["📂 Upload Custom File..."] = "upload"
-    
+
     selection_label = st.selectbox(
         label,
         list(display_options.keys()),
         key=f"{key}_selector"
     )
-    
+
     selected_value = display_options[selection_label]
-    
+
     file_path = None
-    
+
     if selected_value == "upload":
         uploaded_file = st.file_uploader(
             "Upload a .srt or .ass file",
@@ -80,16 +87,95 @@ def render_hybrid_selector(label, options, key):
             if not temp_dir:
                 st.error("Temporary directory not initialized.")
                 return None
-            
+
             # Create a unique filename to avoid conflicts
             unique_filename = f"{key}_{uploaded_file.name}"
             save_path = os.path.join(temp_dir, unique_filename)
-            
+
             with open(save_path, "wb") as f:
                 f.write(uploaded_file.getvalue())
             file_path = save_path
     else:
         file_path = selected_value
 
+    # Show non-selectable tracks as informational captions.
+    # PGS tracks with OCR capability are rendered by render_ocr_buttons() instead.
+    _ocr_codecs = {'hdmv_pgs_subtitle'}
+    for opt in non_selectable:
+        if opt.get('codec') not in _ocr_codecs:
+            st.caption(opt['label'])
+
     return file_path
+
+
+def render_path_input(label, state_key, default_value="", filetypes=None):
+    """Render a text input with a Browse button for selecting a file path.
+
+    Parameters
+    ----------
+    label : str
+        Label for the text input widget.
+    state_key : str
+        Session state key for the path value.
+    default_value : str
+        Initial value when the key is not yet in session state.
+    filetypes : list[tuple] | None
+        File type filter for the native dialog.  Defaults to video files.
+
+    Returns
+    -------
+    str
+        The current path string (may be empty).
+    """
+    if filetypes is None:
+        filetypes = [("Video files", "*.mkv *.mp4 *.avi *.webm *.ts"), ("All files", "*.*")]
+
+    def _browse():
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes('-topmost', 1)
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        root.destroy()
+        if path:
+            st.session_state[state_key] = path
+
+    cols = st.columns([3, 1])
+    with cols[0]:
+        st.text_input(
+            label, key=state_key,
+            value=st.session_state.get(state_key, default_value),
+        )
+    with cols[1]:
+        st.write("<br>", unsafe_allow_html=True)
+        st.button("Browse...", on_click=_browse, key=f"{state_key}_browse")
+    return st.session_state.get(state_key, default_value)
+
+
+def render_ocr_buttons(tracks, key):
+    """Show OCR buttons for PGS tracks.
+
+    Parameters
+    ----------
+    tracks : list[dict]
+        Full track list (selectable + non-selectable).
+    key : str
+        Unique key prefix for Streamlit widget deduplication.
+
+    Returns
+    -------
+    dict | None
+        The track dict if an OCR button was clicked, else None.
+    """
+    _ocr_codecs = {'hdmv_pgs_subtitle'}
+    for track in tracks:
+        if track.get('selectable') or track.get('codec') not in _ocr_codecs:
+            continue
+        btn_key = f"ocr_btn_{key}_{track['id']}"
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.caption(track['label'])
+        with col2:
+            if st.button("Extract Text (OCR)", key=btn_key):
+                return track
+    return None
 

@@ -11,3 +11,6 @@ opencc-python-reimplemented
 pytesseract
 Pillow
 playwright
+korean-romanizer
+cyrtranslit
+pythainlp

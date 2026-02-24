@@ -1,5 +1,5 @@
 # app/styles.py
-from .romanize import get_romanizer, get_annotation_func, get_japanese_pipeline
+from .romanize import get_romanizer, get_annotation_func, get_japanese_pipeline, _apply_thai_word_boundaries
 
 FONT_LIST = [
     "Arial", "Arial Black", "Verdana", "Georgia", "Times New Roman",
@@ -33,7 +33,9 @@ _ROMANIZATION_META = {
     "bg": ("Latin transliteration",         "high"),
     "sr": ("Latin transliteration",         "high"),
     "mk": ("Latin transliteration",         "high"),
-    "th": ("Royal Institute Romanization",  "good"),
+    "be": ("Latin transliteration",         "high"),
+    "mn": ("Latin transliteration",         "high"),
+    "th": ("Paiboon+ (with tones)",         "good"),
     "hi": ("IAST",                          "moderate"),
     "bn": ("IAST",                          "moderate"),
     "ta": ("IAST",                          "moderate"),
@@ -101,7 +103,10 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
     "Jyutping Style", etc.  Returns "Annotation" as generic fallback.
     """
     if phonetic_system:
-        _SYS_NAMES = {"pinyin": "Pinyin", "zhuyin": "Zhuyin", "jyutping": "Jyutping"}
+        _SYS_NAMES = {
+            "pinyin": "Pinyin", "zhuyin": "Zhuyin", "jyutping": "Jyutping",
+            "rtgs": "RTGS", "paiboon": "Paiboon+", "ipa": "IPA",
+        }
         return _SYS_NAMES.get(phonetic_system.lower(), "Annotation")
 
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
@@ -114,6 +119,12 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
         if lc in ("zh-hant", "zh-tw"):
             return "Zhuyin"
         return "Pinyin"
+    if primary == "ko":
+        return "Romanization"
+    if primary in ("ru", "uk", "be", "sr", "bg", "mk", "mn"):
+        return "Transliteration"
+    if primary == "th":
+        return "Romanization"
     return "Annotation"
 
 
@@ -159,7 +170,20 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     """
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
+    # Thai default phonetic system is Paiboon+ (tone diacritics for learners).
+    if primary == 'th' and not phonetic_system:
+        phonetic_system = 'paiboon'
+
     rom_name, confidence = _ROMANIZATION_META.get(primary, ("N/A", "none"))
+
+    # Override romanization name/confidence for Thai based on phonetic system.
+    _THAI_PHONETIC_META = {
+        'rtgs': ('RTGS (no tones)', 'good'),
+        'paiboon': ('Paiboon+ (with tones)', 'good'),
+        'ipa': ('IPA', 'good'),
+    }
+    if primary == 'th' and phonetic_system in _THAI_PHONETIC_META:
+        rom_name, confidence = _THAI_PHONETIC_META[phonetic_system]
 
     # For Japanese: create one shared pipeline — single pykakasi instance
     # serves both the annotation (resolve_spans) and romaji (spans_to_romaji)
@@ -182,16 +206,40 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
             return spans_to_romaji(resolve_spans(text))
         romanizer = _ja_romanize
     else:
-        romanizer = get_romanizer(lang_code)
+        romanizer = get_romanizer(lang_code, phonetic_system=phonetic_system)
         annotation_func = get_annotation_func(lang_code, system=phonetic_system)
 
     ann_sys_name = _annotation_system_name(lang_code, phonetic_system)
     variant = _chinese_variant(lang_code)
 
+    # CJK scripts support \pos() ASS annotation (character-width math is reliable).
+    # Alphabetic scripts (Korean, Cyrillic, Thai) use PGS-only annotation.
+    _CJK_ANN_LANGS = frozenset({"ja", "zh", "yue"})
+    supports_ass = primary in _CJK_ANN_LANGS
+
+    # CJK scripts get larger annotation ratio (0.5); alphabetic scripts get 0.4
+    # because romanized words are often longer than their originals.
+    ann_font_ratio = 0.5 if primary in _CJK_ANN_LANGS else 0.4
+
+    # Annotation default: off for Cantonese (block romanization sufficient)
+    # and Thai (every word would be annotated, replicating the romaji line
+    # with more visual noise — block romanization line is sufficient).
+    _ANN_DEFAULT_OFF = frozenset({'yue', 'th'})
+    ann_default_enabled = primary not in _ANN_DEFAULT_OFF
+
+    # Word boundary function: Thai only (no natural word spaces in Thai script).
+    # Inserts U+2009 THIN SPACE between tokens for learner readability.
+    word_boundary_func = _apply_thai_word_boundaries if primary == 'th' else None
+
     return {
         "romanize_func":            romanizer,
         "annotation_func":          annotation_func,
         "annotation_system_name":   ann_sys_name,
+        "annotation_render_mode":   "ruby",
+        "annotation_font_ratio":    ann_font_ratio,
+        "supports_ass_annotation":  supports_ass,
+        "annotation_default_enabled": ann_default_enabled,
+        "word_boundary_func":       word_boundary_func,
         "resolve_spans_func":       resolve_spans_func,
         "spans_to_romaji_func":     spans_to_romaji_func,
         "has_phonetic_layer":       romanizer is not None,

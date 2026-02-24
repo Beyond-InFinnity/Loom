@@ -136,16 +136,19 @@ def _color_css(config: dict) -> str:
 
 
 def _build_fullframe_html(styles: dict, canvas_width: int,
-                          canvas_height: int, scale: float) -> str:
+                          canvas_height: int, scale: float,
+                          annotation_render_mode: str = 'ruby') -> str:
     """Build the full-frame HTML page template for PGS rasterization.
 
     Creates a viewport-sized container with 3 absolutely-positioned divs
     (#bottom, #top, #romaji) matching the layout from preview.py.
-    Annotation ruby is rendered inline with the Top div's HTML.
+    Annotation ruby/interlinear/inline is rendered inline with the Top div's HTML.
 
     The divs start with empty innerHTML -- updated per-event via JS.
     """
     v_offset = styles.get('vertical_offset', 0)
+    rom_gap = styles.get('romanized_gap', 0)
+    ann_gap = styles.get('annotation_gap', 2)
 
     # --- Bottom layer CSS ---
     bottom_cfg = styles.get('Bottom', {})
@@ -178,7 +181,7 @@ def _build_fullframe_html(styles: dict, canvas_width: int,
     # --- Romanized layer CSS ---
     rom_cfg = styles.get('Romanized', {})
     rom_fontsize = rom_cfg.get('fontsize', 30) * scale
-    rom_marginv = (rom_cfg.get('marginv', 10) + v_offset) * scale
+    rom_marginv = (rom_cfg.get('marginv', 10) + v_offset - rom_gap) * scale
     rom_css = (
         f"font-family: '{rom_cfg.get('fontname', 'Arial')}', 'Noto Sans CJK JP', sans-serif;"
         f"font-size: {rom_fontsize:.1f}px;"
@@ -225,7 +228,28 @@ html, body {{ background: transparent; overflow: hidden;
     font-size: {ann_fontsize:.1f}px;
     font-weight: {ann_bold};
     font-style: {ann_italic};
+    margin-bottom: {ann_gap * scale:.1f}px;
     {ann_text_shadow}
+}}
+/* Interlinear annotation mode: inline-block two-row containers */
+#top .ilb {{
+    display: inline-block;
+    text-align: center;
+    vertical-align: bottom;
+    line-height: 1.1;
+}}
+#top .ilb-r {{
+    display: block;
+    color: {ann_color};
+    font-family: '{ann_fontname}', 'Noto Sans CJK JP', sans-serif;
+    font-size: {ann_fontsize:.1f}px;
+    font-weight: {ann_bold};
+    font-style: {ann_italic};
+    margin-bottom: {ann_gap * scale:.1f}px;
+    {ann_text_shadow}
+}}
+#top .ilb-b {{
+    display: block;
 }}
 </style></head>
 <body><div class="frame">
@@ -242,6 +266,7 @@ def rasterize_pgs_frames(
     canvas_height: int,
     scale: float = 1.0,
     progress_callback=None,
+    annotation_render_mode: str = 'ruby',
 ) -> list[DisplaySet]:
     """Render full-frame subtitle composites to transparent PNGs.
 
@@ -285,7 +310,8 @@ def rasterize_pgs_frames(
 
     from PIL import Image
 
-    page_html = _build_fullframe_html(styles, canvas_width, canvas_height, scale)
+    page_html = _build_fullframe_html(styles, canvas_width, canvas_height, scale,
+                                       annotation_render_mode=annotation_render_mode)
 
     total = len(events)
     results = [None] * total

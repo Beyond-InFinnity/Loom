@@ -15,6 +15,8 @@ def initialize_state():
         st.session_state.mkv_path = None
     if 'mkv_tracks' not in st.session_state:
         st.session_state.mkv_tracks = []
+    if 'mkv_scan_complete' not in st.session_state:
+        st.session_state.mkv_scan_complete = False
     # NOTE: temp_dir is intentionally NOT created here.
     # srt_stitcher_app.py owns temp dir creation via tempfile.TemporaryDirectory()
     # so that cleanup is managed and the dir path is registered via atexit.

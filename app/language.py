@@ -19,17 +19,90 @@ def _detect_cantonese(text_sample: str) -> bool:
     return len(found) >= 2
 
 
+def _has_cyrillic(text: str) -> bool:
+    """Return True if *text* contains any Cyrillic characters."""
+    return any('CYRILLIC' in unicodedata.name(c, '') for c in text if not c.isspace())
+
+
+# Characters unique to specific Cyrillic-script languages.
+# Used for pre-detection override before langdetect runs.
+_UKRAINIAN_UNIQUE = frozenset('іІїЇєЄґҐ')   # і/ї/є/ґ — not in Russian
+_BELARUSIAN_UNIQUE = frozenset('ўЎ')          # ў — not in Russian or Ukrainian
+
+
+def _detect_by_script_chars(text: str) -> str | None:
+    """Pre-detection override for Cyrillic script variants.
+
+    Checks for characters unique to specific languages before falling back
+    to statistical detection.  This is necessary because langdetect is
+    unreliable at distinguishing Russian, Ukrainian, and Belarusian — they
+    share most of the Cyrillic alphabet.
+
+    Returns a BCP-47 code or None if no unique characters are found.
+    """
+    has_uk = any(c in _UKRAINIAN_UNIQUE for c in text)
+    has_be = any(c in _BELARUSIAN_UNIQUE for c in text)
+
+    # ў is exclusive to Belarusian among Slavic languages
+    if has_be:
+        return 'be'
+    # і/ї/є/ґ are exclusive to Ukrainian (not in Russian)
+    if has_uk:
+        return 'uk'
+
+    return None
+
+
+def _normalize_metadata_lang(metadata_lang: str) -> str | None:
+    """Resolve an MKV/ffprobe metadata language tag to a BCP-47 code.
+
+    Returns a normalized code (e.g. ``'es'`` for ``'spa'``,
+    ``'fr'`` for ``'fre'``/``'fra'``) or ``None`` if the tag can't be
+    resolved to a well-known language.
+
+    Uses ``langcodes`` for resolution — handles ISO 639-1/2/3 codes,
+    BCP-47 tags, and common aliases.  Rejects tags that resolve to
+    ``'und'`` (undetermined), unknown codes, or tags whose resolved
+    language string is ≥3 chars with no 2-letter equivalent (obscure
+    ISO 639-3 codes like ``'cas'`` = Tsimané that are unlikely in
+    real MKV metadata).
+    """
+    if not metadata_lang:
+        return None
+    try:
+        lang = langcodes.Language.get(metadata_lang)
+        # Reject if langcodes couldn't parse it into a real language
+        if not lang.language:
+            return None
+        tag = lang.to_tag()
+        # Reject 'und' (undetermined) and codes that didn't simplify
+        # to a well-known tag (e.g. 'cas'→'cas', 'xxx'→'xxx').
+        # MKV/ffprobe metadata uses ISO 639-2 (3-letter) codes which
+        # langcodes always resolves to 2-letter BCP-47 for major
+        # languages.  If the tag stayed 3+ chars with no subtag
+        # separator, it's likely an obscure ISO 639-3 code.
+        if tag in ('und', 'mis', 'mul', 'zxx'):
+            return None
+        if len(tag) >= 3 and '-' not in tag:
+            return None
+        return tag
+    except Exception:
+        return None
+
+
 def _dominant_script(text):
     """
     Analyze Unicode script blocks to determine the dominant writing system.
-    Returns one of: 'CJK', 'Hangul', 'Hiragana_Katakana', 'Latin', or None
-    if no single script dominates.
+    Returns one of: 'CJK', 'Hangul', 'Hiragana_Katakana', 'Cyrillic',
+    'Thai', 'Latin', or None if no single script dominates.
 
     This is used as a pre-check before statistical language detection,
     because langdetect is unreliable at distinguishing CJK scripts
-    (it frequently misidentifies Traditional Chinese as Korean).
+    (it frequently misidentifies Traditional Chinese as Korean) and
+    Cyrillic scripts (it confuses Russian, Ukrainian, Belarusian).
     """
-    counts = {"CJK": 0, "Hangul": 0, "Kana": 0, "Latin": 0, "Other": 0}
+    counts = {"CJK": 0, "Hangul": 0, "Kana": 0, "Cyrillic": 0,
+              "Thai": 0, "Latin": 0, "Other": 0}
 
     for char in text:
         if char.isspace():
@@ -41,6 +114,10 @@ def _dominant_script(text):
             counts["Hangul"] += 1
         elif "HIRAGANA" in name or "KATAKANA" in name:
             counts["Kana"] += 1
+        elif "CYRILLIC" in name:
+            counts["Cyrillic"] += 1
+        elif "THAI" in name:
+            counts["Thai"] += 1
         elif "LATIN" in name:
             counts["Latin"] += 1
         else:
@@ -248,7 +325,29 @@ def detect_language(file_path, sample_size=50, metadata_lang=None, track_title=N
         if script == "Hangul":
             return "ko"
 
-        # For Latin and other scripts, langdetect is generally reliable
+        if script == "Cyrillic":
+            # Try unique-character pre-detection first (і/ї/є/ґ→uk, ў→be)
+            char_override = _detect_by_script_chars(text_sample)
+            if char_override:
+                return char_override
+            # Fall back to langdetect for ru/sr/bg/mk disambiguation
+            if raw_code in ('ru', 'sr', 'bg', 'mk', 'uk', 'be', 'mn'):
+                return raw_code
+            # langdetect didn't recognise a Cyrillic language — default to Russian
+            return 'ru'
+
+        if script == "Thai":
+            return "th"
+
+        # For Latin and other scripts, prefer the MKV metadata tag when it
+        # resolves to a valid language that disagrees with langdetect.
+        # langdetect frequently misidentifies Romance languages (e.g. Spanish
+        # as English, Portuguese as Spanish) on short subtitle samples.
+        if metadata_lang:
+            meta_code = _normalize_metadata_lang(metadata_lang)
+            if meta_code and meta_code != raw_code:
+                return meta_code
+
         return raw_code
 
     except (LangDetectException, IndexError, Exception) as e:

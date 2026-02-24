@@ -1,33 +1,97 @@
 # app/ui.py
 import streamlit as st
 import os
+import shutil
+import subprocess
 import tempfile
-import tkinter as tk
-from tkinter import filedialog
+
+
+def _native_file_dialog(filetypes: list[tuple[str, str]]) -> str | None:
+    """Open the desktop's native file picker, falling back to tkinter.
+
+    Tries zenity (GNOME/GTK) first, then kdialog (KDE), then tkinter.
+
+    Parameters
+    ----------
+    filetypes : list[tuple[str, str]]
+        Filter list in tkinter format, e.g.
+        ``[("Video files", "*.mkv *.mp4"), ("All files", "*.*")]``.
+
+    Returns
+    -------
+    str | None
+        Selected file path, or ``None`` if the user cancelled.
+    """
+    # Build extension list from the first non-"all" filter entry.
+    extensions: list[str] = []
+    filter_label = "Files"
+    for label, pattern in filetypes:
+        if pattern.strip() == "*.*":
+            continue
+        filter_label = label
+        for token in pattern.split():
+            ext = token.lstrip("*.")
+            if ext:
+                extensions.append(ext)
+        break
+
+    # --- zenity (GNOME / GTK) -------------------------------------------
+    if shutil.which("zenity"):
+        ext_pattern = " ".join(f"*.{e}" for e in extensions) if extensions else "*"
+        cmd = [
+            "zenity", "--file-selection",
+            f"--file-filter={filter_label} | {ext_pattern}",
+            "--file-filter=All files | *",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        return None
+
+    # --- kdialog (KDE) ---------------------------------------------------
+    if shutil.which("kdialog"):
+        ext_pattern = " ".join(f"*.{e}" for e in extensions) if extensions else "*"
+        filter_str = f"{ext_pattern} | {filter_label}"
+        cmd = ["kdialog", "--getopenfilename", ".", filter_str]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        return None
+
+    # --- tkinter fallback ------------------------------------------------
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", 1)
+    path = filedialog.askopenfilename(filetypes=filetypes)
+    root.destroy()
+    return path or None
+
 
 def browse_callback():
     """
     Callback function for the 'Browse...' button.
     Opens a native file dialog and updates st.session_state["mkv_path_input"] if a file is selected.
     """
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    root.wm_attributes('-topmost', 1)  # Bring the dialog to the front
-    file_path = filedialog.askopenfilename(filetypes=[("MKV files", "*.mkv")])
-    root.destroy()
+    file_path = _native_file_dialog([
+        ("Video files", "*.mkv *.mp4 *.avi *.mov *.webm *.ts *.m2ts"),
+        ("All files", "*.*"),
+    ])
     if file_path:
         st.session_state["mkv_path_input"] = file_path
 
 def render_mkv_path_input():
     """
-    Renders the text input for the MKV file path and a 'Browse...' button.
+    Renders the text input for the video file path and a 'Browse...' button.
     Returns the path string from session state.
     """
     cols = st.columns([3, 1])
-    
+
     with cols[0]:
         # The value is now read directly from session_state, which is updated by the callback
-        path_input = st.text_input("MKV Path", key="mkv_path_input",
+        path_input = st.text_input("Video file path", key="mkv_path_input",
                                    value=st.session_state.get("mkv_path_input", ""))
     
     with cols[1]:
@@ -128,14 +192,10 @@ def render_path_input(label, state_key, default_value="", filetypes=None):
         The current path string (may be empty).
     """
     if filetypes is None:
-        filetypes = [("Video files", "*.mkv *.mp4 *.avi *.webm *.ts"), ("All files", "*.*")]
+        filetypes = [("Video files", "*.mkv *.mp4 *.avi *.mov *.webm *.ts *.m2ts"), ("All files", "*.*")]
 
     def _browse():
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes('-topmost', 1)
-        path = filedialog.askopenfilename(filetypes=filetypes)
-        root.destroy()
+        path = _native_file_dialog(filetypes)
         if path:
             st.session_state[state_key] = path
 

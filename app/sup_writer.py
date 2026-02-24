@@ -510,6 +510,27 @@ def write_sup(display_sets: list[DisplaySet], output_path: str) -> None:
     comp_number = 0
 
     with open(output_path, 'wb') as f:
+        # Anchor the stream at PTS=0 so ffmpeg doesn't rebase timestamps.
+        # Without this, ffmpeg subtracts the first PTS when muxing .sup → MKV,
+        # shifting all events earlier by the gap between video start and first
+        # subtitle — making every PGS bitmap display at the wrong time.
+        if display_sets and display_sets[0].start_ms > 0:
+            first = display_sets[0]
+            anchor_pcs = _make_pcs(
+                first.canvas_width, first.canvas_height,
+                comp_number, _COMP_EPOCH_START,
+                palette_update=False, palette_id=0,
+                objects=[],
+            )
+            anchor_wds = _make_wds([(0, 0, 0, 1, 1)])
+            for seg in [
+                _make_segment(_SEG_PCS, 0, anchor_pcs),
+                _make_segment(_SEG_WDS, 0, anchor_wds),
+                _make_segment(_SEG_END, 0, b''),
+            ]:
+                f.write(seg)
+            comp_number += 1
+
         for i, ds in enumerate(display_sets):
             # Show segments
             for seg in _build_show_segments(ds, comp_number):

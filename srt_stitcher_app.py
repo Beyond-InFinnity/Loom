@@ -93,11 +93,11 @@ if "temp_dir_obj" not in st.session_state:
 st.title("🎬 SRTStitcher Pro")
 st.write("---")
 
-st.header("1. Load & Scan Local MKV File")
+st.header("1. Load & Scan Video File")
 mkv_path_input_value = render_mkv_path_input()
 st.session_state.mkv_path = mkv_path_input_value # Keep st.session_state.mkv_path updated
 
-if st.button("Load & Scan MKV", key="scan_mkv_button") and st.session_state.mkv_path:
+if st.button("Load & Scan Video", key="scan_mkv_button") and st.session_state.mkv_path:
     if not os.path.exists(st.session_state.mkv_path):
         st.error(f"File not found at: `{st.session_state.mkv_path}`")
     else:
@@ -107,20 +107,36 @@ if st.button("Load & Scan MKV", key="scan_mkv_button") and st.session_state.mkv_
             st.session_state.mkv_resolution = (metadata['width'], metadata['height'])
             st.session_state.mkv_metadata = metadata
 
+            # Extract audio stream info for the default-audio selector in remux UI.
+            audio_tracks = []
+            for s in (probe_data or {}).get('streams', []):
+                if s.get('codec_type') == 'audio':
+                    tags = s.get('tags', {})
+                    audio_tracks.append({
+                        'index': s['index'],
+                        'codec': s.get('codec_name', '?'),
+                        'channels': s.get('channels', '?'),
+                        'lang': tags.get('language'),
+                        'title': tags.get('title', ''),
+                    })
+            st.session_state.mkv_audio_tracks = audio_tracks
+
         with st.spinner(f"Extracting subtitle tracks from `{os.path.basename(st.session_state.mkv_path)}`..."):
             st.session_state.mkv_tracks = scan_and_extract_tracks(
                 st.session_state.mkv_path, st.session_state.temp_dir,
                 probe_data=probe_data,
             )
 
+        st.session_state.mkv_scan_complete = True
+
         selectable_count = sum(1 for t in st.session_state.mkv_tracks if t.get('selectable', True))
         if selectable_count:
             st.success(f"Scan complete. {selectable_count} text track(s) found. Resolution: {metadata['width']}x{metadata['height']}")
         else:
-            st.warning("No text-based subtitle tracks found.")
+            st.warning("No text-based subtitle tracks found. You can upload external subtitle files below.")
 
 # --- 2. Subtitle Source Selection ---
-if st.session_state.mkv_path and st.session_state.mkv_tracks:
+if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False):
     st.header("2. Select Subtitle Sources")
 
     col1, col2 = st.columns(2)
@@ -201,6 +217,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     primary_lang = (target_lang_code or "").lower().split("-")[0].split("_")[0]
     is_japanese = primary_lang == "ja"
     is_chinese = primary_lang in ("zh", "yue")
+    is_thai = primary_lang == "th"
 
     # --- Chinese variant selectors (R2c) ---
     # Phonetic system + script display shown before style expanders so that
@@ -252,15 +269,49 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             from app.processing import _make_opencc_converter
             opencc_converter_preview = _make_opencc_converter(chinese_variant, script_display)
 
+    # --- Thai phonetic system selector ---
+    if is_thai:
+        st.subheader("Thai Options")
+        _thai_phon_options = ["Paiboon+", "RTGS", "IPA"]
+        _thai_phon_descriptions = {
+            "Paiboon+": "Learner standard with tone diacritics (recommended)",
+            "RTGS": "Royal Thai General System — no tone information",
+            "IPA": "International Phonetic Alphabet",
+        }
+        _thai_phon_key_map = {"Paiboon+": "paiboon", "RTGS": "rtgs", "IPA": "ipa"}
+        phonetic_system = _thai_phon_key_map[st.selectbox(
+            "Romanization System",
+            _thai_phon_options,
+            index=0,
+            key="thai_phonetic_system_selector",
+            format_func=lambda x: f"{x} — {_thai_phon_descriptions[x]}",
+        )]
+
     lang_config = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
     romanize_func = lang_config["romanize_func"]
     annotation_func = lang_config["annotation_func"]
     annotation_system_name = lang_config["annotation_system_name"]
+    annotation_render_mode = lang_config.get("annotation_render_mode", "ruby")
+    supports_ass_annotation = lang_config.get("supports_ass_annotation", True)
+    annotation_default_enabled = lang_config.get("annotation_default_enabled", True)
     spans_to_romaji_func = lang_config.get("spans_to_romaji_func")
     romanization_name = lang_config["romanization_name"]
 
     has_annotation = annotation_func is not None
-    st.caption(f"Detected target language: **{target_lang_code}** — Romanization: {romanization_name}")
+    romanization_confidence = lang_config["romanization_confidence"]
+    _CONFIDENCE_BADGE = {
+        "very_high": "\U0001f7e2 Very High",
+        "high":      "\U0001f7e2 High",
+        "good":      "\U0001f7e1 Good",
+        "moderate":  "\U0001f7e1 Moderate",
+        "low":       "\U0001f7e0 Low (opt-in)",
+        "none":      "\u26aa None",
+    }
+    _conf_display = _CONFIDENCE_BADGE.get(romanization_confidence, "")
+    st.caption(
+        f"Detected target language: **{target_lang_code}** — "
+        f"Romanization: {romanization_name} ({_conf_display})"
+    )
 
     # --- Pre-existing furigana detection (Japanese tracks only) ---
     # Must run before style initialization so annotation_preexisting can set
@@ -280,7 +331,9 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             )
 
     # --- Build default styles if not already set ---
-    if not st.session_state.styles:
+    # Check for "Top" key to handle stale sessions that have only scalar keys
+    # (e.g. vertical_offset) but lost the track dicts.
+    if not st.session_state.styles or "Top" not in st.session_state.styles:
         # Top marginv=45: leaves room for annotation (12px) + 2px gap above
         # the main text line, plus romaji (14px) + gap above that.
         # Layout (top → bottom): romaji@5 | annotation@29 | target_text@45
@@ -344,7 +397,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 # Disabled by default when pre-existing furigana detected
                 # or for Cantonese (Jyutping block romanization is sufficient;
                 # per-character annotation is verbose — e.g. "jyut6" per char).
-                "enabled": not annotation_preexisting and target_lang_code != "yue",
+                "enabled": not annotation_preexisting and annotation_default_enabled,
                 # Default font must be CJK-capable.
                 "fontname": _default_annotation_font,
                 "fontsize": 22,
@@ -366,11 +419,11 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         st.session_state.styles["Annotation"] = st.session_state.styles.pop("Furigana")
 
     # --- Guard: inject Annotation slot if session predates R3b/R2b ---
-    if "Annotation" not in st.session_state.styles:
+    if "Annotation" not in st.session_state.styles and "Top" in st.session_state.styles:
         top_font = st.session_state.styles["Top"]["fontname"]
         default_ann_font = top_font if top_font in CJK_FONT_LIST else "Noto Sans CJK JP"
         st.session_state.styles["Annotation"] = {
-            "enabled": not annotation_preexisting and target_lang_code != "yue",
+            "enabled": not annotation_preexisting and annotation_default_enabled,
             "fontname": default_ann_font,
             "fontsize": 22,
             "bold": False, "italic": False,
@@ -394,7 +447,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     # another (e.g. Cantonese where annotation should default off).
     _prev_ann_lang = st.session_state.get("_annotation_default_lang")
     if _prev_ann_lang != target_lang_code and "Annotation" in st.session_state.styles:
-        _ann_should_enable = not annotation_preexisting and target_lang_code != "yue"
+        _ann_should_enable = not annotation_preexisting and annotation_default_enabled
         st.session_state.styles["Annotation"]["enabled"] = _ann_should_enable
         # Reset the Streamlit widget key so the checkbox reflects the new default
         # (widget keys override the value= parameter once rendered).
@@ -409,13 +462,10 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     # --- Guard: inject vertical_offset for sessions predating R6a ---
     if "vertical_offset" not in st.session_state.styles:
         st.session_state.styles["vertical_offset"] = 0
-
-    # --- Vertical offset slider for the top-aligned stack ---
-    st.session_state.styles["vertical_offset"] = st.slider(
-        "Top Stack Vertical Position (px)", -100, 100,
-        st.session_state.styles.get("vertical_offset", 0),
-        step=1, key="vertical_offset_slider",
-    )
+    if "annotation_gap" not in st.session_state.styles:
+        st.session_state.styles["annotation_gap"] = 2
+    if "romanized_gap" not in st.session_state.styles:
+        st.session_state.styles["romanized_gap"] = 0
 
     # --- Style editing per track ---
     # Annotation expander shown for any language with annotation_func;
@@ -524,8 +574,30 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                     key="romaji_vowel_mode",
                 )
 
-    # --- Composite preview: subtitles rendered over the video frame ---
-    st.subheader("Preview")
+    # --- Top Stack Position expander (vertical offset + gap controls) ---
+    with st.expander("Top Stack Position", expanded=False):
+        st.session_state.styles["vertical_offset"] = st.slider(
+            "Top Stack Vertical Position (px)", -100, 100,
+            st.session_state.styles.get("vertical_offset", 0),
+            step=1, key="vertical_offset_slider",
+        )
+        st.session_state.styles["annotation_gap"] = st.slider(
+            "Annotation \u2194 Target gap (px)", -20, 40,
+            st.session_state.styles.get("annotation_gap", 2),
+            step=1, key="annotation_gap_slider",
+            help="Vertical space between the annotation layer and the target script line. "
+                 "Positive values push the annotation further above the target text.",
+        )
+        st.session_state.styles["romanized_gap"] = st.slider(
+            "Romanized \u2194 Target gap (px)", -20, 40,
+            st.session_state.styles.get("romanized_gap", 0),
+            step=1, key="romanized_gap_slider",
+            help="Extra vertical space between the romanized line and the target script line. "
+                 "Positive values push romanization further above the target text.",
+        )
+
+    # --- Preview placeholder (filled after subtitle text is computed below) ---
+    _preview_placeholder = st.empty()
 
     # Preview mode selector
     preview_mode_label = st.selectbox(
@@ -535,7 +607,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     )
     _preview_mode = "pgs" if preview_mode_label == "PGS" else "ass"
 
-    # --- Timestamp slider + text input (directly above preview frame) ---
+    # --- Timestamp slider + text input ---
     if st.session_state.mkv_path and os.path.exists(st.session_state.mkv_path):
         duration = st.session_state.get("mkv_duration", 0) or 1
 
@@ -669,8 +741,10 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         background_image_path=bg_path,
         annotation_spans=annotation_spans,
         preview_mode=_preview_mode,
+        annotation_render_mode=annotation_render_mode,
     )
-    st.components.v1.html(preview_html, height=600, scrolling=False)
+    with _preview_placeholder.container():
+        st.components.v1.html(preview_html, height=600, scrolling=False)
 
     # --- Generate ---
     st.write("---")
@@ -733,6 +807,24 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         else:
             output_playres = _PLAYRES_OPTIONS[output_res_label]
 
+    # --- Annotation toggle for .ass output ---
+    _ass_ann_help = (
+        "Adds \\pos() annotation events to the .ass file. "
+        "PGS recommended for annotations — pixel-perfect ruby rendering."
+    )
+    if not supports_ass_annotation:
+        _ass_ann_help = (
+            "Not available for this language — \\pos() annotation requires "
+            "fixed-width character math (CJK only). Use PGS for annotations."
+        )
+    _include_ann_in_ass = st.checkbox(
+        "Include annotations in .ass",
+        value=False,
+        key="include_annotations_in_ass",
+        disabled=not supports_ass_annotation,
+        help=_ass_ann_help,
+    )
+
     # --- Generate .ass ---
     if st.button("Generate .ass File", key="generate_ass_btn"):
         _cur_name = st.session_state.get("output_name", "")
@@ -757,12 +849,14 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             target_lang_code,
             resolution=st.session_state.get("mkv_resolution", (1920, 1080)),
             output_playres=output_playres,
+            include_annotations=_include_ann_in_ass,
         )
         _gen_status.empty()
 
         if result:
             st.session_state.generated_ass_path = result
-            st.success("Subtitle .ass file generated (all 4 text layers).")
+            _layer_msg = "4 text layers (with annotations)" if _include_ann_in_ass else "3 text layers"
+            st.success(f"Subtitle .ass file generated ({_layer_msg}).")
 
     # --- Generate PGS (.sup) ---
     if is_playwright_available():
@@ -847,7 +941,11 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
         if remux_target and os.path.exists(remux_target):
             mkv_base = os.path.splitext(os.path.basename(remux_target))[0]
-            output_mkv_name = st.text_input("Output MKV filename", value=f"{mkv_base}_stitched.mkv", key="output_mkv_name")
+            output_mkv_name = st.text_input("Output filename (.mkv)", value=f"{mkv_base}_stitched.mkv", key="output_mkv_name")
+            # Force .mkv extension — MKV is the only output container that supports
+            # all track types (ASS, PGS, font attachments, multiple audio tracks).
+            if not output_mkv_name.lower().endswith('.mkv'):
+                output_mkv_name = os.path.splitext(output_mkv_name)[0] + '.mkv'
             output_mkv_path = os.path.join(os.path.dirname(remux_target), output_mkv_name)
 
             # Checkboxes for which tracks to include
@@ -859,7 +957,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 _include_sup = st.checkbox("Include .sup (PGS) track", value=_has_sup,
                                            disabled=not _has_sup, key="mux_include_sup")
 
-            # Options for stripping existing tracks
+            # Options for stripping existing tracks and audio default
             with st.expander("Advanced mux options"):
                 _keep_existing_subs = st.checkbox(
                     "Keep existing subtitle tracks",
@@ -875,6 +973,47 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                     help="Uncheck to strip embedded fonts (TTF/OTF). "
                          "Reduces file size but original ASS tracks may lose their fonts.",
                 )
+
+                # --- Default audio track selector ---
+                _audio_tracks = st.session_state.get("mkv_audio_tracks", [])
+                _selected_audio_idx = None
+                if _audio_tracks:
+                    from app.language import code_to_name as _audio_code_to_name
+                    import langcodes
+
+                    _no_change = "No change (keep source default)"
+                    _audio_labels = [_no_change]
+                    _auto_select = 0  # default to "No change"
+
+                    for i, at in enumerate(_audio_tracks):
+                        lang_display = _audio_code_to_name(at['lang']) if at['lang'] else "Unknown"
+                        label = f"Track {i + 1}: {lang_display}"
+                        if at['title']:
+                            label += f" — {at['title']}"
+                        label += f" [{at['codec']}, {at['channels']}ch]"
+                        _audio_labels.append(label)
+
+                        # Auto-select: match target language
+                        if at['lang'] and target_lang_code and _auto_select == 0:
+                            try:
+                                source_tag = langcodes.Language.get(at['lang'])
+                                target_tag = langcodes.Language.get(target_lang_code)
+                                if source_tag.language == target_tag.language:
+                                    _auto_select = i + 1  # +1 because index 0 is "No change"
+                            except Exception:
+                                pass
+
+                    _audio_choice = st.selectbox(
+                        "Default audio track",
+                        _audio_labels,
+                        index=_auto_select,
+                        key="mux_default_audio",
+                        help="Set the default audio track in the output MKV. "
+                             "Audio tracks shown are from the scanned video file. "
+                             "If remux target differs, verify the track list.",
+                    )
+                    if _audio_choice != _no_change:
+                        _selected_audio_idx = _audio_labels.index(_audio_choice) - 1
 
             if st.button("Mux Subtitles into MKV", key="remux_btn"):
                 with st.spinner("Muxing subtitle track(s) into MKV (no re-encoding)..."):
@@ -907,6 +1046,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                         pgs_track_title=_pgs_track_title if _mux_sup else None,
                         keep_existing_subs=_keep_existing_subs,
                         keep_attachments=_keep_attachments,
+                        default_audio_index=_selected_audio_idx,
                     )
                 if result:
                     _tracks = []
@@ -921,9 +1061,9 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             st.error(f"File not found: `{remux_target}`")
 
 elif st.session_state.mkv_path:
-    if st.session_state.mkv_tracks:
+    if st.session_state.get('mkv_scan_complete', False):
         st.info("Please select both a native and target subtitle source to continue.")
     else:
-        st.info("No subtitle tracks found or selected. Please ensure your MKV has embedded text subtitles or upload custom files.")
+        st.info("Click 'Load & Scan Video' to scan for embedded subtitle tracks.")
 else:
-    st.info("Begin by entering the path to a local MKV file and clicking 'Load & Scan MKV'.")
+    st.info("Begin by entering the path to a local video file and clicking 'Load & Scan Video'.")

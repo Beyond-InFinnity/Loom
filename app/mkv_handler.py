@@ -42,12 +42,15 @@ _IMAGE_CODECS = {
 
 
 def scan_and_extract_tracks(mkv_path, temp_dir, probe_data=None):
-    """Scan an MKV file for subtitle tracks, extract text tracks, detect language.
+    """Scan a video file for subtitle tracks, extract text tracks, detect language.
+
+    Supports any container format ffmpeg can read (MKV, MP4, AVI, MOV,
+    WebM, TS, M2TS, etc.).
 
     Parameters
     ----------
     mkv_path : str
-        Absolute path to the MKV file.
+        Absolute path to the video file.
     temp_dir : str
         Directory for extracted subtitle files.
     probe_data : dict | None
@@ -226,6 +229,8 @@ def extract_pgs_stream(mkv_path, stream_index, output_dir):
 def get_video_metadata(mkv_path):
     """Return video metadata and the raw ffprobe result for reuse.
 
+    Accepts any container format ffmpeg can probe.
+
     Returns
     -------
     (dict, dict)
@@ -273,7 +278,7 @@ def get_video_metadata(mkv_path):
 
 
 def extract_screenshot(mkv_path, timestamp, temp_dir):
-    """Extract a single frame from the MKV file at *timestamp* seconds."""
+    """Extract a single frame from a video file at *timestamp* seconds."""
     output_path = os.path.join(temp_dir, "screenshot.jpg")
     try:
         (
@@ -325,8 +330,14 @@ def merge_subs_to_mkv(input_path, output_path,
                       target_lang_code=None,
                       track_title=None, pgs_track_title=None,
                       keep_existing_subs=True,
-                      keep_attachments=True):
-    """Mux subtitle file(s) into an MKV as the default subtitle track.
+                      keep_attachments=True,
+                      default_audio_index=None):
+    """Mux subtitle file(s) into an MKV container.
+
+    Accepts any input container format ffmpeg can read (MKV, MP4, AVI,
+    MOV, WebM, TS, M2TS, etc.).  Output is always MKV — the only
+    container that supports all track types (ASS text subs, PGS bitmap
+    subs, font attachments, multiple audio/subtitle tracks).
 
     No video or audio re-encoding — copies all existing streams and
     appends the new subtitle track(s).
@@ -334,9 +345,9 @@ def merge_subs_to_mkv(input_path, output_path,
     Parameters
     ----------
     input_path : str
-        Source MKV/video file.
+        Source video file (any container format).
     output_path : str
-        Destination MKV file.
+        Destination MKV file (must end in .mkv).
     ass_path : str | None
         Path to the .ass subtitle file.
     sup_path : str | None
@@ -353,6 +364,9 @@ def merge_subs_to_mkv(input_path, output_path,
     keep_attachments : bool
         If True (default), preserve font attachments from the source.
         If False, strip them (smaller output, but embedded fonts are lost).
+    default_audio_index : int | None
+        0-based audio-stream-relative index to set as the default audio
+        track.  When None (default), audio dispositions are untouched.
     """
     if not ass_path and not sup_path:
         print("No subtitle files to mux.")
@@ -406,14 +420,38 @@ def merge_subs_to_mkv(input_path, output_path,
     if keep_attachments:
         maps += ["-map", "0:t?"]
 
-    cmd += maps + ["-c", "copy"]
+    cmd += maps
+
+    # Codec settings: copy everything EXCEPT the new .ass track which must
+    # be re-encoded (`-c:s:N ass`).  A standalone .ass passed with `-c copy`
+    # is byte-copied into MKV, but ffmpeg doesn't properly convert the ASS
+    # dialogue timestamps into MKV block timestamps — most events end up
+    # invisible.  Re-encoding forces ffmpeg to parse every Dialogue line and
+    # write correct per-block PTS/duration.  The PGS track is still copied.
+    cmd += ["-c", "copy"]
+    if ass_sub_idx is not None:
+        cmd += [f"-c:s:{ass_sub_idx}", "ass"]
+
+    # Force strict timestamp-order interleaving.  Without this, ffmpeg may
+    # bunch subtitle packets from separate input files into a few MKV clusters
+    # instead of spreading them across the timeline.  Players read clusters
+    # sequentially — if subtitle blocks aren't in the current cluster, they're
+    # invisible until the player linearly scans past them.  Setting delta to 0
+    # forces the muxer to write every packet in DTS order.
+    cmd += ["-max_interleave_delta", "0"]
 
     # Set disposition: clear all subtitle dispositions, then mark our track
     # as default.  Use "0" (not "none") for cross-version ffmpeg compat.
     cmd += ["-disposition:s", "0"]
-    default_idx = ass_sub_idx if ass_sub_idx is not None else sup_sub_idx
+    default_idx = sup_sub_idx if sup_sub_idx is not None else ass_sub_idx
     if default_idx is not None:
         cmd += [f"-disposition:s:{default_idx}", "default"]
+
+    # Set audio disposition: clear all audio defaults, then mark the chosen
+    # track.  When default_audio_index is None, audio dispositions are untouched.
+    if default_audio_index is not None:
+        cmd += ["-disposition:a", "0"]
+        cmd += [f"-disposition:a:{default_audio_index}", "default"]
 
     # Metadata for .ass track
     if ass_sub_idx is not None:

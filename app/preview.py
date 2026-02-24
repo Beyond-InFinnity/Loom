@@ -72,7 +72,8 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
                              resolution=(1920, 1080),
                              background_image_path=None,
                              annotation_spans=None,
-                             preview_mode="ass"):
+                             preview_mode="ass",
+                             annotation_render_mode="ruby"):
     """Generates a full HTML document for a unified preview of all text tracks.
 
     Returns a complete <!DOCTYPE html> document so that height: 100% cascades
@@ -118,23 +119,26 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     # video (h=2160) halves percentage-based margins while font sizes stay fixed,
     # causing text layers to overlap.
     # vertical_offset shifts the entire top stack as a unit (R6a).
+    # romanized_gap adds extra space between Romanized and Target layers.
     _REF_H = 1080
     _PREVIEW_H = 600  # iframe height passed to st.components.v1.html()
     _FONT_SCALE = _PREVIEW_H / _REF_H  # ≈0.556 — scales PlayRes font sizes to preview px
     v_offset = styles.get('vertical_offset', 0)
+    rom_gap = styles.get('romanized_gap', 0)
+    ann_gap = styles.get('annotation_gap', 2)
     positions = {
         "Bottom":    f"bottom:{styles['Bottom']['marginv'] / _REF_H * 100:.2f}%;",
         "Top":       f"top:{(styles['Top']['marginv'] + v_offset) / _REF_H * 100:.2f}%;",
-        "Romanized": f"top:{(styles['Romanized']['marginv'] + v_offset) / _REF_H * 100:.2f}%;",
+        "Romanized": f"top:{(styles['Romanized']['marginv'] + v_offset - rom_gap) / _REF_H * 100:.2f}%;",
     }
 
     # When annotation spans are available, render the Top slot as ruby HTML.
     # In PGS mode, always use ruby HTML (annotation inline with Top).
     # In ASS mode, ruby HTML previews the annotation overlay.
     if preview_mode == "pgs" and annotation_spans:
-        top_content = build_annotation_html(annotation_spans)
+        top_content = build_annotation_html(annotation_spans, mode=annotation_render_mode)
     elif annotation_spans:
-        top_content = build_annotation_html(annotation_spans)
+        top_content = build_annotation_html(annotation_spans, mode=annotation_render_mode)
     else:
         top_content = target_text
     texts = {"Bottom": native_text, "Top": top_content, "Romanized": pinyin_text}
@@ -258,7 +262,25 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     font-size: {ann_fontsize_ratio}em;
     text-align: center;
     color: {ann_color_css};
+    margin-bottom: {ann_gap * _FONT_SCALE:.1f}px;
     {ann_rt_extra_css}
+  }}
+  /* Interlinear annotation mode: inline-block two-row containers */
+  .ilb {{
+    display: inline-block;
+    text-align: center;
+    vertical-align: bottom;
+    line-height: 1.1;
+  }}
+  .ilb-r {{
+    display: block;
+    font-size: {ann_fontsize_ratio}em;
+    color: {ann_color_css};
+    margin-bottom: {ann_gap * _FONT_SCALE:.1f}px;
+    {ann_rt_extra_css}
+  }}
+  .ilb-b {{
+    display: block;
   }}
   .outer {{
     display: flex;

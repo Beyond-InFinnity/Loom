@@ -37,7 +37,8 @@ Chunk R3 — Japanese (pykakasi, token-aligned Hepburn romaji)                 �
 Chunk R3-hotfix — inline furigana stripping (奴(やつ) doubled romanization)  ✅
 Chunk R3b — Japanese furigana layer (get_furigana_func, build_furigana_html) ✅
 Chunk R3c — resolved-kana romaji pipeline + kana→romaji lookup table         ✅
-Chunk R4 — Korean (korean-romanizer), Russian/Cyrillic (cyrtranslit), Thai (pythainlp)
+Chunk R4 — Korean (korean-romanizer), Russian/Cyrillic (cyrtranslit), Thai (pythainlp)  ✅
+  Thai phonetic systems: RTGS (royin), Paiboon+ (tone diacritics), IPA
 Chunk R5 — Indic scripts (indic-transliteration), Arabic/Persian/Urdu (experimental)
 
 Character-aligned \pos() generation (R2b)
@@ -765,6 +766,456 @@ def _make_jyutping_romanizer():
     return romanize
 
 
+# BCP-47 primary subtags for Cyrillic-script languages supported by cyrtranslit.
+# Maps BCP-47 primary subtag → cyrtranslit language code.
+_CYRILLIC_LANG_CODES = {
+    "ru": "ru",   # Russian
+    "uk": "ua",   # Ukrainian (cyrtranslit uses 'ua')
+    "be": "by",   # Belarusian (cyrtranslit uses 'by')
+    "sr": "sr",   # Serbian
+    "bg": "bg",   # Bulgarian
+    "mk": "mk",   # Macedonian
+    "mn": "mn",   # Mongolian
+}
+
+
+def _make_korean_romanizer():
+    """Return a Korean Revised Romanization block romanizer.
+
+    Uses korean-romanizer library.
+    """
+    from korean_romanizer.romanizer import Romanizer
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _strip_ass(text)
+        return Romanizer(clean).romanize()
+
+    return romanize
+
+
+def _make_korean_annotation_func():
+    """Return a Korean per-word annotation span producer.
+
+    Korean is space-delimited — each word is romanized via korean-romanizer
+    and paired with its original Hangul.  Spaces pass through with
+    reading=None so the rendering pipeline maintains word spacing.
+    """
+    from korean_romanizer.romanizer import Romanizer
+
+    def _has_hangul(word: str) -> bool:
+        return any('\uAC00' <= c <= '\uD7AF' or '\u1100' <= c <= '\u11FF' for c in word)
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _strip_ass(text)
+        spans = []
+        parts = clean.split(' ')
+        for i, word in enumerate(parts):
+            if word:
+                if _has_hangul(word):
+                    rom = Romanizer(word).romanize().strip()
+                    spans.append((word, rom if rom else None))
+                else:
+                    spans.append((word, None))
+            if i < len(parts) - 1:
+                spans.append((' ', None))
+        return spans
+
+    return get_spans
+
+
+def _make_cyrillic_romanizer(primary: str):
+    """Return a Cyrillic→Latin transliteration function for *primary* subtag.
+
+    Uses cyrtranslit with the correct lang code mapping (BCP-47 → cyrtranslit).
+    """
+    import cyrtranslit
+
+    cyr_code = _CYRILLIC_LANG_CODES[primary]
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _strip_ass(text)
+        return cyrtranslit.to_latin(clean, cyr_code)
+
+    return romanize
+
+
+def _make_cyrillic_annotation_func(primary: str):
+    """Return a Cyrillic per-word annotation span producer.
+
+    Words are space-delimited.  Each word containing Cyrillic characters is
+    transliterated to Latin via cyrtranslit.  Non-Cyrillic words (Latin,
+    numerals, punctuation) pass through with reading=None.
+    """
+    import cyrtranslit
+
+    cyr_code = _CYRILLIC_LANG_CODES[primary]
+
+    def _has_cyrillic(word: str) -> bool:
+        return any('\u0400' <= c <= '\u04FF' for c in word)
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _strip_ass(text)
+        spans = []
+        parts = clean.split(' ')
+        for i, word in enumerate(parts):
+            if word:
+                if _has_cyrillic(word):
+                    lat = cyrtranslit.to_latin(word, cyr_code)
+                    spans.append((word, lat))
+                else:
+                    spans.append((word, None))
+            if i < len(parts) - 1:
+                spans.append((' ', None))
+        return spans
+
+    return get_spans
+
+
+def _thai_tokenize(text: str) -> list:
+    """Hybrid Thai tokenizer: word boundaries + syllable split for compounds.
+
+    Two-pass approach:
+      1. ``word_tokenize(engine='newmm')`` for correct word boundaries.
+      2. Any token with >6 Thai characters (likely a compound/idiom) is
+         further split via ``syllable_tokenize()`` to produce annotation-
+         friendly granularity.
+
+    Both ``_make_thai_romanizer()`` and ``_make_thai_annotation_func()`` use
+    this function so that block romanization and ruby annotation produce
+    consistent word boundaries.
+    """
+    from pythainlp.tokenize import word_tokenize, syllable_tokenize
+
+    _THAI_CHAR_THRESHOLD = 6
+    word_tokens = word_tokenize(text, engine='newmm')
+    result = []
+    for t in word_tokens:
+        thai_chars = sum(1 for c in t if '\u0E01' <= c <= '\u0E5B')
+        if thai_chars > _THAI_CHAR_THRESHOLD:
+            result.extend(syllable_tokenize(t))
+        else:
+            result.append(t)
+    return result
+
+
+def _has_thai(token: str) -> bool:
+    """Return True if *token* contains any Thai script character."""
+    return any('\u0E01' <= c <= '\u0E5B' for c in token)
+
+
+def _normalize_thai(text: str) -> str:
+    """Normalize decomposed Thai forms before tokenization.
+
+    Some subtitle sources use the decomposed sara am sequence
+    (nikhahit U+0E4D + sara aa U+0E32) instead of the composed
+    sara am (U+0E33).  pythainlp can't handle the decomposed form.
+    """
+    return text.replace('\u0e4d\u0e32', '\u0e33')
+
+
+# ---------------------------------------------------------------------------
+# Thai Paiboon+ tone diacritics
+# ---------------------------------------------------------------------------
+
+# Tone letter → combining diacritic.  Mid tone is unmarked (standard
+# linguistic convention — reduces visual clutter on the most common tone).
+_THAI_TONE_DIACRITICS = {
+    'm': '',          # mid  — unmarked
+    'l': '\u0300',    # low  → combining grave accent    (à)
+    'f': '\u0302',    # falling → combining circumflex   (â)
+    'h': '\u0301',    # high → combining acute accent    (á)
+    'r': '\u030C',    # rising → combining caron          (ǎ)
+}
+
+# Special-case lookup for tokens that no pythainlp engine handles correctly.
+# Keys are Thai tokens; values are pre-computed Paiboon+ romanizations
+# (vowel remapping + tone diacritic already applied).
+_THAI_SPECIAL_CASES: dict[str, str] = {
+    '\u0e01\u0e47': 'k\u0254\u0302',   # ก็ → kɔ̂  (common particle)
+}
+
+# RTGS vowel digraphs → Paiboon-style IPA vowels.
+# Note: RTGS does not distinguish /o/ from /ɔ/ — both are written "o".
+# Only unambiguous mappings are included.
+_PAIBOON_VOWEL_SUBS = [
+    ('ae', 'ɛ'),     # /ɛ/ — open-mid front unrounded
+    ('ue', 'ɯ'),     # /ɯ/ — close back unrounded
+]
+
+
+def _add_tone_diacritic(romanized: str, tone: str) -> str:
+    """Place a combining tone diacritic on the first vowel of a romanized syllable.
+
+    Mid tone is left unmarked (standard convention, reduces visual clutter on
+    the most frequent Thai tone).
+    """
+    if not tone or tone not in _THAI_TONE_DIACRITICS:
+        return romanized
+    diacritic = _THAI_TONE_DIACRITICS[tone]
+    if not diacritic:
+        return romanized
+    for i, c in enumerate(romanized):
+        if c.lower() in 'aeiouɛɔɯ':
+            return romanized[:i + 1] + diacritic + romanized[i + 1:]
+    return romanized
+
+
+def _paiboon_remap_vowels(rom: str) -> str:
+    """Map RTGS vowel digraphs to Paiboon-style IPA vowels."""
+    for old, new in _PAIBOON_VOWEL_SUBS:
+        rom = rom.replace(old, new)
+    return rom
+
+
+def _detect_thai_ipa_engine() -> str:
+    """Detect the best available IPA-like engine in pythainlp.
+
+    Tries ``'ipa'`` first, then ``'thai2rom'`` (neural, phonetic).
+    Falls back to ``'royin'`` if neither is available.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+    for engine in ('ipa', 'thai2rom'):
+        try:
+            if _thai_romanize('\u0e01', engine=engine):
+                return engine
+        except Exception:
+            continue
+    return 'royin'
+
+
+def _make_thai_romanizer():
+    """Return a Thai Royal Institute romanization function.
+
+    Uses pythainlp with engine="thai2rom" — produces RTGS-compatible output
+    with correct consonant clusters (the native ``royin`` engine mangles
+    clusters like กล→kn, ปร→pn).  Tokenizes first via ``_thai_tokenize()``,
+    romanizes each token, then joins with spaces.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        parts = []
+        for token in tokens:
+            if _has_thai(token):
+                parts.append(_thai_romanize(token, engine='thai2rom'))
+            elif token.strip():
+                parts.append(token)
+        return ' '.join(p for p in parts if p.strip())
+
+    return romanize
+
+
+def _make_thai_annotation_func():
+    """Return a Thai per-token annotation span producer.
+
+    Uses ``_thai_tokenize()`` (shared with the block romanizer) to segment
+    Thai text, then romanizes each token via ``thai2rom`` engine (RTGS-compatible
+    output with correct consonant clusters).
+    Non-Thai tokens (Latin, numerals, spaces) pass through with reading=None.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        spans = []
+        for token in tokens:
+            if not token.strip():
+                spans.append((token, None))
+            elif _has_thai(token):
+                rom = _thai_romanize(token, engine='thai2rom')
+                spans.append((token, rom if rom else None))
+            else:
+                spans.append((token, None))
+        return spans
+
+    return get_spans
+
+
+def _make_thai_paiboon_romanizer():
+    """Return a Paiboon+-style Thai romanizer with tone diacritics.
+
+    Uses ``thai2rom`` engine as the base (the native ``royin`` engine mangles
+    consonant clusters like กล→kn), then layers per-syllable tone information
+    on top as combining diacritics on the vowel nucleus.  Mid tone is unmarked.
+
+    Vowel digraphs are remapped to Paiboon equivalents: ae→ɛ, ue→ɯ.
+    Syllables within multi-syllabic words are joined with hyphens.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+    from pythainlp.tokenize import syllable_tokenize
+    from pythainlp.util import tone_detector
+
+    def _romanize_syllable(syl):
+        if syl in _THAI_SPECIAL_CASES:
+            return _THAI_SPECIAL_CASES[syl]
+        rom = _thai_romanize(syl, engine='thai2rom')
+        rom = _paiboon_remap_vowels(rom)
+        try:
+            tone = tone_detector(syl)
+        except (IndexError, Exception):
+            import logging
+            logging.debug("tone_detector fallback to mid tone for fragment: %r", syl)
+            tone = 'm'
+        return _add_tone_diacritic(rom, tone)
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        parts = []
+        for token in tokens:
+            if _has_thai(token):
+                # Check whole-token special case before syllable splitting
+                if token in _THAI_SPECIAL_CASES:
+                    parts.append(_THAI_SPECIAL_CASES[token])
+                    continue
+                syllables = syllable_tokenize(token)
+                syl_parts = [_romanize_syllable(s) for s in syllables if s.strip()]
+                if syl_parts:
+                    parts.append('-'.join(syl_parts))
+            elif token.strip():
+                parts.append(token)
+        return ' '.join(p for p in parts if p.strip())
+
+    return romanize
+
+
+def _make_thai_paiboon_annotation_func():
+    """Return a Paiboon+ per-token annotation span producer with tone diacritics.
+
+    Uses ``_thai_tokenize()`` (shared with the block romanizer) to segment
+    Thai text, then romanizes each token with per-syllable Paiboon+ diacritics.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+    from pythainlp.tokenize import syllable_tokenize
+    from pythainlp.util import tone_detector
+
+    def _romanize_token(token):
+        if token in _THAI_SPECIAL_CASES:
+            return _THAI_SPECIAL_CASES[token]
+        syllables = syllable_tokenize(token)
+        syl_parts = []
+        for s in syllables:
+            if not s.strip():
+                continue
+            if s in _THAI_SPECIAL_CASES:
+                syl_parts.append(_THAI_SPECIAL_CASES[s])
+                continue
+            rom = _thai_romanize(s, engine='thai2rom')
+            rom = _paiboon_remap_vowels(rom)
+            try:
+                tone = tone_detector(s)
+            except (IndexError, Exception):
+                import logging
+                logging.debug("tone_detector fallback to mid tone for fragment: %r", s)
+                tone = 'm'
+            syl_parts.append(_add_tone_diacritic(rom, tone))
+        return '-'.join(syl_parts) if syl_parts else ''
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        spans = []
+        for token in tokens:
+            if not token.strip():
+                spans.append((token, None))
+            elif _has_thai(token):
+                rom = _romanize_token(token)
+                spans.append((token, rom if rom else None))
+            else:
+                spans.append((token, None))
+        return spans
+
+    return get_spans
+
+
+def _make_thai_ipa_romanizer():
+    """Return a Thai IPA romanizer.
+
+    Attempts pythainlp ``'ipa'`` engine; falls back to ``'thai2rom'``
+    (neural, phonetic) or ``'royin'`` if neither is available.
+    """
+    from pythainlp.transliterate import romanize as _thai_romanize
+    _engine = _detect_thai_ipa_engine()
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        parts = []
+        for token in tokens:
+            if _has_thai(token):
+                parts.append(_thai_romanize(token, engine=_engine))
+            elif token.strip():
+                parts.append(token)
+        return ' '.join(p for p in parts if p.strip())
+
+    return romanize
+
+
+def _make_thai_ipa_annotation_func():
+    """Return a Thai IPA per-token annotation span producer."""
+    from pythainlp.transliterate import romanize as _thai_romanize
+    _engine = _detect_thai_ipa_engine()
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _normalize_thai(_strip_ass(text))
+        tokens = _thai_tokenize(clean)
+        spans = []
+        for token in tokens:
+            if not token.strip():
+                spans.append((token, None))
+            elif _has_thai(token):
+                rom = _thai_romanize(token, engine=_engine)
+                spans.append((token, rom if rom else None))
+            else:
+                spans.append((token, None))
+        return spans
+
+    return get_spans
+
+
+def _apply_thai_word_boundaries(text: str) -> str:
+    """Insert thin spaces (U+2009) at word boundaries in Thai text.
+
+    Gives learners word segmentation cues without breaking Thai script
+    rendering (Thai script shaping is not contextual — spaces don't alter
+    glyph forms).  Only inserts thin spaces between consecutive non-whitespace
+    tokens; existing whitespace is preserved.
+    """
+    if not text or not _has_thai(text):
+        return text
+    clean = _normalize_thai(_strip_ass(text))
+    tokens = _thai_tokenize(clean)
+    parts = []
+    for i, token in enumerate(tokens):
+        if i > 0 and token.strip() and parts and parts[-1].strip():
+            parts.append('\u2009')
+        parts.append(token)
+    return ''.join(parts)
+
+
 def get_annotation_func(lang_code: str, system: str = None):
     """Return a character/token-aligned annotation span producer, or None.
 
@@ -820,6 +1271,20 @@ def get_annotation_func(lang_code: str, system: str = None):
             return _make_zhuyin_annotation_func()
         return _make_chinese_annotation_func()
 
+    # R4 — per-word/per-token annotation for alphabetic scripts
+    if primary == "ko":
+        return _make_korean_annotation_func()
+
+    if primary in _CYRILLIC_LANG_CODES:
+        return _make_cyrillic_annotation_func(primary)
+
+    if primary == "th":
+        if system == "paiboon":
+            return _make_thai_paiboon_annotation_func()
+        if system == "ipa":
+            return _make_thai_ipa_annotation_func()
+        return _make_thai_annotation_func()  # RTGS default
+
     return None
 
 
@@ -836,28 +1301,54 @@ def get_japanese_pipeline():
     return _make_japanese_pipeline()
 
 
-def build_annotation_html(spans: list) -> str:
-    """Convert a span list from get_annotation_func() into HTML ruby markup.
+def build_annotation_html(spans: list, mode: str = 'ruby') -> str:
+    """Convert a span list from get_annotation_func() into annotation HTML.
 
-    Annotated tokens (reading is not None) are wrapped in::
+    Parameters
+    ----------
+    spans : list[(str, str|None)]
+        Output of get_annotation_func(text).  Each tuple is (original, reading).
+    mode : str
+        Rendering strategy:
 
-        <ruby>orig<rt>reading</rt></ruby>
-
-    Passthrough tokens (reading=None) are inserted as plain text.
-
-    The resulting HTML is suitable for direct embedding in a ``<div>`` — the
-    browser's native ruby layout handles centering of each ``<rt>`` reading
-    over its base characters without any coordinate math.  This is used by the
-    composite preview; the .ass output uses ``\\pos()`` stacking instead.
-
-    Language-agnostic: works for Japanese furigana (kanji→hiragana), Chinese
-    pinyin (hanzi→pinyin), or any future annotation system that produces
-    (original, reading) span pairs.
+        - ``"ruby"`` (default): ``<ruby>base<rt>reading</rt></ruby>`` — browser-
+          native ruby layout.  Best for CJK (furigana, pinyin) and the default
+          for all languages.
+        - ``"interlinear"``: inline-block two-row containers with the reading on
+          top and base text below.  Better for long alphabetic annotations that
+          overflow ruby positioning.
+        - ``"inline"``: ``base(reading)`` parenthetical — lightweight, no special
+          CSS needed.  Useful as a compact fallback.
 
     Returns an empty string for an empty span list.
     """
     if not spans:
         return ''
+
+    if mode == 'interlinear':
+        parts = []
+        for orig, reading in spans:
+            if reading:
+                parts.append(
+                    f'<span class="ilb">'
+                    f'<span class="ilb-r">{reading}</span>'
+                    f'<span class="ilb-b">{orig}</span>'
+                    f'</span>'
+                )
+            else:
+                parts.append(orig)
+        return ''.join(parts)
+
+    if mode == 'inline':
+        parts = []
+        for orig, reading in spans:
+            if reading:
+                parts.append(f'{orig}({reading})')
+            else:
+                parts.append(orig)
+        return ''.join(parts)
+
+    # Default: ruby mode
     parts = []
     for orig, reading in spans:
         if reading:
@@ -867,7 +1358,7 @@ def build_annotation_html(spans: list) -> str:
     return ''.join(parts)
 
 
-def get_romanizer(lang_code: str):
+def get_romanizer(lang_code: str, phonetic_system: str = None):
     """Return a romanization callable for *lang_code*, or None.
 
     The returned callable has the signature::
@@ -885,6 +1376,8 @@ def get_romanizer(lang_code: str):
     Args:
         lang_code: BCP 47 language tag, e.g. ``"ja"``, ``"zh-cn"``, ``"ko"``.
                    Unknown codes are handled gracefully — no exception is raised.
+        phonetic_system: Override for languages with multiple romanization
+                         systems.  Thai: ``"rtgs"``, ``"paiboon"``, ``"ipa"``.
     """
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
@@ -906,7 +1399,22 @@ def get_romanizer(lang_code: str):
             return spans_to_romaji(resolve_spans(text))
         return _ja_romanize
 
-    # Chunk R4 — Korean, Russian/Cyrillic, Thai ───────────────────── TODO
+    # Chunk R4 — Korean (korean-romanizer, Revised Romanization) ──── ✅
+    if primary == "ko":
+        return _make_korean_romanizer()
+
+    # Chunk R4 — Cyrillic (cyrtranslit) ───────────────────────────── ✅
+    if primary in _CYRILLIC_LANG_CODES:
+        return _make_cyrillic_romanizer(primary)
+
+    # Chunk R4 — Thai (pythainlp) ──────────────────────────────────── ✅
+    if primary == "th":
+        if phonetic_system == "paiboon":
+            return _make_thai_paiboon_romanizer()
+        if phonetic_system == "ipa":
+            return _make_thai_ipa_romanizer()
+        return _make_thai_romanizer()  # RTGS default
+
     # Chunk R5 — Indic scripts, Arabic/Persian/Urdu ───────────────── TODO
 
     return None

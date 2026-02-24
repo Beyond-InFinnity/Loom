@@ -147,7 +147,8 @@ def _make_annotation_events(line, spans, annotation_cfg, top_marginv,
     for c in stripped_text)``.
     """
     ann_fontsize = annotation_cfg.get('fontsize', 12)
-    ann_y = max(0, top_marginv - ann_fontsize - 2)
+    ann_gap = annotation_cfg.get('annotation_gap', 2)
+    ann_y = max(0, top_marginv - ann_fontsize - ann_gap)
 
     # Reconstruct stripped text from span origs — same character sequence that
     # the tokeniser produced, so display-width sums are consistent.
@@ -203,28 +204,34 @@ def _iter_dialogue_events(subs):
 
     Multi-layer fansub ASS files (e.g. Furretar's AoT releases) pack several
     rendering layers into a single track:
-      - Layer N (highest) — the actual readable dialogue lines
-      - Layers 0…N-1   — karaoke glow/shadow compositing, syllable-highlight
-                          clips, OP/ED romaji, chapter-marker drawings, etc.
+      - One layer contains the actual readable dialogue lines (most events)
+      - Other layers contain karaoke glow/shadow compositing, syllable-highlight
+        clips, OP/ED romaji, chapter-marker drawings, etc. (few events each)
 
-    Convention: the highest-numbered layer is the main dialogue layer.  All
-    lower layers are compositing/effects layers for karaoke or title sequences
-    and are excluded.  Single-layer files (plain SRT, simple ASS) are returned
-    in full.
+    Heuristic: the layer with the **most non-drawing events** is the main
+    dialogue layer.  All other layers are compositing/effects layers and are
+    excluded.  Single-layer files (plain SRT, simple ASS) are returned in full.
 
     Vector-path drawing events (\\p1, \\p2 …) are always excluded — they are
     graphical shapes, never subtitle text.
     """
-    layers = {e.layer for e in subs}
-    main_layer = max(layers) if layers else 0
-    is_multilayer = len(layers) > 1
-
+    # Count non-drawing events per layer to find the main dialogue layer.
+    layer_counts = {}
     for event in subs:
-        # Always skip vector-path drawings.
         if _VEC_PATH_RE.search(event.text):
             continue
-        # For multi-layer ASS, discard all compositing/effects layers.
-        if is_multilayer and event.layer < main_layer:
+        layer_counts[event.layer] = layer_counts.get(event.layer, 0) + 1
+
+    if not layer_counts:
+        return
+
+    is_multilayer = len(layer_counts) > 1
+    main_layer = max(layer_counts, key=layer_counts.get) if is_multilayer else next(iter(layer_counts))
+
+    for event in subs:
+        if _VEC_PATH_RE.search(event.text):
+            continue
+        if is_multilayer and event.layer != main_layer:
             continue
         yield event
 
@@ -259,7 +266,7 @@ def _make_opencc_converter(chinese_variant, script_display):
 
 def generate_ass_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_playres=None,
-                      progress_callback=None):
+                      progress_callback=None, include_annotations=True):
     """
     Generates a complete 4-layer .ass file from subtitle sources and styles.
 
@@ -282,6 +289,11 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         (1920, 1080).
     progress_callback : callable | None
         Optional ``callback(phase, completed, total)`` for UI progress.
+    include_annotations : bool
+        When True (default), emit ``\\pos()`` Annotation events and keep the
+        Annotation style.  When False, skip annotation generation and remove
+        the Annotation style — producing a 3-layer .ass file.  PGS is
+        recommended for annotations (pixel-perfect ruby rendering).
 
     Returns
     -------
@@ -334,11 +346,14 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
                 glow_configs[name] = max(1, config.get('glow_radius', 5) // 3)
 
         vertical_offset = styles.get('vertical_offset', 0)
+        romanized_gap = styles.get('romanized_gap', 0)
         if vertical_offset:
             if 'Top' in stitched_subs.styles:
                 stitched_subs.styles['Top'].marginv += vertical_offset
             if 'Romanized' in stitched_subs.styles:
                 stitched_subs.styles['Romanized'].marginv += vertical_offset
+        if romanized_gap and 'Romanized' in stitched_subs.styles:
+            stitched_subs.styles['Romanized'].marginv -= romanized_gap
 
         if _scale != 1.0:
             for style in stitched_subs.styles.values():
@@ -377,17 +392,27 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         screen_width = _out_res[0]
 
         annotation_cfg = dict(styles.get('Annotation', {}))
+        annotation_cfg['annotation_gap'] = styles.get('annotation_gap', 2) * _scale
         if _scale != 1.0:
             annotation_cfg['fontsize'] = annotation_cfg.get('fontsize', 12) * _scale
 
         _top_fontname = styles['Top'].get('fontname', 'Arial')
 
+        word_boundary_func = lang_cfg.get('word_boundary_func')
+
         romaji_enabled = styles['Romanized']['enabled'] and romanize_func
         annotation_enabled = (
-            annotation_func is not None
+            include_annotations
+            and annotation_func is not None
             and styles.get('Annotation', {}).get('enabled', False)
+            and lang_cfg.get('supports_ass_annotation', True)
         )
         use_pipeline = resolve_spans_func is not None and spans_to_romaji_func is not None
+
+        # Remove Annotation style from output when annotations are disabled —
+        # produces a clean 3-layer .ass file with no orphan style definition.
+        if not annotation_enabled:
+            stitched_subs.styles.pop('Annotation', None)
 
         # Load Pillow measurement font for \pos() annotation positioning.
         if annotation_enabled:
@@ -409,7 +434,10 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
 
             if styles['Top']['enabled']:
                 h_line = line.copy()
-                h_line.text = display_text
+                # Apply word boundary markers (Thai: thin spaces between tokens)
+                # to the Top line only — display_text stays clean for romanization.
+                top_text = word_boundary_func(display_text) if word_boundary_func else display_text
+                h_line.text = top_text
                 h_line.style = "Top"
                 if "Top" in glow_configs:
                     h_line.text = f'{{\\blur{glow_configs["Top"]}}}{h_line.text}'
@@ -523,6 +551,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         spans_to_romaji_func = lang_cfg.get("spans_to_romaji_func")
         long_vowel_mode = styles.get('Romanized', {}).get('long_vowel_mode', 'macrons')
 
+        word_boundary_func = lang_cfg.get('word_boundary_func')
+
         romaji_enabled = styles['Romanized']['enabled'] and romanize_func
         annotation_enabled = (
             annotation_func is not None
@@ -530,6 +560,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         )
         use_pipeline = resolve_spans_func is not None and spans_to_romaji_func is not None
         bottom_enabled = styles['Bottom']['enabled']
+        ann_render_mode = lang_cfg.get('annotation_render_mode', 'ruby')
 
         # --- Collect native events for temporal pairing ---
         native_events = []
@@ -558,9 +589,10 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                     spans = resolve_spans_func(display_text)
                 else:
                     spans = annotation_func(display_text)
-                top_html = build_annotation_html(spans) or display_text
+                top_html = build_annotation_html(spans, mode=ann_render_mode) or display_text
             else:
-                top_html = display_text
+                # Apply word boundary markers (Thai: thin spaces) to plain Top text.
+                top_html = word_boundary_func(display_text) if word_boundary_func else display_text
                 spans = None
 
             # Romanized text
@@ -602,6 +634,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
             canvas_height=out_res[1],
             scale=_scale,
             progress_callback=progress_callback,
+            annotation_render_mode=ann_render_mode,
         )
 
         if not display_sets:

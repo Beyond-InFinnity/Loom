@@ -357,6 +357,116 @@ def test_pgs_seek_safety():
         os.unlink(tmp_path)
 
 
+def test_pts_anchor_when_events_start_late():
+    """When the first event starts after 0ms, a PTS=0 anchor must be emitted.
+
+    Without this anchor, ffmpeg subtracts the first PTS when muxing .sup → MKV,
+    shifting all events earlier and making them display at the wrong time.
+    """
+    import struct as s
+
+    img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
+    display_sets = [
+        DisplaySet(start_ms=26000, end_ms=28000, image=img, x=100, y=500,
+                   canvas_width=1920, canvas_height=1080),
+        DisplaySet(start_ms=30000, end_ms=32000, image=img, x=100, y=500,
+                   canvas_width=1920, canvas_height=1080),
+    ]
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        write_sup(display_sets, tmp_path)
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+
+        pos = 0
+        pcs_records = []
+        while pos + 13 <= len(raw):
+            magic = raw[pos:pos+2]
+            if magic != b'PG':
+                break
+            pts = s.unpack_from('>I', raw, pos + 2)[0]
+            seg_type = raw[pos + 10]
+            seg_size = s.unpack_from('>H', raw, pos + 11)[0]
+            if seg_type == 0x16:
+                pcs_data = raw[pos + 13: pos + 13 + seg_size]
+                num_objects = pcs_data[10]
+                pcs_records.append((pts, num_objects))
+            pos += 13 + seg_size
+
+        # First PCS must be at PTS=0 (the anchor) with 0 objects
+        assert pcs_records[0] == (0, 0), (
+            f"Expected anchor PCS at (PTS=0, objects=0), got {pcs_records[0]}"
+        )
+
+        # Second PCS is the first real show at 26000ms = 2340000 ticks
+        assert pcs_records[1][0] == 26000 * 90, (
+            f"Expected first show PCS at PTS={26000*90}, got {pcs_records[1][0]}"
+        )
+        assert pcs_records[1][1] > 0, "First show PCS should have objects"
+
+        # Total: 1 anchor + 2*(show+clear) = 5 PCS
+        assert len(pcs_records) == 5, f"Expected 5 PCS, got {len(pcs_records)}"
+
+        # Verify PTS monotonicity
+        pts_list = [p for p, _ in pcs_records]
+        for j in range(1, len(pts_list)):
+            assert pts_list[j] > pts_list[j - 1], (
+                f"PTS not increasing: [{j-1}]={pts_list[j-1]}, [{j}]={pts_list[j]}"
+            )
+
+        print("  [PASS] PTS anchor emitted when events start late")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_no_anchor_when_events_start_at_zero():
+    """When the first event starts at 0ms, no anchor should be emitted."""
+    import struct as s
+
+    img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
+    ds = DisplaySet(start_ms=0, end_ms=2000, image=img, x=100, y=500,
+                    canvas_width=1920, canvas_height=1080)
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        write_sup([ds], tmp_path)
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+
+        pos = 0
+        pcs_records = []
+        while pos + 13 <= len(raw):
+            magic = raw[pos:pos+2]
+            if magic != b'PG':
+                break
+            pts = s.unpack_from('>I', raw, pos + 2)[0]
+            seg_type = raw[pos + 10]
+            seg_size = s.unpack_from('>H', raw, pos + 11)[0]
+            if seg_type == 0x16:
+                pcs_data = raw[pos + 13: pos + 13 + seg_size]
+                num_objects = pcs_data[10]
+                pcs_records.append((pts, num_objects))
+            pos += 13 + seg_size
+
+        # No anchor — first PCS is the show at PTS=0
+        assert pcs_records[0] == (0, 1), (
+            f"Expected show PCS at (PTS=0, objects=1), got {pcs_records[0]}"
+        )
+        # Only 2 PCS: 1 show + 1 clear
+        assert len(pcs_records) == 2, f"Expected 2 PCS, got {len(pcs_records)}"
+
+        print("  [PASS] No anchor when events start at 0ms")
+    finally:
+        os.unlink(tmp_path)
+
+
 if __name__ == '__main__':
     print("Running SUP writer round-trip tests...\n")
     test_rle_roundtrip_simple()
@@ -369,4 +479,6 @@ if __name__ == '__main__':
     test_sup_multiple_display_sets()
     test_ods_fragmentation_large_bitmap()
     test_pgs_seek_safety()
+    test_pts_anchor_when_events_start_late()
+    test_no_anchor_when_events_start_at_zero()
     print("\nAll tests passed!")

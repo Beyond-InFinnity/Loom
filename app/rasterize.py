@@ -21,7 +21,11 @@ PGSFrameEvent
     Dataclass: start_ms, end_ms, bottom_text, top_html, romaji_text.
 
 rasterize_pgs_frames(events, styles, ...) -> list[DisplaySet]
-    Render full-frame subtitle composites to transparent PNGs.
+    Render full-frame subtitle composites to transparent PNGs (all in memory).
+
+rasterize_pgs_to_file(events, styles, ..., output_path) -> int
+    Memory-bounded: render in batches of 50, write .sup incrementally via
+    SupWriter, recycle Playwright pages every 100 frames.
 """
 
 from __future__ import annotations
@@ -60,6 +64,7 @@ class PGSFrameEvent:
     bottom_text: str | None
     top_html: str
     romaji_text: str | None
+    preserved_html: str | None = None
 
 
 def is_playwright_available() -> bool:
@@ -228,7 +233,7 @@ html, body {{ background: transparent; overflow: hidden;
     font-size: {ann_fontsize:.1f}px;
     font-weight: {ann_bold};
     font-style: {ann_italic};
-    margin-bottom: {ann_gap * scale:.1f}px;
+    transform: translateY(-{ann_gap * scale:.1f}px);
     {ann_text_shadow}
 }}
 /* Interlinear annotation mode: inline-block two-row containers */
@@ -245,7 +250,7 @@ html, body {{ background: transparent; overflow: hidden;
     font-size: {ann_fontsize:.1f}px;
     font-weight: {ann_bold};
     font-style: {ann_italic};
-    margin-bottom: {ann_gap * scale:.1f}px;
+    transform: translateY(-{ann_gap * scale:.1f}px);
     {ann_text_shadow}
 }}
 #top .ilb-b {{
@@ -256,6 +261,7 @@ html, body {{ background: transparent; overflow: hidden;
   <div id="bottom" class="layer"></div>
   <div id="top" class="layer"></div>
   <div id="romaji" class="layer"></div>
+  <div id="preserved" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div>
 </div></body></html>'''
 
 
@@ -317,11 +323,12 @@ def rasterize_pgs_frames(
     results = [None] * total
     progress_counter = [0]
 
-    # JS function to update all three layer divs at once
+    # JS function to update all layer divs at once (4 args: bottom, top, romaji, preserved)
     _UPDATE_JS = '''(args) => {
         document.getElementById("bottom").innerHTML = args[0] || "";
         document.getElementById("top").innerHTML = args[1] || "";
         document.getElementById("romaji").innerHTML = args[2] || "";
+        document.getElementById("preserved").innerHTML = args[3] || "";
     }'''
 
     async def _process_chunk(page, chunk):
@@ -333,8 +340,9 @@ def rasterize_pgs_frames(
             bottom = (event.bottom_text or '').replace('\\N', '<br>').replace('\n', '<br>')
             top = (event.top_html or '').replace('\\N', '<br>').replace('\n', '<br>')
             romaji = (event.romaji_text or '').replace('\\N', '<br>').replace('\n', '<br>')
+            preserved = event.preserved_html or ''
 
-            await page.evaluate(_UPDATE_JS, [bottom, top, romaji])
+            await page.evaluate(_UPDATE_JS, [bottom, top, romaji, preserved])
 
             # Screenshot the full frame with transparent background
             png_bytes = await frame_el.screenshot(type='png', omit_background=True)
@@ -414,3 +422,191 @@ def rasterize_pgs_frames(
 
     # Filter out None entries (events with no visible content)
     return [ds for ds in results if ds is not None]
+
+
+# ── Streaming rendering constants ────────────────────────────────────
+_BATCH_SIZE = 50        # frames per SUP-write batch (bounds pending PIL images)
+
+
+def rasterize_pgs_to_file(
+    events: list[PGSFrameEvent],
+    styles: dict,
+    canvas_width: int,
+    canvas_height: int,
+    output_path: str,
+    scale: float = 1.0,
+    progress_callback=None,
+    annotation_render_mode: str = 'ruby',
+    batch_size: int = _BATCH_SIZE,
+) -> int:
+    """Render PGS frames and write to .sup file incrementally.
+
+    Memory-bounded alternative to ``rasterize_pgs_frames()`` + ``write_sup()``.
+    Processes events in batches of *batch_size*, writes each batch's display
+    sets to disk immediately via ``SupWriter``, which releases PIL images after
+    flushing.  Playwright pages are created once and reused for all frames.
+
+    Parameters
+    ----------
+    events : list[PGSFrameEvent]
+        Subtitle frame events in chronological order.
+    styles : dict
+        Full style config from st.session_state.styles.
+    canvas_width, canvas_height : int
+        Output video dimensions in pixels.
+    output_path : str
+        Path to write the .sup file.
+    scale : float
+        Output scale factor (canvas_height / 1080).
+    progress_callback : callable | None
+        Optional ``callback(completed, total)`` for UI progress bar.
+    annotation_render_mode : str
+        Annotation HTML mode: ``'ruby'``, ``'interlinear'``, ``'inline'``.
+    batch_size : int
+        Number of frames per batch (default 50).
+
+    Returns
+    -------
+    int
+        Number of visible display sets written.
+    """
+    if not events:
+        return 0
+
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise ImportError(
+            "Playwright is required for PGS rasterization.\n"
+            "Install:  pip install playwright && playwright install chromium"
+        )
+
+    from PIL import Image
+    from .sup_writer import SupWriter
+
+    page_html = _build_fullframe_html(styles, canvas_width, canvas_height, scale,
+                                       annotation_render_mode=annotation_render_mode)
+
+    total = len(events)
+    progress_counter = [0]
+    writer = SupWriter(output_path, canvas_width, canvas_height)
+
+    _UPDATE_JS = '''(args) => {
+        document.getElementById("bottom").innerHTML = args[0] || "";
+        document.getElementById("top").innerHTML = args[1] || "";
+        document.getElementById("romaji").innerHTML = args[2] || "";
+        document.getElementById("preserved").innerHTML = args[3] || "";
+    }'''
+
+    async def _process_batch_chunk(page, chunk, batch_results):
+        """Process a chunk of (batch_index, event) pairs on one page."""
+        frame_el = page.locator('.frame')
+
+        for batch_idx, event in chunk:
+            bottom = (event.bottom_text or '').replace('\\N', '<br>').replace('\n', '<br>')
+            top = (event.top_html or '').replace('\\N', '<br>').replace('\n', '<br>')
+            romaji = (event.romaji_text or '').replace('\\N', '<br>').replace('\n', '<br>')
+            preserved = event.preserved_html or ''
+
+            await page.evaluate(_UPDATE_JS, [bottom, top, romaji, preserved])
+            png_bytes = await frame_el.screenshot(type='png', omit_background=True)
+
+            img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
+            bbox = img.getbbox()
+
+            if bbox:
+                cropped = img.crop(bbox)
+                batch_results[batch_idx] = DisplaySet(
+                    start_ms=event.start_ms,
+                    end_ms=event.end_ms,
+                    image=cropped,
+                    x=bbox[0],
+                    y=bbox[1],
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                )
+            # Release full-frame image immediately
+            del img, png_bytes
+
+            progress_counter[0] += 1
+            if progress_callback:
+                progress_callback(progress_counter[0], total)
+
+    async def _create_pages(browser, n):
+        """Create n fresh browser pages loaded with the template HTML."""
+        pages = []
+        for _ in range(n):
+            ctx = await browser.new_context(
+                viewport={'width': canvas_width, 'height': canvas_height},
+            )
+            page = await ctx.new_page()
+            await page.set_content(page_html, wait_until='domcontentloaded')
+            pages.append((ctx, page))
+        return pages
+
+    async def _close_pages(pages):
+        """Close all pages and their contexts."""
+        for ctx, page in pages:
+            await page.close()
+            await ctx.close()
+
+    async def _run():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+
+            num_workers = min(4, total)
+            pages = await _create_pages(browser, num_workers)
+
+            for batch_start in range(0, total, batch_size):
+                batch_end = min(batch_start + batch_size, total)
+                batch_events = events[batch_start:batch_end]
+                batch_len = len(batch_events)
+                batch_results = [None] * batch_len
+
+                # Partition batch events across workers
+                active_workers = min(num_workers, batch_len)
+                chunks = [[] for _ in range(active_workers)]
+                for i, event in enumerate(batch_events):
+                    chunks[i % active_workers].append((i, event))
+
+                # Process batch concurrently
+                tasks = []
+                for w in range(active_workers):
+                    if chunks[w]:
+                        tasks.append(_process_batch_chunk(
+                            pages[w][1], chunks[w], batch_results,
+                        ))
+                await asyncio.gather(*tasks)
+
+                # Write visible results to SUP in chronological order
+                # (SupWriter releases PIL images after flushing each to disk)
+                for ds in batch_results:
+                    if ds is not None:
+                        writer.write(ds)
+
+            await _close_pages(pages)
+            await browser.close()
+
+    # Run the async event loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        exc_holder = [None]
+        def _thread_target():
+            try:
+                asyncio.run(_run())
+            except Exception as e:
+                exc_holder[0] = e
+        t = threading.Thread(target=_thread_target)
+        t.start()
+        t.join()
+        if exc_holder[0]:
+            raise exc_holder[0]
+    else:
+        asyncio.run(_run())
+
+    writer.close()
+    return writer.count

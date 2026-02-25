@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from PIL import Image
 from app.sup_writer import (
-    DisplaySet, write_sup, _encode_rle, _rgb_to_ycbcr, _quantize_image,
+    DisplaySet, write_sup, SupWriter, _encode_rle, _rgb_to_ycbcr, _quantize_image,
 )
 from app.ocr import _parse_sup, _decode_rle, _ycbcr_to_rgb
 
@@ -467,6 +467,158 @@ def test_no_anchor_when_events_start_at_zero():
         os.unlink(tmp_path)
 
 
+def test_sup_writer_streaming_roundtrip():
+    """SupWriter produces identical output to write_sup() for the same input."""
+    from app.sup_writer import SupWriter
+
+    display_sets = []
+    for i in range(5):
+        img = Image.new('RGBA', (60, 30), ((i * 50) % 256, 100, 50, 255))
+        display_sets.append(DisplaySet(
+            start_ms=5000 + i * 3000,
+            end_ms=5000 + i * 3000 + 2500,
+            image=img, x=100, y=500,
+            canvas_width=1920, canvas_height=1080,
+        ))
+
+    # Write with write_sup()
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        batch_path = f.name
+    write_sup(display_sets, batch_path)
+
+    # Write with SupWriter (streaming)
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        stream_path = f.name
+    writer = SupWriter(stream_path, 1920, 1080)
+    for ds in display_sets:
+        writer.write(ds)
+    writer.close()
+
+    try:
+        batch_data = open(batch_path, 'rb').read()
+        stream_data = open(stream_path, 'rb').read()
+        assert batch_data == stream_data, (
+            f"Streaming output ({len(stream_data)} bytes) differs from "
+            f"batch output ({len(batch_data)} bytes)"
+        )
+        assert writer.count == 5
+
+        # Verify round-trip through parser
+        results = _parse_sup(stream_path)
+        assert len(results) >= 5, f"Expected >=5 display sets, got {len(results)}"
+
+        print(f"  [PASS] SupWriter streaming matches write_sup() ({len(stream_data)} bytes)")
+    finally:
+        os.unlink(batch_path)
+        os.unlink(stream_path)
+
+
+def test_sup_writer_context_manager():
+    """SupWriter works as a context manager."""
+    from app.sup_writer import SupWriter
+
+    img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
+    ds = DisplaySet(start_ms=1000, end_ms=3000, image=img, x=0, y=0,
+                    canvas_width=1920, canvas_height=1080)
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        with SupWriter(tmp_path, 1920, 1080) as w:
+            w.write(ds)
+        # File should be flushed and closed after exiting context
+        assert w.count == 1
+        assert os.path.getsize(tmp_path) > 0
+
+        results = _parse_sup(tmp_path)
+        assert len(results) >= 1
+        print("  [PASS] SupWriter context manager flushes on exit")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_sup_writer_anchor_late_start():
+    """SupWriter emits PTS=0 anchor when first event starts after 0ms."""
+    import struct as s
+    from app.sup_writer import SupWriter
+
+    img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
+    ds = DisplaySet(start_ms=10000, end_ms=12000, image=img, x=100, y=500,
+                    canvas_width=1920, canvas_height=1080)
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        with SupWriter(tmp_path, 1920, 1080) as w:
+            w.write(ds)
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+
+        # Parse PCS records
+        pos = 0
+        pcs_records = []
+        while pos + 13 <= len(raw):
+            magic = raw[pos:pos+2]
+            if magic != b'PG':
+                break
+            pts = s.unpack_from('>I', raw, pos + 2)[0]
+            seg_type = raw[pos + 10]
+            seg_size = s.unpack_from('>H', raw, pos + 11)[0]
+            if seg_type == 0x16:
+                pcs_data = raw[pos + 13: pos + 13 + seg_size]
+                num_objects = pcs_data[10]
+                pcs_records.append((pts, num_objects))
+            pos += 13 + seg_size
+
+        # First PCS = anchor at PTS=0 with 0 objects
+        assert pcs_records[0] == (0, 0), f"Expected anchor, got {pcs_records[0]}"
+        # Second PCS = show at 10000ms
+        assert pcs_records[1][0] == 10000 * 90
+        assert pcs_records[1][1] > 0
+        print("  [PASS] SupWriter anchor emitted for late start")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_sup_writer_image_released_after_flush():
+    """SupWriter sets ds.image = None after flushing to disk."""
+    from app.sup_writer import SupWriter
+
+    ds1 = DisplaySet(
+        start_ms=1000, end_ms=3000,
+        image=Image.new('RGBA', (40, 20), (200, 100, 50, 255)),
+        x=0, y=0, canvas_width=1920, canvas_height=1080,
+    )
+    ds2 = DisplaySet(
+        start_ms=4000, end_ms=6000,
+        image=Image.new('RGBA', (40, 20), (100, 200, 50, 255)),
+        x=0, y=0, canvas_width=1920, canvas_height=1080,
+    )
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        with SupWriter(tmp_path, 1920, 1080) as w:
+            w.write(ds1)
+            # ds1 is now pending — image still needed
+            assert ds1.image is not None, "ds1 image released too early"
+            w.write(ds2)
+            # ds1 is now flushed — image should be released
+            assert ds1.image is None, "ds1 image not released after flush"
+            # ds2 is now pending — image still needed
+            assert ds2.image is not None, "ds2 image released too early"
+        # After close(), ds2 is flushed — image should be released
+        assert ds2.image is None, "ds2 image not released after close"
+        assert w.count == 2
+        print("  [PASS] SupWriter releases images after flushing")
+    finally:
+        os.unlink(tmp_path)
+
+
 if __name__ == '__main__':
     print("Running SUP writer round-trip tests...\n")
     test_rle_roundtrip_simple()
@@ -481,4 +633,8 @@ if __name__ == '__main__':
     test_pgs_seek_safety()
     test_pts_anchor_when_events_start_late()
     test_no_anchor_when_events_start_at_zero()
+    test_sup_writer_streaming_roundtrip()
+    test_sup_writer_context_manager()
+    test_sup_writer_anchor_late_start()
+    test_sup_writer_image_released_after_flush()
     print("\nAll tests passed!")

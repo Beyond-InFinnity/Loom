@@ -19,7 +19,11 @@ The binary format follows the Blu-ray PGS specification.  Segment header:
 Public API
 ----------
 write_sup(display_sets, output_path)
-    Write a list of DisplaySet objects to a .sup file.
+    Write a list of DisplaySet objects to a .sup file (batch mode).
+
+SupWriter(path, canvas_width, canvas_height)
+    Streaming writer — accepts display sets one at a time via write(ds),
+    flushes to disk incrementally.  Memory-bounded for large frame counts.
 
 DisplaySet
     Dataclass holding timing, RGBA image, position, and canvas dimensions.
@@ -486,6 +490,101 @@ def _build_clear_segments(ds: DisplaySet, comp_number: int,
 
 
 # ── Public API ───────────────────────────────────────────────────────
+
+class SupWriter:
+    """Streaming PGS/SUP writer — writes display sets incrementally.
+
+    Unlike ``write_sup()`` which requires all display sets up front, this class
+    accepts display sets one at a time via ``write(ds)`` and flushes each to
+    disk immediately.  This bounds memory usage to at most 2 display sets
+    (current + pending) regardless of total frame count or resolution.
+
+    PTS monotonicity: the writer buffers the most recently received display set
+    and only flushes it when the *next* one arrives (so it can guard the clear
+    PTS against the next show PTS).  ``close()`` flushes the final buffered set.
+
+    Usage::
+
+        writer = SupWriter("output.sup", canvas_width=1920, canvas_height=1080)
+        for ds in display_sets:
+            writer.write(ds)
+        writer.close()
+    """
+
+    def __init__(self, path: str, canvas_width: int, canvas_height: int):
+        self._f = open(path, 'wb')
+        self._comp = 0
+        self._pending: DisplaySet | None = None
+        self._canvas_w = canvas_width
+        self._canvas_h = canvas_height
+        self._anchor_written = False
+        self.count = 0  # number of display sets written
+
+    def write(self, ds: DisplaySet) -> None:
+        """Accept a display set.  The *previous* pending set is flushed to disk."""
+        # Write PTS=0 anchor on first display set if it starts after 0ms
+        if not self._anchor_written:
+            self._anchor_written = True
+            if ds.start_ms > 0:
+                anchor_pcs = _make_pcs(
+                    self._canvas_w, self._canvas_h,
+                    self._comp, _COMP_EPOCH_START,
+                    palette_update=False, palette_id=0,
+                    objects=[],
+                )
+                anchor_wds = _make_wds([(0, 0, 0, 1, 1)])
+                for seg in [
+                    _make_segment(_SEG_PCS, 0, anchor_pcs),
+                    _make_segment(_SEG_WDS, 0, anchor_wds),
+                    _make_segment(_SEG_END, 0, b''),
+                ]:
+                    self._f.write(seg)
+                self._comp += 1
+
+        if self._pending is not None:
+            self._flush_pending(next_start_ms=ds.start_ms)
+
+        self._pending = ds
+
+    def _flush_pending(self, next_start_ms: int | None = None) -> None:
+        """Write show+clear segments for the pending display set."""
+        ds = self._pending
+        if ds is None:
+            return
+
+        # Show segments
+        for seg in _build_show_segments(ds, self._comp):
+            self._f.write(seg)
+        self._comp += 1
+
+        # Clear segments — guard PTS monotonicity against next show
+        clear_pts = int(ds.end_ms * 90)
+        if next_start_ms is not None:
+            next_show_pts = int(next_start_ms * 90)
+            if clear_pts >= next_show_pts:
+                clear_pts = next_show_pts - 90  # 1 ms before next show
+
+        for seg in _build_clear_segments(ds, self._comp,
+                                         pts_override=clear_pts):
+            self._f.write(seg)
+        self._comp += 1
+
+        self.count += 1
+        ds.image = None  # release PIL image after writing
+        self._pending = None
+
+    def close(self) -> None:
+        """Flush the final pending display set and close the file."""
+        if self._pending is not None:
+            self._flush_pending()
+        self._f.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
 
 def write_sup(display_sets: list[DisplaySet], output_path: str) -> None:
     """Write a list of display sets to a .sup (PGS) file.

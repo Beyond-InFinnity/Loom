@@ -39,3 +39,13 @@ def initialize_state():
         st.session_state.mkv_path_input = ""
     if 'mkv_resolution' not in st.session_state:
         st.session_state.mkv_resolution = (1920, 1080)
+
+    # --- Style mapping for multi-style ASS files ---
+    if 'native_style_info' not in st.session_state:
+        st.session_state.native_style_info = None
+    if 'target_style_info' not in st.session_state:
+        st.session_state.target_style_info = None
+    if 'native_style_mapping' not in st.session_state:
+        st.session_state.native_style_mapping = None
+    if 'target_style_mapping' not in st.session_state:
+        st.session_state.target_style_mapping = None

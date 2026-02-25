@@ -13,6 +13,23 @@ from .romanize import build_annotation_html, _strip_inline_furigana, _strip_reve
 # Events containing these are graphical shapes, never subtitle text.
 _VEC_PATH_RE = re.compile(r'\\p\d')
 
+# Smart default role patterns for detect_ass_styles().
+# Styles whose names match _PRESERVE_PATTERNS default to "preserve" — passed
+# through with original styling (signs, typesetting, OP/ED karaoke lyrics).
+# OP/ED/song styles preserve their animation tags in .ass output; animation
+# tags are auto-stripped for PGS (static bitmap) output.
+_PRESERVE_PATTERNS = re.compile(
+    r'sign|screen|title|card|caption|typeset|logo|insert'
+    r'|song|lyric|karaoke|kfx|opening|ending'
+    r'|\bop\b|op_|_op|\bed\b|ed_|_ed',
+    re.IGNORECASE,
+)
+# No styles currently default to exclude — 0-event styles still get "exclude".
+_EXCLUDE_PATTERNS = re.compile(
+    r'(?!)',  # never matches
+    re.IGNORECASE,
+)
+
 # Fixed ASS PlayRes reference — all font sizes, margins, and coordinates in the
 # generated .ass file are in this coordinate space.  The ASS renderer scales them
 # to the actual video resolution at playback.  Must match _REF_H in preview.py
@@ -199,7 +216,302 @@ def _load_subs(source):
     return pysubs2.SSAFile.from_string(source.getvalue().decode("utf-8"))
 
 
-def _iter_dialogue_events(subs):
+def _get_source_playres(subs):
+    """Return (PlayResX, PlayResY) from an SSAFile, defaulting per ASS spec.
+
+    The ASS spec default is (384, 288) when PlayRes tags are absent.
+    """
+    try:
+        x = int(subs.info.get('PlayResX', 0))
+    except (ValueError, TypeError):
+        x = 0
+    try:
+        y = int(subs.info.get('PlayResY', 0))
+    except (ValueError, TypeError):
+        y = 0
+    return (x or 384, y or 288)
+
+
+def detect_ass_styles(source):
+    """Detect named styles and their event counts in an ASS/SSA file.
+
+    Parameters
+    ----------
+    source : str or file object
+        Path to an .ass/.ssa file, or a Streamlit uploaded file object.
+
+    Returns
+    -------
+    dict | None
+        ``None`` for SRT files (no named styles) or files with <= 1 style.
+        Otherwise a dict keyed by style name::
+
+            {style_name: {
+                "event_count": int,
+                "style": SSAStyle,
+                "role": "dialogue" | "preserve" | "exclude",
+                "sample_text": str,
+                "has_animation": bool,
+            }}
+
+    The ``role`` field is a smart default (priority order — first match wins):
+
+    1. Names matching ``_PRESERVE_PATTERNS`` -> ``"preserve"`` (final)
+    2. Names matching ``_EXCLUDE_PATTERNS`` -> ``"exclude"`` (final)
+    3. Names literally "Dialogue" or "Default" -> ``"dialogue"``
+    4. Styles with 0 events -> ``"exclude"``
+    5. Among remaining styles, most events -> ``"dialogue"``
+    6. Everything else -> ``"dialogue"``
+    """
+    try:
+        subs = _load_subs(source)
+    except Exception:
+        return None
+
+    # SRT files have at most one style ("Default")
+    if len(subs.styles) <= 1:
+        return None
+
+    # Detect animation/karaoke tags in event text per style.
+    _anim_detect_re = re.compile(
+        r'\\(?:k[fo]?\d|K\d|t\(|move\(|fad(?:e)?\()',
+    )
+
+    # Count events per style, collect sample text, and detect animation tags
+    style_counts = {}
+    style_samples = {}
+    style_has_animation = {}
+    for event in subs:
+        if event.is_comment:
+            continue
+        if _VEC_PATH_RE.search(event.text):
+            continue
+        name = event.style
+        style_counts[name] = style_counts.get(name, 0) + 1
+        if name not in style_samples:
+            cleaned = re.sub(r'\{[^}]*\}', '', event.text)
+            cleaned = cleaned.replace(r'\N', ' ').replace(r'\n', ' ').replace('\n', ' ').strip()
+            style_samples[name] = cleaned[:80]
+        if not style_has_animation.get(name) and _anim_detect_re.search(event.text):
+            style_has_animation[name] = True
+
+    if not style_counts and not subs.styles:
+        return None
+
+    # Find most-events style — but only among styles NOT claimed by pattern
+    # rules.  Pattern match is final: if a name matches _PRESERVE_PATTERNS or
+    # _EXCLUDE_PATTERNS, it keeps that role regardless of event count.
+    _DIALOGUE_NAME_RE = re.compile(r'^(?:dialogue|default)$', re.IGNORECASE)
+
+    # First pass: assign pattern-based roles (immutable)
+    pattern_assigned = set()
+    result = {}
+    for style_name, style_obj in subs.styles.items():
+        count = style_counts.get(style_name, 0)
+
+        if count == 0:
+            role = "exclude"
+            pattern_assigned.add(style_name)
+        elif _PRESERVE_PATTERNS.search(style_name):
+            role = "preserve"
+            pattern_assigned.add(style_name)
+        elif _EXCLUDE_PATTERNS.search(style_name):
+            role = "exclude"
+            pattern_assigned.add(style_name)
+        elif _DIALOGUE_NAME_RE.match(style_name):
+            role = "dialogue"
+            pattern_assigned.add(style_name)
+        else:
+            role = None  # deferred to second pass
+
+        result[style_name] = {
+            "event_count": count,
+            "style": style_obj,
+            "role": role,
+            "sample_text": style_samples.get(style_name, ""),
+            "has_animation": style_has_animation.get(style_name, False),
+        }
+
+    # Second pass: among unassigned styles, the one with the most events
+    # gets "dialogue"; everything else also gets "dialogue".
+    unassigned = {
+        name for name, info in result.items() if info["role"] is None
+    }
+    if unassigned:
+        max_unassigned = max(
+            unassigned,
+            key=lambda n: style_counts.get(n, 0),
+        )
+        for name in unassigned:
+            result[name]["role"] = "dialogue"
+
+    # Only return if there are multiple styles
+    if len(result) <= 1:
+        return None
+
+    return result
+
+
+def _iter_preserved_events(subs, style_mapping):
+    """Yield ``(event, style_obj)`` tuples for events mapped to ``"preserve"``.
+
+    Skips comment events and vector-path drawing events.
+    """
+    if not style_mapping:
+        return
+
+    preserve_styles = frozenset(
+        name for name, role in style_mapping.items() if role == "preserve"
+    )
+    if not preserve_styles:
+        return
+
+    for event in subs:
+        if event.is_comment:
+            continue
+        if _VEC_PATH_RE.search(event.text):
+            continue
+        if event.style in preserve_styles:
+            style_obj = subs.styles.get(event.style)
+            yield (event, style_obj)
+
+
+def _dedup_preserved_for_pgs(events_and_styles):
+    """Deduplicate overlapping karaoke layer events for PGS rendering.
+
+    Complex fansub karaoke uses multiple ASS layers at the same timestamp to
+    composite effects (shadow, main text, animation sweep, decorations).
+    After stripping animation tags for PGS, all layers render fully visible
+    simultaneously — producing garbled overlapping text.
+
+    Groups events by style + time overlap + text content.  When a group spans
+    multiple ASS layers, only the **lowest non-drawing layer** is kept (the
+    static base text).  Higher-layer events (animation/sweep/highlight) are
+    discarded since they only make sense with ``\\K``/``\\t``/``\\clip``.
+
+    Parameters
+    ----------
+    events_and_styles : list[(SSAEvent, SSAStyle)]
+        Preserved events from ``_iter_preserved_events()``.
+
+    Returns
+    -------
+    list[(SSAEvent, SSAStyle)]
+        Deduplicated list — safe for PGS rendering without overlaps.
+    """
+    if not events_and_styles:
+        return []
+
+    # Strip tags to get plain display text for content comparison
+    def _plain(text):
+        return _OVERRIDE_BLOCK_RE.sub('', text).replace(r'\N', ' ').replace(r'\n', ' ').strip()
+
+    # Group events by style name.  Within each style, find clusters of
+    # time-overlapping events whose plain text is the same or a substring.
+    from collections import defaultdict
+    by_style = defaultdict(list)
+    for event, style_obj in events_and_styles:
+        by_style[event.style].append((event, style_obj))
+
+    kept = []
+    for style_name, group in by_style.items():
+        # Sort by start time, then by layer
+        group.sort(key=lambda es: (es[0].start, es[0].layer))
+
+        # Build clusters of overlapping events with related text content
+        clusters = []  # list of lists of (event, style_obj)
+        for event, style_obj in group:
+            plain = _plain(event.text)
+            merged = False
+            for cluster in clusters:
+                # Check if this event overlaps with any event in the cluster
+                # and has related text content
+                for c_event, _ in cluster:
+                    c_plain = _plain(c_event.text)
+                    time_overlap = (
+                        max(0, min(event.end, c_event.end)
+                             - max(event.start, c_event.start))
+                    )
+                    if time_overlap <= 0:
+                        continue
+                    # Text is the same, or one is a substring of the other
+                    if (plain == c_plain
+                            or plain in c_plain
+                            or c_plain in plain):
+                        cluster.append((event, style_obj))
+                        merged = True
+                        break
+                if merged:
+                    break
+            if not merged:
+                clusters.append([(event, style_obj)])
+
+        # For each cluster, keep only events on the lowest layer
+        for cluster in clusters:
+            if len(cluster) <= 1:
+                kept.extend(cluster)
+                continue
+            layers = {ev.layer for ev, _ in cluster}
+            if len(layers) <= 1:
+                # All on same layer — no dedup needed
+                kept.extend(cluster)
+                continue
+            min_layer = min(layers)
+            for event, style_obj in cluster:
+                if event.layer == min_layer:
+                    kept.append((event, style_obj))
+
+    return kept
+
+
+# --- PlayRes scaling helpers for preserved events ---
+
+_POS_TAG_RE = re.compile(r'\\pos\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)')
+_FS_TAG_RE = re.compile(r'\\fs([\d.]+)')
+
+
+def _scale_pos_tag(text, sx, sy):
+    """Scale ``\\pos(x,y)`` coordinates in ASS event text.
+
+    Parameters
+    ----------
+    sx, sy : float
+        Scale factors for X and Y coordinates.
+    """
+    def _replace_pos(m):
+        x = float(m.group(1)) * sx
+        y = float(m.group(2)) * sy
+        return f'\\pos({x:.0f},{y:.0f})'
+    return _POS_TAG_RE.sub(_replace_pos, text)
+
+
+def _scale_preserved_event(event, source_res, output_res):
+    """Return a copy of *event* with coordinates/sizes scaled from source to output PlayRes.
+
+    No-op when ``source_res == output_res``.
+    """
+    if source_res == output_res:
+        return event.copy()
+
+    sx = output_res[0] / source_res[0]
+    sy = output_res[1] / source_res[1]
+
+    new_event = event.copy()
+    # Scale \pos() in text
+    new_event.text = _scale_pos_tag(new_event.text, sx, sy)
+    # Scale inline \fs overrides
+    def _replace_fs(m):
+        fs = float(m.group(1)) * sy
+        return f'\\fs{fs:.0f}'
+    new_event.text = _FS_TAG_RE.sub(_replace_fs, new_event.text)
+    # Scale event margins
+    new_event.marginv = int(new_event.marginv * sy)
+    new_event.marginl = int(new_event.marginl * sx)
+    new_event.marginr = int(new_event.marginr * sx)
+    return new_event
+
+
+def _iter_dialogue_events(subs, style_mapping=None):
     """Yield only the main dialogue events from an SSAFile.
 
     Multi-layer fansub ASS files (e.g. Furretar's AoT releases) pack several
@@ -214,11 +526,30 @@ def _iter_dialogue_events(subs):
 
     Vector-path drawing events (\\p1, \\p2 …) are always excluded — they are
     graphical shapes, never subtitle text.
+
+    Parameters
+    ----------
+    subs : pysubs2.SSAFile
+        Parsed subtitle file.
+    style_mapping : dict | None
+        When provided, only events whose ``.style`` maps to ``"dialogue"``
+        are considered.  The layer heuristic is then applied within those
+        events (handles compositing layers within dialogue styles).
+        When ``None``, existing behavior is preserved — all styles eligible.
     """
+    # Pre-filter by style mapping if provided
+    dialogue_styles = None
+    if style_mapping:
+        dialogue_styles = frozenset(
+            name for name, role in style_mapping.items() if role == "dialogue"
+        )
+
     # Count non-drawing events per layer to find the main dialogue layer.
     layer_counts = {}
     for event in subs:
         if _VEC_PATH_RE.search(event.text):
+            continue
+        if dialogue_styles is not None and event.style not in dialogue_styles:
             continue
         layer_counts[event.layer] = layer_counts.get(event.layer, 0) + 1
 
@@ -231,9 +562,211 @@ def _iter_dialogue_events(subs):
     for event in subs:
         if _VEC_PATH_RE.search(event.text):
             continue
+        if dialogue_styles is not None and event.style not in dialogue_styles:
+            continue
         if is_multilayer and event.layer != main_layer:
             continue
         yield event
+
+
+# --- ASS-to-CSS translation for preserved events in PGS rendering ---
+
+_ASS_ALIGN_CSS = {
+    1: ("left", "bottom"),   2: ("center", "bottom"),  3: ("right", "bottom"),
+    4: ("left", "center"),   5: ("center", "center"),  6: ("right", "center"),
+    7: ("left", "top"),      8: ("center", "top"),      9: ("right", "top"),
+}
+
+_AN_TAG_RE = re.compile(r'\\an(\d)')
+_FN_TAG_RE = re.compile(r'\\fn([^\\}]+)')
+_C_TAG_RE = re.compile(r'\\(?:1?c)&H([0-9A-Fa-f]{2,6})&')
+_3C_TAG_RE = re.compile(r'\\3c&H([0-9A-Fa-f]{2,6})&')
+_BORD_TAG_RE = re.compile(r'\\bord([\d.]+)')
+_OVERRIDE_BLOCK_RE = re.compile(r'\{[^}]*\}')
+
+# Animation/timing tags to strip from preserved events in PGS output.
+# These tags produce motion/timing effects that cannot render as static bitmaps.
+# Visual styling tags (\fn, \fs, \c, \3c, \bord, \shad, \pos, \an, etc.) are kept.
+_ANIMATION_TAG_RE = re.compile(
+    r'\\(?:k[fo]?\d*|K\d*|t\([^)]*\)|move\([^)]*\)|fad(?:e)?\([^)]*\)|i?clip\([^)]*\)|org\([^)]*\))',
+)
+
+
+def _strip_animation_tags(text):
+    """Remove animation/timing ASS tags from override blocks, keeping visual tags.
+
+    Strips: ``\\k``, ``\\kf``, ``\\ko``, ``\\K``, ``\\t()``, ``\\move()``,
+    ``\\fad()``, ``\\fade()``, ``\\clip()``, ``\\iclip()``, ``\\org()``.
+
+    Keeps: ``\\fn``, ``\\fs``, ``\\c``, ``\\3c``, ``\\bord``, ``\\shad``,
+    ``\\pos``, ``\\an``, ``\\i``, ``\\b``, ``\\frz``, ``\\fscx``, ``\\fscy``, etc.
+
+    Empty override blocks ``{}`` are cleaned up after stripping.
+    """
+    result = _ANIMATION_TAG_RE.sub('', text)
+    # Clean up empty override blocks left after stripping
+    result = re.sub(r'\{\s*\}', '', result)
+    return result
+
+
+def _ass_bgr_to_css(bgr_hex):
+    """Convert ASS ``&HBBGGRR&`` hex (without the ``&H`` prefix) to CSS ``rgb(R,G,B)``."""
+    bgr_hex = bgr_hex.zfill(6)
+    b = int(bgr_hex[0:2], 16)
+    g = int(bgr_hex[2:4], 16)
+    r = int(bgr_hex[4:6], 16)
+    return f"rgb({r},{g},{b})"
+
+
+def _ass_color_to_css(color):
+    """Convert a pysubs2.Color to CSS ``rgba(R,G,B,A)``."""
+    if color is None:
+        return "white"
+    opacity = (255 - color.a) / 255.0
+    return f"rgba({color.r},{color.g},{color.b},{opacity})"
+
+
+def _preserved_event_to_html(event, style, source_res, canvas_res, scale):
+    """Convert a preserved ASS event + style to an absolutely-positioned HTML div.
+
+    Translates a subset of ASS override tags to CSS for PGS bitmap rendering:
+    ``\\pos``, ``\\an``, ``\\fn``, ``\\fs``, ``\\c``/``\\1c``, ``\\3c``, ``\\bord``.
+
+    Exotic tags (``\\t``, ``\\clip``, ``\\move``, ``\\fad``, ``\\k``) are stripped
+    — events render as static text in PGS, which is correct behavior.
+
+    Parameters
+    ----------
+    event : pysubs2.SSAEvent
+        The dialogue event.
+    style : pysubs2.SSAStyle
+        The source ASS style object.
+    source_res : (int, int)
+        Source file's (PlayResX, PlayResY).
+    canvas_res : (int, int)
+        Target PGS canvas (width, height).
+    scale : float
+        Output scale factor (canvas_height / 1080).
+    """
+    if style is None:
+        return ""
+
+    # Strip animation/timing tags before processing — PGS renders static bitmaps.
+    # Visual styling tags (\fn, \fs, \c, \pos, etc.) are preserved for CSS translation.
+    text = _strip_animation_tags(event.text)
+    sx = canvas_res[0] / source_res[0]
+    sy = canvas_res[1] / source_res[1]
+
+    # Extract first override block for tag parsing
+    first_block = ""
+    block_match = _OVERRIDE_BLOCK_RE.search(text)
+    if block_match:
+        first_block = block_match.group(0)
+
+    # Parse override tags (inline overrides take precedence over style defaults)
+    pos_match = _POS_TAG_RE.search(first_block)
+    an_match = _AN_TAG_RE.search(first_block)
+    fn_match = _FN_TAG_RE.search(first_block)
+    fs_match = _FS_TAG_RE.search(first_block)
+    c_match = _C_TAG_RE.search(first_block)
+    c3_match = _3C_TAG_RE.search(first_block)
+    bord_match = _BORD_TAG_RE.search(first_block)
+
+    # Alignment
+    alignment = int(an_match.group(1)) if an_match else (style.alignment if style else 2)
+    h_align, v_align = _ASS_ALIGN_CSS.get(alignment, ("center", "bottom"))
+
+    # Font
+    fontname = fn_match.group(1).strip() if fn_match else (style.fontname if style else "Arial")
+    fontsize = float(fs_match.group(1)) * sy if fs_match else (style.fontsize * sy if style else 24 * sy)
+
+    # Colors
+    if c_match:
+        color_css = _ass_bgr_to_css(c_match.group(1))
+    else:
+        color_css = _ass_color_to_css(style.primarycolor) if style else "white"
+
+    # Outline → text-shadow (8-direction grid)
+    outline_width = float(bord_match.group(1)) * sy if bord_match else (style.outline * sy if style else 0)
+    if c3_match:
+        outline_color_css = _ass_bgr_to_css(c3_match.group(1))
+    else:
+        outline_color_css = _ass_color_to_css(style.outlinecolor) if style else "rgb(0,0,0)"
+
+    shadow_parts = []
+    if outline_width > 0:
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx != 0 or dy != 0:
+                    shadow_parts.append(
+                        f"{dx}px {dy}px {outline_width:.1f}px {outline_color_css}"
+                    )
+    text_shadow_css = f"text-shadow:{','.join(shadow_parts)};" if shadow_parts else ""
+
+    # Strip all override blocks from display text, convert \N to <br>
+    display_text = _OVERRIDE_BLOCK_RE.sub('', text)
+    display_text = display_text.replace(r'\N', '<br>').replace(r'\n', '<br>').replace('\n', '<br>')
+
+    # Build CSS positioning
+    css_parts = [
+        f"position:absolute;",
+        f"font-family:'{fontname}','Noto Sans CJK JP',sans-serif;",
+        f"font-size:{fontsize:.1f}px;",
+        f"color:{color_css};",
+        f"{text_shadow_css}",
+        f"white-space:pre-wrap;",
+    ]
+
+    if style:
+        if style.bold:
+            css_parts.append("font-weight:bold;")
+        if style.italic:
+            css_parts.append("font-style:italic;")
+
+    if pos_match:
+        # Absolute position — scale from source to canvas coordinates
+        px = float(pos_match.group(1)) * sx
+        py = float(pos_match.group(2)) * sy
+
+        # Anchor based on alignment
+        transform_parts = []
+        if h_align == "center":
+            css_parts.append(f"left:{px:.1f}px;")
+            transform_parts.append("translateX(-50%)")
+        elif h_align == "right":
+            css_parts.append(f"right:{canvas_res[0] - px:.1f}px;")
+        else:  # left
+            css_parts.append(f"left:{px:.1f}px;")
+
+        if v_align == "center":
+            css_parts.append(f"top:{py:.1f}px;")
+            transform_parts.append("translateY(-50%)")
+        elif v_align == "bottom":
+            css_parts.append(f"bottom:{canvas_res[1] - py:.1f}px;")
+        else:  # top
+            css_parts.append(f"top:{py:.1f}px;")
+
+        if transform_parts:
+            css_parts.append(f"transform:{' '.join(transform_parts)};")
+    else:
+        # Margin-based positioning from style alignment
+        marginv = (event.marginv or (style.marginv if style else 0)) * sy
+        marginl = (event.marginl or (style.marginl if style else 0)) * sx
+        marginr = (event.marginr or (style.marginr if style else 0)) * sx
+
+        css_parts.append(f"text-align:{h_align};")
+        css_parts.append(f"padding-left:{marginl:.1f}px;padding-right:{marginr:.1f}px;")
+        css_parts.append("width:100%;box-sizing:border-box;")
+
+        if v_align == "bottom":
+            css_parts.append(f"bottom:{marginv:.1f}px;")
+        elif v_align == "top":
+            css_parts.append(f"top:{marginv:.1f}px;")
+        else:  # center
+            css_parts.append("top:50%;transform:translateY(-50%);")
+
+    style_str = ''.join(css_parts)
+    return f'<div style="{style_str}">{display_text}</div>'
 
 
 def _make_opencc_converter(chinese_variant, script_display):
@@ -266,7 +799,8 @@ def _make_opencc_converter(chinese_variant, script_display):
 
 def generate_ass_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_playres=None,
-                      progress_callback=None, include_annotations=True):
+                      progress_callback=None, include_annotations=True,
+                      native_style_mapping=None, target_style_mapping=None):
     """
     Generates a complete 4-layer .ass file from subtitle sources and styles.
 
@@ -294,6 +828,11 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         Annotation style.  When False, skip annotation generation and remove
         the Annotation style — producing a 3-layer .ass file.  PGS is
         recommended for annotations (pixel-perfect ruby rendering).
+    native_style_mapping : dict | None
+        Style role mapping for native subtitle (from ``detect_ass_styles``).
+        Maps style names to ``"dialogue"``/``"preserve"``/``"exclude"``.
+    target_style_mapping : dict | None
+        Style role mapping for target subtitle.
 
     Returns
     -------
@@ -366,7 +905,7 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
 
         # Add events — always copy so the source SSAFile is not mutated.
         if styles['Bottom']['enabled']:
-            for line in _iter_dialogue_events(native_subs):
+            for line in _iter_dialogue_events(native_subs, style_mapping=native_style_mapping):
                 new_line = line.copy()
                 new_line.style = "Bottom"
                 if "Bottom" in glow_configs:
@@ -420,7 +959,7 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         else:
             _ann_font = None
 
-        for line in _iter_dialogue_events(target_subs):
+        for line in _iter_dialogue_events(target_subs, style_mapping=target_style_mapping):
             display_text = (opencc_converter.convert(line.text)
                             if opencc_converter else line.text)
 
@@ -486,6 +1025,46 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
                             ev.text = f'{{\\blur{blur_val}}}' + ev.text
                     stitched_subs.events.extend(ann_events)
 
+        # --- Append preserved events (signs/typesetting/titles) ---
+        # Preserved styles are copied with prefixed names to avoid conflicts
+        # with the output styles (Bottom/Top/Romanized/Annotation).
+        _preserve_sources = [
+            (native_subs, native_style_mapping, "SRC_N_"),
+            (target_subs, target_style_mapping, "SRC_T_"),
+        ]
+        for src_subs, src_mapping, prefix in _preserve_sources:
+            if not src_mapping:
+                continue
+            has_preserve = any(
+                role == "preserve" for role in src_mapping.values()
+            )
+            if not has_preserve:
+                continue
+
+            source_res = _get_source_playres(src_subs)
+            for event, style_obj in _iter_preserved_events(src_subs, src_mapping):
+                if style_obj is None:
+                    continue
+                prefixed_name = prefix + event.style
+                # Copy style definition (once per unique style name)
+                if prefixed_name not in stitched_subs.styles:
+                    new_style = style_obj.copy()
+                    # Scale style attrs from source PlayRes to output PlayRes
+                    if source_res != _out_res:
+                        sy = _out_res[1] / source_res[1]
+                        sx = _out_res[0] / source_res[0]
+                        new_style.fontsize *= sy
+                        new_style.marginv = int(new_style.marginv * sy)
+                        new_style.marginl = int(new_style.marginl * sx)
+                        new_style.marginr = int(new_style.marginr * sx)
+                        new_style.outline *= sy
+                        new_style.shadow *= sy
+                    stitched_subs.styles[prefixed_name] = new_style
+
+                new_event = _scale_preserved_event(event, source_res, _out_res)
+                new_event.style = prefixed_name
+                stitched_subs.events.append(new_event)
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ass", mode="w", encoding="utf-8-sig") as f:
             stitched_subs.save(f.name)
             ass_path = f.name
@@ -499,7 +1078,8 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
 
 def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_resolution=None,
-                      progress_callback=None):
+                      progress_callback=None,
+                      native_style_mapping=None, target_style_mapping=None):
     """
     Generates a PGS .sup file with all enabled subtitle layers as bitmaps.
 
@@ -527,8 +1107,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
     str | None
         Path to the generated .sup file, or None on error.
     """
-    from .rasterize import PGSFrameEvent, rasterize_pgs_frames
-    from .sup_writer import write_sup
+    from .rasterize import PGSFrameEvent, rasterize_pgs_to_file
 
     try:
         native_subs = _load_subs(native_file)
@@ -565,7 +1144,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         # --- Collect native events for temporal pairing ---
         native_events = []
         if bottom_enabled:
-            for line in _iter_dialogue_events(native_subs):
+            for line in _iter_dialogue_events(native_subs, style_mapping=native_style_mapping):
                 text = re.sub(r'\{[^}]*\}', '', line.text)
                 text = text.replace(r'\N', '\\N').replace(r'\n', '\\N').replace('\n', '\\N')
                 native_events.append((line.start, line.end, text.strip()))
@@ -573,7 +1152,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         # --- Build PGSFrameEvents from target events ---
         pgs_events = []
 
-        for line in _iter_dialogue_events(target_subs):
+        for line in _iter_dialogue_events(target_subs, style_mapping=target_style_mapping):
             display_text = (opencc_converter.convert(line.text)
                             if opencc_converter else line.text)
 
@@ -626,24 +1205,66 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         if not pgs_events:
             return None
 
-        # Rasterize all frames
-        display_sets = rasterize_pgs_frames(
+        # --- Collect preserved events and assign to overlapping PGS frames ---
+        _preserved_htmls = []  # list of (start_ms, end_ms, html_str)
+        _pgs_preserve_sources = [
+            (native_subs, native_style_mapping),
+            (target_subs, target_style_mapping),
+        ]
+        for src_subs, src_mapping in _pgs_preserve_sources:
+            if not src_mapping:
+                continue
+            has_preserve = any(
+                role == "preserve" for role in src_mapping.values()
+            )
+            if not has_preserve:
+                continue
+            source_res = _get_source_playres(src_subs)
+            # Collect then deduplicate overlapping karaoke layer events.
+            # Without dedup, layered karaoke composites (shadow + main + sweep)
+            # render as garbled overlapping text after animation tag stripping.
+            raw_preserved = [
+                (ev, st) for ev, st in _iter_preserved_events(src_subs, src_mapping)
+                if st is not None
+            ]
+            deduped = _dedup_preserved_for_pgs(raw_preserved)
+            for event, style_obj in deduped:
+                html = _preserved_event_to_html(
+                    event, style_obj, source_res, out_res, _scale,
+                )
+                if html:
+                    _preserved_htmls.append((event.start, event.end, html))
+
+        # Assign overlapping preserved HTML to each PGS frame event
+        if _preserved_htmls:
+            for pgs_ev in pgs_events:
+                overlapping = []
+                for p_start, p_end, p_html in _preserved_htmls:
+                    overlap = max(0, min(pgs_ev.end_ms, p_end) - max(pgs_ev.start_ms, p_start))
+                    if overlap > 0:
+                        overlapping.append(p_html)
+                if overlapping:
+                    pgs_ev.preserved_html = ''.join(overlapping)
+
+        # Rasterize frames in batches and write .sup incrementally (memory-bounded)
+        sup_fd = tempfile.NamedTemporaryFile(delete=False, suffix=".sup")
+        sup_path = sup_fd.name
+        sup_fd.close()
+
+        count = rasterize_pgs_to_file(
             pgs_events,
             styles=styles,
             canvas_width=out_res[0],
             canvas_height=out_res[1],
+            output_path=sup_path,
             scale=_scale,
             progress_callback=progress_callback,
             annotation_render_mode=ann_render_mode,
         )
 
-        if not display_sets:
+        if count == 0:
+            os.unlink(sup_path)
             return None
-
-        sup_fd = tempfile.NamedTemporaryFile(delete=False, suffix=".sup")
-        sup_path = sup_fd.name
-        sup_fd.close()
-        write_sup(display_sets, sup_path)
 
         return sup_path
 

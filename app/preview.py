@@ -5,6 +5,30 @@ import re
 import pysubs2
 from .romanize import build_annotation_html
 
+# Fixed reference height — must match _PLAY_RES_Y in processing.py.
+_REF_H = 1080
+# Preview iframe height (passed to st.components.v1.html).
+_PREVIEW_H = 600
+# Scale factor from PlayRes coordinates to preview CSS pixels.
+_FONT_SCALE = _PREVIEW_H / _REF_H  # ≈0.556
+
+# --- Tag regexes for preserved-event preview rendering ---
+_POS_RE = re.compile(r'\\pos\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)')
+_AN_RE = re.compile(r'\\an(\d)')
+_FN_RE = re.compile(r'\\fn([^\\}]+)')
+_FS_RE = re.compile(r'\\fs([\d.]+)')
+_C_RE = re.compile(r'\\(?:1?c)&H([0-9A-Fa-f]{2,6})&')
+_3C_RE = re.compile(r'\\3c&H([0-9A-Fa-f]{2,6})&')
+_BORD_RE = re.compile(r'\\bord([\d.]+)')
+_OVERRIDE_RE = re.compile(r'\{[^}]*\}')
+_VEC_PATH_RE = re.compile(r'\\p\d')
+
+_ALIGN_CSS = {
+    1: ("left", "bottom"),   2: ("center", "bottom"),  3: ("right", "bottom"),
+    4: ("left", "center"),   5: ("center", "center"),  6: ("right", "center"),
+    7: ("left", "top"),      8: ("center", "top"),      9: ("right", "top"),
+}
+
 
 def _load_subs(source):
     """Load subtitles from either a file path (str) or a Streamlit file object."""
@@ -25,12 +49,193 @@ def _clean_text(text):
     return text.strip()
 
 
-def get_lines_at_timestamp(native_file, target_file, timestamp_seconds):
+def _ass_bgr_to_css(bgr_hex):
+    """Convert ASS ``&HBBGGRR&`` hex (without the ``&H`` prefix) to CSS ``rgb()``."""
+    bgr_hex = bgr_hex.zfill(6)
+    b, g, r = int(bgr_hex[0:2], 16), int(bgr_hex[2:4], 16), int(bgr_hex[4:6], 16)
+    return f"rgb({r},{g},{b})"
+
+
+def _ass_color_obj_to_css(color):
+    """Convert a pysubs2.Color to CSS ``rgba()``."""
+    if color is None:
+        return "white"
+    return f"rgba({color.r},{color.g},{color.b},{(255 - color.a) / 255.0})"
+
+
+def _preserved_event_to_preview_html(event, style, source_res):
+    """Convert a preserved ASS event to a percentage-positioned preview HTML div.
+
+    Unlike ``_preserved_event_to_html()`` in ``processing.py`` which targets a
+    fixed-pixel PGS canvas, this function uses **percentage-based positioning**
+    so the output scales correctly in the responsive preview iframe.
+
+    Font sizes are scaled from the source PlayRes coordinate space to the
+    preview's pixel space using ``_PREVIEW_H / source_PlayResY``.
+
+    Parameters
+    ----------
+    event : pysubs2.SSAEvent
+    style : pysubs2.SSAStyle
+    source_res : (int, int)
+        Source file's (PlayResX, PlayResY).
+    """
+    if style is None:
+        return ""
+
+    text = event.text
+    src_x, src_y = source_res
+    # Scale factor: source PlayRes → preview CSS pixels.
+    fs_scale = _PREVIEW_H / src_y
+
+    # Parse first override block
+    first_block = ""
+    bm = _OVERRIDE_RE.search(text)
+    if bm:
+        first_block = bm.group(0)
+
+    pos_m = _POS_RE.search(first_block)
+    an_m = _AN_RE.search(first_block)
+    fn_m = _FN_RE.search(first_block)
+    fs_m = _FS_RE.search(first_block)
+    c_m = _C_RE.search(first_block)
+    c3_m = _3C_RE.search(first_block)
+    bord_m = _BORD_RE.search(first_block)
+
+    alignment = int(an_m.group(1)) if an_m else (style.alignment if style else 2)
+    h_align, v_align = _ALIGN_CSS.get(alignment, ("center", "bottom"))
+
+    fontname = fn_m.group(1).strip() if fn_m else (style.fontname if style else "Arial")
+    fontsize = float(fs_m.group(1)) * fs_scale if fs_m else style.fontsize * fs_scale
+
+    color_css = _ass_bgr_to_css(c_m.group(1)) if c_m else _ass_color_obj_to_css(style.primarycolor)
+
+    # Outline → text-shadow
+    outline_w = float(bord_m.group(1)) * fs_scale if bord_m else (style.outline * fs_scale if style else 0)
+    outline_css = _ass_bgr_to_css(c3_m.group(1)) if c3_m else _ass_color_obj_to_css(style.outlinecolor)
+
+    shadow_parts = []
+    if outline_w > 0:
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx != 0 or dy != 0:
+                    shadow_parts.append(f"{dx}px {dy}px {outline_w:.1f}px {outline_css}")
+    ts_css = f"text-shadow:{','.join(shadow_parts)};" if shadow_parts else ""
+
+    # Strip overrides, convert \N
+    display = _OVERRIDE_RE.sub('', text)
+    display = display.replace(r'\N', '<br>').replace(r'\n', '<br>').replace('\n', '<br>')
+
+    css = [
+        "position:absolute;",
+        f"font-family:'{fontname}','Noto Sans CJK JP',sans-serif;",
+        f"font-size:{fontsize:.1f}px;",
+        f"color:{color_css};",
+        ts_css,
+        "white-space:pre-wrap;",
+    ]
+    if style and style.bold:
+        css.append("font-weight:bold;")
+    if style and style.italic:
+        css.append("font-style:italic;")
+
+    if pos_m:
+        # Percentage position — scales with any preview frame size.
+        left_pct = float(pos_m.group(1)) / src_x * 100
+        top_pct = float(pos_m.group(2)) / src_y * 100
+
+        transform = []
+        if h_align == "center":
+            css.append(f"left:{left_pct:.2f}%;")
+            transform.append("translateX(-50%)")
+        elif h_align == "right":
+            css.append(f"right:{100 - left_pct:.2f}%;")
+        else:
+            css.append(f"left:{left_pct:.2f}%;")
+
+        if v_align == "center":
+            css.append(f"top:{top_pct:.2f}%;")
+            transform.append("translateY(-50%)")
+        elif v_align == "bottom":
+            css.append(f"bottom:{100 - top_pct:.2f}%;")
+        else:
+            css.append(f"top:{top_pct:.2f}%;")
+
+        if transform:
+            css.append(f"transform:{' '.join(transform)};")
+    else:
+        marginv_pct = ((event.marginv or style.marginv) / src_y * 100) if style else 0
+        css.append(f"text-align:{h_align};width:100%;box-sizing:border-box;")
+        css.append("padding-left:10px;padding-right:10px;")
+        if v_align == "bottom":
+            css.append(f"bottom:{marginv_pct:.2f}%;")
+        elif v_align == "top":
+            css.append(f"top:{marginv_pct:.2f}%;")
+        else:
+            css.append("top:50%;transform:translateY(-50%);")
+
+    return f'<div style="{"".join(css)}">{display}</div>'
+
+
+def _get_playres(subs):
+    """Return (PlayResX, PlayResY), defaulting per ASS spec."""
+    try:
+        x = int(subs.info.get('PlayResX', 0))
+    except (ValueError, TypeError):
+        x = 0
+    try:
+        y = int(subs.info.get('PlayResY', 0))
+    except (ValueError, TypeError):
+        y = 0
+    return (x or 384, y or 288)
+
+
+def _collect_preserved_html(subs, style_mapping, ts_ms):
+    """Return a list of preview HTML divs for preserved events active at *ts_ms*.
+
+    Each "preserve"-mapped event whose time range covers ts_ms is converted to
+    a percentage-positioned HTML div via ``_preserved_event_to_preview_html()``.
+    """
+    if not style_mapping:
+        return []
+
+    preserve_styles = frozenset(
+        name for name, role in style_mapping.items() if role == "preserve"
+    )
+    if not preserve_styles:
+        return []
+
+    source_res = _get_playres(subs)
+    divs = []
+    for event in subs:
+        if event.is_comment:
+            continue
+        if _VEC_PATH_RE.search(event.text):
+            continue
+        if event.style not in preserve_styles:
+            continue
+        if event.start <= ts_ms <= event.end:
+            style_obj = subs.styles.get(event.style)
+            if style_obj:
+                divs.append(
+                    _preserved_event_to_preview_html(event, style_obj, source_res)
+                )
+    return divs
+
+
+def get_lines_at_timestamp(native_file, target_file, timestamp_seconds,
+                           native_style_mapping=None, target_style_mapping=None):
     """Return the active subtitle text for each track at the given timestamp.
 
     Scans each subtitle file independently for the first event whose time range
     covers timestamp_seconds (event.start <= ts_ms <= event.end). pysubs2
     stores all times in milliseconds, so the input seconds value is converted.
+
+    When a style_mapping is provided, only events whose ``.style`` maps to
+    ``"dialogue"`` are considered for the ``"native"``/``"target"`` text keys.
+    Events from Preserve styles are collected separately and returned as
+    pre-rendered HTML in the ``"preserved_html"`` key.  Exclude styles are
+    dropped entirely.
 
     Returns an empty string for a track when no event is active at that moment
     (a dialogue gap). This is correct behaviour — it accurately reflects what
@@ -40,31 +245,69 @@ def get_lines_at_timestamp(native_file, target_file, timestamp_seconds):
         native_file: Path string to the native subtitle file.
         target_file: Path string to the target subtitle file.
         timestamp_seconds: Timestamp in seconds (int or float).
+        native_style_mapping: Style role mapping dict or None.
+        target_style_mapping: Style role mapping dict or None.
 
     Returns:
-        dict with keys "native" and "target", each a clean display string.
+        dict with keys ``"native"``, ``"target"`` (clean display strings),
+        and ``"preserved_html"`` (positioned HTML divs for overlay, may be
+        empty string).
     """
-    result = {"native": "", "target": ""}
+    result = {"native": "", "target": "", "preserved_html": ""}
     if not native_file or not target_file:
         return result
 
     ts_ms = int(timestamp_seconds * 1000)
 
+    # Build dialogue-only style sets when mappings are provided
+    native_dialogue = None
+    if native_style_mapping:
+        native_dialogue = frozenset(
+            name for name, role in native_style_mapping.items() if role == "dialogue"
+        )
+    target_dialogue = None
+    if target_style_mapping:
+        target_dialogue = frozenset(
+            name for name, role in target_style_mapping.items() if role == "dialogue"
+        )
+
+    # --- Dialogue text ---
+    native_subs = None
     try:
-        for event in _load_subs(native_file):
+        native_subs = _load_subs(native_file)
+        for event in native_subs:
+            if native_dialogue is not None and event.style not in native_dialogue:
+                continue
             if event.start <= ts_ms <= event.end:
                 result["native"] = _clean_text(event.text)
                 break
     except Exception as e:
         print(f"Error looking up native subtitle at {timestamp_seconds}s: {e}")
 
+    target_subs = None
     try:
-        for event in _load_subs(target_file):
+        target_subs = _load_subs(target_file)
+        for event in target_subs:
+            if target_dialogue is not None and event.style not in target_dialogue:
+                continue
             if event.start <= ts_ms <= event.end:
                 result["target"] = _clean_text(event.text)
                 break
     except Exception as e:
         print(f"Error looking up target subtitle at {timestamp_seconds}s: {e}")
+
+    # --- Preserved events → positioned preview HTML ---
+    preserved_divs = []
+    if native_subs and native_style_mapping:
+        preserved_divs.extend(
+            _collect_preserved_html(native_subs, native_style_mapping, ts_ms)
+        )
+    if target_subs and target_style_mapping:
+        preserved_divs.extend(
+            _collect_preserved_html(target_subs, target_style_mapping, ts_ms)
+        )
+    if preserved_divs:
+        result["preserved_html"] = ''.join(preserved_divs)
 
     return result
 
@@ -73,7 +316,8 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
                              background_image_path=None,
                              annotation_spans=None,
                              preview_mode="ass",
-                             annotation_render_mode="ruby"):
+                             annotation_render_mode="ruby",
+                             preserved_html=""):
     """Generates a full HTML document for a unified preview of all text tracks.
 
     Returns a complete <!DOCTYPE html> document so that height: 100% cascades
@@ -94,6 +338,10 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
         "ass" (default) — simulates .ass output layout with separate annotation
         positioning. "pgs" — renders annotation as native <ruby><rt> inline
         with Top text, matching the full-frame PGS rasterizer output.
+    preserved_html : str
+        Pre-rendered HTML divs for preserved (sign/title) events.  Positioned
+        absolutely within the video-frame div using percentage coordinates.
+        Generated by ``get_lines_at_timestamp()`` from preserved-mapped styles.
 
     Positions
     ---------
@@ -120,9 +368,7 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     # causing text layers to overlap.
     # vertical_offset shifts the entire top stack as a unit (R6a).
     # romanized_gap adds extra space between Romanized and Target layers.
-    _REF_H = 1080
-    _PREVIEW_H = 600  # iframe height passed to st.components.v1.html()
-    _FONT_SCALE = _PREVIEW_H / _REF_H  # ≈0.556 — scales PlayRes font sizes to preview px
+    # _REF_H, _PREVIEW_H, _FONT_SCALE are module-level constants.
     v_offset = styles.get('vertical_offset', 0)
     rom_gap = styles.get('romanized_gap', 0)
     ann_gap = styles.get('annotation_gap', 2)
@@ -262,7 +508,7 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     font-size: {ann_fontsize_ratio}em;
     text-align: center;
     color: {ann_color_css};
-    margin-bottom: {ann_gap * _FONT_SCALE:.1f}px;
+    transform: translateY(-{ann_gap * _FONT_SCALE:.1f}px);
     {ann_rt_extra_css}
   }}
   /* Interlinear annotation mode: inline-block two-row containers */
@@ -276,7 +522,7 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     display: block;
     font-size: {ann_fontsize_ratio}em;
     color: {ann_color_css};
-    margin-bottom: {ann_gap * _FONT_SCALE:.1f}px;
+    transform: translateY(-{ann_gap * _FONT_SCALE:.1f}px);
     {ann_rt_extra_css}
   }}
   .ilb-b {{
@@ -314,6 +560,7 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     <div class="video-frame">
       <img src="{b64_image_src}" alt="">
       {overlay_html_string}
+      {preserved_html}
     </div>
   </div>
 </body>

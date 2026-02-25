@@ -11,7 +11,7 @@ from app.ui import render_mkv_path_input, render_hybrid_selector, render_ocr_but
 from app.styles import get_lang_config, FONT_LIST, CJK_FONT_LIST
 from app.language import detect_language
 from app.preview import get_lines_at_timestamp, generate_unified_preview
-from app.processing import generate_ass_file, generate_pgs_file, build_output_filename
+from app.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
 from app.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
 import pysubs2
 
@@ -76,6 +76,112 @@ def _parse_time_input(text, max_seconds):
             return None
     except (ValueError, IndexError):
         return None
+
+
+def _detect_styles_if_ass(sub_path, info_key):
+    """Detect multi-style ASS files and initialize style mappings.
+
+    Only runs for .ass/.ssa files. Tracks the previous path to avoid
+    re-detection on every Streamlit rerun.
+    """
+    prev_key = f"_prev_{info_key}_path"
+    mapping_key = info_key.replace("_style_info", "_style_mapping")
+
+    if not sub_path or not isinstance(sub_path, str):
+        st.session_state[info_key] = None
+        st.session_state[mapping_key] = None
+        return
+
+    # Skip re-detection if path hasn't changed
+    if st.session_state.get(prev_key) == sub_path:
+        return
+
+    st.session_state[prev_key] = sub_path
+
+    ext = os.path.splitext(sub_path)[1].lower()
+    if ext not in ('.ass', '.ssa'):
+        st.session_state[info_key] = None
+        st.session_state[mapping_key] = None
+        return
+
+    style_info = detect_ass_styles(sub_path)
+    st.session_state[info_key] = style_info
+
+    if style_info:
+        # Initialize mapping from smart defaults
+        st.session_state[mapping_key] = {
+            name: info["role"] for name, info in style_info.items()
+        }
+    else:
+        st.session_state[mapping_key] = None
+
+
+def _render_style_mapping_ui(source_key):
+    """Render the style mapping UI for a subtitle source.
+
+    Shows an expander with per-style role selectors when multi-style
+    ASS is detected. Updates session_state mapping in real time.
+    """
+    info_key = f"{source_key}_style_info"
+    mapping_key = f"{source_key}_style_mapping"
+
+    style_info = st.session_state.get(info_key)
+    if not style_info:
+        return
+
+    mapping = st.session_state.get(mapping_key, {})
+    n = len(style_info)
+    label = "native" if source_key == "native" else "target"
+
+    with st.expander(f"Style mapping — {label} ({n} styles)", expanded=True):
+        _ROLE_OPTIONS = ["Dialogue", "Preserve", "Exclude"]
+        _ROLE_MAP = {"Dialogue": "dialogue", "Preserve": "preserve", "Exclude": "exclude"}
+        _ROLE_REVERSE = {"dialogue": "Dialogue", "preserve": "Preserve", "exclude": "Exclude"}
+
+        # Sort by event count descending
+        sorted_styles = sorted(
+            style_info.items(),
+            key=lambda x: x[1]["event_count"],
+            reverse=True,
+        )
+
+        any_has_animation = False
+        for style_name, info in sorted_styles:
+            has_anim = info.get("has_animation", False)
+            if has_anim:
+                any_has_animation = True
+            anim_marker = " \u26a0\ufe0f" if has_anim else ""
+
+            s_col1, s_col2 = st.columns([3, 2])
+            with s_col1:
+                sample = info["sample_text"][:40]
+                if sample:
+                    st.markdown(
+                        f"**{style_name}** ({info['event_count']} events){anim_marker} — _{sample}_"
+                    )
+                else:
+                    st.markdown(f"**{style_name}** ({info['event_count']} events){anim_marker}")
+            with s_col2:
+                current_role = mapping.get(style_name, info["role"])
+                current_display = _ROLE_REVERSE.get(current_role, "Dialogue")
+                idx = _ROLE_OPTIONS.index(current_display) if current_display in _ROLE_OPTIONS else 0
+
+                selected = st.selectbox(
+                    f"Role",
+                    _ROLE_OPTIONS,
+                    index=idx,
+                    key=f"style_role_{source_key}_{style_name}",
+                    label_visibility="collapsed",
+                )
+                mapping[style_name] = _ROLE_MAP[selected]
+
+        if any_has_animation:
+            st.caption(
+                "\u26a0\ufe0f Contains animation/karaoke effects. "
+                "Animations render in .ass output but appear static in PGS."
+            )
+
+        st.session_state[mapping_key] = mapping
 
 
 # --- Initial Setup ---
@@ -154,6 +260,17 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
             key="target"
         )
         _ocr_target = render_ocr_buttons(st.session_state.mkv_tracks, key="target")
+
+    # --- Multi-style ASS detection + mapping UI ---
+    _detect_styles_if_ass(st.session_state.native_sub_path, 'native_style_info')
+    _detect_styles_if_ass(st.session_state.target_sub_path, 'target_style_info')
+
+    if st.session_state.get('native_style_info') or st.session_state.get('target_style_info'):
+        map_col1, map_col2 = st.columns(2)
+        with map_col1:
+            _render_style_mapping_ui('native')
+        with map_col2:
+            _render_style_mapping_ui('target')
 
     # Handle OCR requests for PGS tracks
     _ocr_request = _ocr_native or _ocr_target
@@ -659,9 +776,12 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         st.session_state.native_sub_path,
         st.session_state.target_sub_path,
         preview_ts,
+        native_style_mapping=st.session_state.get("native_style_mapping"),
+        target_style_mapping=st.session_state.get("target_style_mapping"),
     )
     native_text = preview_lines["native"]
     target_text = preview_lines["target"]
+    _preserved_html = preview_lines.get("preserved_html", "")
 
     # Apply opencc script conversion to preview text (Chinese only).
     # Must happen before annotation_func and romanize_func calls so that
@@ -742,6 +862,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         annotation_spans=annotation_spans,
         preview_mode=_preview_mode,
         annotation_render_mode=annotation_render_mode,
+        preserved_html=_preserved_html,
     )
     with _preview_placeholder.container():
         st.components.v1.html(preview_html, height=600, scrolling=False)
@@ -850,6 +971,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             resolution=st.session_state.get("mkv_resolution", (1920, 1080)),
             output_playres=output_playres,
             include_annotations=_include_ann_in_ass,
+            native_style_mapping=st.session_state.get("native_style_mapping"),
+            target_style_mapping=st.session_state.get("target_style_mapping"),
         )
         _gen_status.empty()
 
@@ -889,6 +1012,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 resolution=st.session_state.get("mkv_resolution", (1920, 1080)),
                 output_resolution=output_playres,
                 progress_callback=_pgs_progress_cb,
+                native_style_mapping=st.session_state.get("native_style_mapping"),
+                target_style_mapping=st.session_state.get("target_style_mapping"),
             )
             _pgs_status.empty()
             _pgs_progress.empty()

@@ -33,7 +33,7 @@ Implementation status
 ---------------------
 Chunk R1 — scaffold only.  All codes return None.                            ✅
 Chunk R2 — Chinese (pypinyin, tone-marked pinyin)                            ✅
-Chunk R3 — Japanese (pykakasi, token-aligned Hepburn romaji)                 ✅
+Chunk R3 — Japanese (MeCab/fugashi, token-aligned Hepburn romaji)            ✅
 Chunk R3-hotfix — inline furigana stripping (奴(やつ) doubled romanization)  ✅
 Chunk R3b — Japanese furigana layer (get_furigana_func, build_furigana_html) ✅
 Chunk R3c — resolved-kana romaji pipeline + kana→romaji lookup table         ✅
@@ -53,11 +53,11 @@ Priority order for the hiragana reading of each kanji token:
   1. Author inline annotation — _extract_inline_furigana() extracts kanji(hiragana)
      pairs from the raw source text.  Ground-truth: the author's annotated
      reading is correct for that specific line, especially for unusual readings
-     and character names where pykakasi errs most often.
+     and character names where MeCab errs most often.
   2. Pre-existing ASS \pos() furigana — detect_preexisting_furigana() detects
      whole-track inline furigana; when found the caller disables the Furigana
      style slot to avoid double annotation (per-event extraction deferred).
-  3. pykakasi item["hira"] — generated fallback for unannotated kanji tokens.
+  3. MeCab morpheme reading — generated fallback for unannotated kanji tokens.
 """
 
 import re
@@ -116,7 +116,7 @@ def _strip_inline_furigana(text: str) -> str:
               ``奴らに支配された``
 
     This is a required preprocessing step for the Japanese romanizer: without
-    it pykakasi romanizes both the kanji *and* the parenthetical hiragana
+    it MeCab romanizes both the kanji *and* the parenthetical hiragana
     reading, producing doubled output (e.g. "yatsu yatsu" instead of "yatsu").
 
     Only hiragana-inside-parens-glued-to-kanji matches are affected.
@@ -136,7 +136,7 @@ def _extract_inline_furigana(text: str) -> dict:
     This is the R3b data source for the furigana layer.  Author-annotated
     readings are the highest-confidence source — the author knew the correct
     reading for that specific line, including unusual and context-dependent
-    readings where pykakasi is most likely to err.
+    readings where MeCab is most likely to err.
 
     The function is intentionally stateless and cheap (a single regex scan).
     R3b should call it fresh on each source line rather than caching results,
@@ -354,10 +354,12 @@ def _kana_to_romaji(kana_string: str, long_vowel_mode: str = "macrons") -> str:
                     rom = _KANA_TABLE.get(nxt_h) or _KANA_TABLE.get(nxt)
                 if rom and rom[0].isalpha() and rom[0] not in 'aeiou':
                     parts.append(rom[0])  # double the consonant
+                elif rom:
+                    parts.append('t')     # before vowel kana (mid-word glottal stop)
                 else:
-                    parts.append('t')     # standalone っ at end or before vowel
+                    parts.append("'")     # before punctuation/non-kana — utterance-final
             else:
-                parts.append('t')         # っ at end of string
+                parts.append("'")         # っ at end of string
             i += 1
             continue
 
@@ -458,33 +460,147 @@ def _make_pinyin_romanizer():
 
 
 def _make_japanese_pipeline():
-    """Shared Japanese pipeline — one pykakasi instance, two consumers.
+    """Shared Japanese pipeline — one MeCab tagger instance, two consumers.
 
     Returns ``(resolve_spans, spans_to_romaji)`` where:
 
     resolve_spans(text: str) -> list[(str, str|None)]
         The shared core.  Extracts inline author annotations, strips ASS tags
-        and both furigana conventions, runs pykakasi once, and merges readings
-        with three-tier priority (inline > pykakasi > passthrough).  This IS
-        the furigana function — same object, same output.
+        and both furigana conventions, runs MeCab (via fugashi) once, and
+        merges readings with three-tier priority (inline > MeCab > passthrough).
+        This IS the furigana function — same object, same output.
+
+        Also computes romaji metadata (particle-は indices, verb-chain merge
+        mask) stored in the closure and consumed by spans_to_romaji.
 
     spans_to_romaji(spans: list, long_vowel_mode: str) -> str
-        Converts resolved spans to romaji.  Joins readings into a pure kana
-        string, then converts via the deterministic _kana_to_romaji() lookup
-        table.  No pykakasi dependency — pure deterministic conversion.
-        The long_vowel_mode parameter is passed at call time (not baked into
-        the closure) so the UI can toggle modes without recreating the pipeline.
+        Converts resolved spans to romaji.  Uses merge metadata from the
+        paired resolve_spans call to join verb/auxiliary chains and convert
+        particle は → wa.  Then converts via the deterministic
+        _kana_to_romaji() lookup table.  The long_vowel_mode parameter is
+        passed at call time (not baked into the closure) so the UI can toggle
+        modes without recreating the pipeline.
 
-    The single pykakasi instance (kks) is captured in the closure and shared
-    by resolve_spans.  spans_to_romaji never touches pykakasi — it only
+    The single fugashi Tagger instance is captured in the closure and shared
+    by resolve_spans.  spans_to_romaji never touches MeCab — it only
     consumes the output of resolve_spans.
 
     Imported lazily so users who never select a Japanese track are not affected
-    by a missing pykakasi installation.
+    by a missing fugashi/unidic-lite installation.
     """
-    import pykakasi  # lazy import
+    import fugashi  # lazy import
 
-    kks = pykakasi.kakasi()  # single instance captured by closure
+    tagger = fugashi.Tagger()  # single instance captured by closure
+
+    # Closure state: merge metadata populated by resolve_spans, consumed by
+    # spans_to_romaji.  Always read before the next resolve_spans overwrites.
+    _romaji_meta = {'merge_mask': [], 'particle_ha': set()}
+
+    def _kata_to_hira(text: str) -> str:
+        """Convert katakana string to hiragana."""
+        return ''.join(_normalize_kata_char(c) for c in text)
+
+    def _is_katakana_token(text: str) -> bool:
+        """True if text is entirely katakana (incl. chōon/middle dot)."""
+        if not text:
+            return False
+        has_letter = False
+        for c in text:
+            cp = ord(c)
+            if 0x30A1 <= cp <= 0x30F6:
+                has_letter = True
+            elif not (0x30A0 <= cp <= 0x30FF):
+                return False
+        return has_letter
+
+    def _merge_katakana_fragments(tokens: list) -> list:
+        """Merge adjacent katakana-only token fragments into single tokens.
+
+        MeCab splits unknown katakana names (e.g. ミカサ → ミカ+サ).
+        Re-joining consecutive katakana fragments restores the original name.
+        Tokens are 5-tuples: (surface, kana, pos1, pos2, lemma).
+        """
+        if not tokens:
+            return tokens
+        merged = []
+        i = 0
+        while i < len(tokens):
+            surface, kana, pos1, pos2, lemma = tokens[i]
+            if _is_katakana_token(surface):
+                group_s = [surface]
+                group_k = [kana if kana else surface]
+                j = i + 1
+                while j < len(tokens):
+                    ns, nk, _, _, _ = tokens[j]
+                    if _is_katakana_token(ns):
+                        group_s.append(ns)
+                        group_k.append(nk if nk else ns)
+                        j += 1
+                    else:
+                        break
+                if len(group_s) > 1:
+                    merged.append((''.join(group_s), ''.join(group_k), pos1, pos2, lemma))
+                else:
+                    merged.append(tokens[i])
+                i = j
+            else:
+                merged.append(tokens[i])
+                i += 1
+        return merged
+
+    def _should_merge_for_romaji(pos1, pos2, next_surface, next_pos1, next_pos2, next_lemma):
+        """Whether current token should merge with next in romaji output.
+
+        Merges verb/auxiliary chains into single phonological words so that
+        sokuon (っ) gemination, te-form auxiliaries, and tense suffixes
+        produce natural romaji (e.g. 'sareteita' not 'sa re te i ta').
+
+        Keeps noun+verb boundaries and subsidiary verb boundaries separate
+        for readability (e.g. 'shihai sareteita' not 'shihaisareteita',
+        'kaette kita' not 'kaettekita').
+        """
+        # Rule 1: Auxiliary verb (た, だ, れる, etc.) after verb/aux/adj/suffix
+        # or after conjunctive particle (て+た).
+        # EXCEPTION: ます/です are sentence-enders — keep separate for readability
+        # (e.g. 'kizuku deshō' not 'kizukudeshō', 'torikaesemasendeshita' → split).
+        if next_pos1 == '助動詞':
+            if next_lemma in ('ます', 'です'):
+                return False
+            if pos1 in ('動詞', '助動詞', '形容詞', '接尾辞'):
+                return True
+            if pos1 == '助詞' and pos2 == '接続助詞':
+                return True
+        # Rule 2: Conjunctive particle て/で ONLY after verb/aux/adj/suffix.
+        # Other conjunctive particles (から, ば, etc.) stay separate.
+        if next_pos1 == '助詞' and next_pos2 == '接続助詞':
+            if next_surface in ('て', 'で'):
+                if pos1 in ('動詞', '助動詞', '形容詞', '接尾辞'):
+                    return True
+        # Rule 3: Progressive いる after conjunctive particle (ている/ていた)
+        # Only merge い or いる (progressive aspect marker), NOT き(くる),
+        # くれ(くれる), いき(いく), おき(おく) etc.  MeCab sometimes produces
+        # いる as a single token (決まっている) and sometimes splits い+た
+        # (支配されていた) — handle both forms.
+        if next_pos1 == '動詞' and next_pos2 == '非自立可能':
+            if pos1 == '助詞' and pos2 == '接続助詞':
+                if next_surface in ('い', 'いる'):
+                    return True
+        # Rule 4: Suffix merges BACKWARD — if next token is a suffix (接尾辞),
+        # merge it onto the current token (e.g. 奴+ら → yatsura, 人+たち → hitotachi).
+        # Old forward-chaining rule (suffix → verb/aux/particle) was wrong —
+        # it caused 君+落ち着いて → "kun'ochitsuite".
+        if next_pos1 == '接尾辞':
+            return True
+        # Rule 5: Supplementary symbol っ (standalone sokuon) merges with
+        # whatever precedes it (e.g. 酒臭+っ → sake-shū')
+        if next_pos1 == '補助記号' and next_pos2 == '一般':
+            return True
+        # Rule 6: Contracted nominalizer ん (only ん, not の) after verb chain
+        if next_pos1 == '助詞' and next_pos2 == '準体助詞':
+            if next_surface == 'ん':
+                if pos1 in ('動詞', '助動詞'):
+                    return True
+        return False
 
     def resolve_spans(text: str) -> list:
         """Resolve text into (original, reading) span pairs.
@@ -492,48 +608,148 @@ def _make_japanese_pipeline():
         Three-tier sourcing:
           1. Author inline annotations (ground-truth, highest confidence)
           2. Pre-existing ASS furigana (handled at track level by caller)
-          3. pykakasi item["hira"] (generated fallback)
+          3. MeCab morpheme reading (generated fallback)
+
+        Also populates _romaji_meta with merge mask and particle-は indices
+        for the paired spans_to_romaji call.
         """
         if not text:
+            _romaji_meta['merge_mask'] = []
+            _romaji_meta['particle_ha'] = set()
             return []
         # Tier 1: extract author annotations from the raw text (before stripping).
         inline_map = _extract_inline_furigana(text)
         clean = _strip_reverse_furigana(_strip_inline_furigana(_strip_ass(text)))
-        tokens = kks.convert(clean)
-        result = []
-        for token in tokens:
-            orig = token.get('orig', '')
-            hira = token.get('hira', '')
-            if not orig:
+        words = tagger(clean)
+
+        # Phase 1: Extract structured tokens from MeCab
+        # Tokens are 5-tuples: (surface, kana, pos1, pos2, lemma)
+        raw_tokens = []
+        for word in words:
+            surface = word.surface
+            if not surface:
                 continue
-            has_kanji = any(_is_cjk(c) for c in orig)
-            if not has_kanji or not hira or hira == orig:
-                result.append((orig, None))
-            elif orig in inline_map:
-                result.append((orig, inline_map[orig]))   # tier 1: author wins
+            kana = pos1 = pos2 = lemma = None
+            try:
+                kana = word.feature.kana
+                if kana is None or kana == '*':
+                    kana = None
+            except (AttributeError, IndexError):
+                pass
+            try:
+                pos1 = word.feature.pos1 or ''
+            except (AttributeError, IndexError):
+                pos1 = ''
+            try:
+                pos2 = word.feature.pos2 or ''
+            except (AttributeError, IndexError):
+                pos2 = ''
+            try:
+                lemma = word.feature.lemma or ''
+            except (AttributeError, IndexError):
+                lemma = ''
+            # Override: 私 defaults to ワタクシ in UniDic — ワタシ is the
+            # modern standard reading used in virtually all anime/media.
+            if surface == '私' and kana == 'ワタクシ':
+                kana = 'ワタシ'
+            raw_tokens.append((surface, kana, pos1, pos2, lemma))
+
+        # Phase 2: Merge adjacent katakana fragments (fixes name splitting)
+        tokens = _merge_katakana_fragments(raw_tokens)
+
+        # Phase 3: Build spans + compute romaji metadata
+        result = []
+        particle_ha = set()
+        merge_mask = []
+
+        for idx, (surface, kana, pos1, pos2, lemma) in enumerate(tokens):
+            has_kanji = any(_is_cjk(c) for c in surface)
+
+            if not has_kanji:
+                # Track particle は for romaji wa conversion.
+                # Guard against は？ interjection overcorrection: when は is
+                # tagged as 助詞 but contextually an interjection (e.g. after
+                # closing bracket/paren followed by ？), keep as 'ha'.
+                if surface == 'は' and pos1 == '助詞':
+                    is_interjection = False
+                    # Check if preceded by closing bracket/paren
+                    if idx > 0:
+                        prev_s = tokens[idx - 1][0]
+                        if prev_s and prev_s[-1] in '）)】」』〉》':
+                            # Check if followed by ？ or nothing (sentence-final)
+                            if idx + 1 < len(tokens):
+                                next_s = tokens[idx + 1][0]
+                                if next_s and next_s[0] in '？?':
+                                    is_interjection = True
+                            else:
+                                is_interjection = True
+                    if not is_interjection:
+                        particle_ha.add(len(result))
+                result.append((surface, None))
+            elif surface in inline_map:
+                result.append((surface, inline_map[surface]))   # tier 1: author wins
             else:
-                result.append((orig, hira))               # tier 3: pykakasi
+                # tier 3: MeCab reading (katakana → hiragana)
+                if kana:
+                    hira = _kata_to_hira(kana)
+                    if hira != surface:
+                        result.append((surface, hira))
+                    else:
+                        result.append((surface, None))
+                else:
+                    result.append((surface, None))
+
+            # Compute merge mask for romaji
+            should_merge = False
+            if idx + 1 < len(tokens):
+                next_surface, _, next_pos1, next_pos2, next_lemma = tokens[idx + 1]
+                should_merge = _should_merge_for_romaji(
+                    pos1, pos2, next_surface, next_pos1, next_pos2, next_lemma)
+            merge_mask.append(should_merge)
+
+        _romaji_meta['merge_mask'] = merge_mask
+        _romaji_meta['particle_ha'] = particle_ha
         return result
 
     def spans_to_romaji(spans: list, long_vowel_mode: str = "macrons") -> str:
         """Convert resolved spans to romaji via the kana→romaji lookup table.
 
-        Each span is converted independently, then joined with spaces — same
-        word-level separation as the pre-R3c pykakasi romanizer.  This prevents
-        false long-vowel merges across token boundaries (e.g. に+行く should
-        be "ni iku", not "nīku") and maintains readability.
+        Uses merge metadata from the paired resolve_spans call to:
+        - Convert particle は to わ (→ "wa" instead of "ha")
+        - Merge verb/auxiliary chains into single kana strings before
+          romanization, so sokuon gemination works across morpheme boundaries
+          (e.g. 決まっ+て → きまって → kimatte, not kima'+te)
 
-        Kanji tokens are replaced by their resolved hiragana readings;
-        non-kanji tokens (hiragana, katakana, Latin, punctuation) pass through
-        as-is.  Each token's kana is converted deterministically by
-        _kana_to_romaji().
+        Token boundaries still produce spaces between independent words,
+        preventing false long-vowel merges (e.g. に+行く → "ni iku" not "nīku").
         """
         if not spans:
             return ''
-        romaji_parts = []
-        for orig, reading in spans:
-            token_kana = reading if reading else orig
-            romaji_parts.append(_kana_to_romaji(token_kana, long_vowel_mode))
+        merge_mask = _romaji_meta.get('merge_mask', [])
+        particle_ha = _romaji_meta.get('particle_ha', set())
+
+        # Build kana tokens, applying particle は → わ
+        kana_tokens = []
+        for i, (orig, reading) in enumerate(spans):
+            if i in particle_ha:
+                kana_tokens.append('わ')
+            else:
+                kana_tokens.append(reading if reading else orig)
+
+        # Merge tokens according to merge mask (verb/auxiliary chains)
+        merged = []
+        i = 0
+        while i < len(kana_tokens):
+            group = [kana_tokens[i]]
+            while i < len(merge_mask) and merge_mask[i]:
+                i += 1
+                if i < len(kana_tokens):
+                    group.append(kana_tokens[i])
+            merged.append(''.join(group))
+            i += 1
+
+        # Convert merged kana groups to romaji
+        romaji_parts = [_kana_to_romaji(k, long_vowel_mode) for k in merged]
         raw = ' '.join(p for p in romaji_parts if p.strip())
         return _clean_speaker_labels(raw)
 
@@ -544,24 +760,37 @@ def get_hiragana(lang_code: str, text: str) -> str:
     """Return space-joined hiragana readings for *text* if *lang_code* is Japanese.
 
     This is a debug/probe helper that exposes the furigana data path
-    (item["hira"] from pykakasi tokens) without touching the Romanized layer.
+    (MeCab katakana readings converted to hiragana) without touching the
+    Romanized layer.
 
-    NOTE: This function creates its own pykakasi instance on every call.
+    NOTE: This function creates its own fugashi Tagger on every call.
     That is acceptable for the debug probe (called once per UI rerun on a
     single line of text), but it must NOT be used in the hot path
     (e.g. inside generate_ass_file()).  If furigana generation ever moves into
-    the hot path, share the single kakasi instance from _make_japanese_romanizer().
+    the hot path, share the single Tagger instance from _make_japanese_pipeline().
 
     Returns an empty string for non-Japanese lang_codes or empty text.
     """
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary != "ja" or not text:
         return ''
-    import pykakasi  # lazy import
-    kks = pykakasi.kakasi()
+    import fugashi  # lazy import
+    tagger = fugashi.Tagger()
     clean = _strip_inline_furigana(_strip_ass(text))
-    tokens = kks.convert(clean)
-    parts = [item.get('hira') or item.get('orig', '') for item in tokens]
+    words = tagger(clean)
+    parts = []
+    for word in words:
+        kana = None
+        try:
+            kana = word.feature.kana
+            if kana is None or kana == '*':
+                kana = None
+        except (AttributeError, IndexError):
+            pass
+        if kana:
+            parts.append(''.join(_normalize_kata_char(c) for c in kana))
+        else:
+            parts.append(word.surface)
     return ' '.join(p for p in parts if p)
 
 
@@ -1243,7 +1472,7 @@ def get_annotation_func(lang_code: str, system: str = None):
     For Japanese, internally creates a shared pipeline via
     _make_japanese_pipeline().  When called alongside get_romanizer() for
     the same lang_code (as in get_lang_config()), prefer
-    get_japanese_pipeline() to share one pykakasi instance.
+    get_japanese_pipeline() to share one MeCab tagger instance.
 
     Returns None for languages without character-aligned annotations.
     """
@@ -1293,7 +1522,7 @@ def get_japanese_pipeline():
 
     Returns ``(resolve_spans, spans_to_romaji)`` — see _make_japanese_pipeline()
     for full documentation.  This is the public entry point used by
-    get_lang_config() to create one pykakasi instance shared between the
+    get_lang_config() to create one MeCab tagger shared between the
     furigana and romaji consumers.
 
     Returns ``(None, None)`` for non-Japanese contexts (caller should check).

@@ -4,14 +4,13 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-02-24):** R1–R4 complete + R6a complete + all supporting infrastructure. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container.
+**Current state (2026-02-26):** R1–R4 complete + R6a complete + R6b-presets complete + all supporting infrastructure. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container.
 
 **Active focus:** R5 — Indic scripts + RTL.
 
-**Known broken / dead code:**
-- `detect_language_from_file()` in `language.py` (lines 334–371) — legacy, unused, safe to delete.
+**Known broken / dead code:** None currently tracked.
 
-**Test suite:** 89 tests across 5 files, all passing.
+**Test suite:** 173 tests across 8 files, all passing.
 
 ---
 
@@ -22,24 +21,48 @@ srt_stitcher_app.py        # Main Streamlit entry point
 app/
   mkv_handler.py           # Video scan/extract/screenshot/mux — all ffmpeg calls (any container in, MKV out)
   ocr.py                   # PGS OCR: SUP parser + Tesseract + parallel thread pool
-  sup_writer.py            # PGS/SUP binary writer (inverse of ocr.py parser); batch + streaming APIs
-  rasterize.py             # Playwright async full-frame subtitle rasterizer (4-page concurrency, batched streaming)
+  sup_writer.py            # PGS/SUP binary writer (inverse of ocr.py parser); batch + streaming APIs; epoch state management
+  rasterize.py             # Playwright async full-frame subtitle rasterizer (N-worker parallel pool, batched streaming)
   state.py                 # Streamlit session state
   ui.py                    # UI helpers, OCR buttons, native file picker (zenity/kdialog/tkinter fallback)
   language.py              # Language detection + Cantonese discriminator + script analysis
-  romanize.py              # Romanization: Pinyin, Zhuyin, Jyutping, Japanese, Korean, Cyrillic, Thai (3 systems)
+  romanize.py              # Romanization: Pinyin, Zhuyin, Jyutping, Japanese (MeCab/fugashi), Korean, Cyrillic, Thai (3 systems)
   styles.py                # get_lang_config() factory with variant + phonetic_system support
-  processing.py            # ASS generation + PGS generation + opencc + style mapping + output filename builder
+  processing.py            # ASS generation + PGS generation + union timeline + concurrent event merge + opencc + style mapping + output filename builder
   preview.py               # Composite HTML preview
+  color_presets.py         # Color preset system: 28 presets (classic/cultural/dark/adaptive), language-scoped
+  sub_utils.py             # Shared subtitle loading + mtime-based SSAFile caching
 tests/
-  test_sup_roundtrip.py    # SUP writer ↔ ocr.py parser round-trip (16 tests)
-  test_rasterize.py        # Playwright rasterizer smoke tests (7 tests)
+  test_sup_roundtrip.py    # SUP writer ↔ ocr.py parser round-trip + split_regions + epoch (33 tests)
+  test_rasterize.py        # Playwright rasterizer smoke tests (10 tests)
   test_integration_pgs.py  # Full pipeline integration tests (4 tests)
   test_r4_romanization.py  # Korean, Cyrillic, Thai romanization + detection (34 tests)
   test_style_mapping.py    # Style mapping: detection, smart defaults, preserve/exclude, PGS dedup (28 tests)
+  test_color_presets.py    # Color preset system tests (21 tests)
+  test_union_timeline.py   # Union timeline + concurrent event merge + EVA scenarios (42 tests)
+  test_epoch_diagnostic.py # PGS epoch binary structure diagnostic (1 test)
 requirements.txt
 CLAUDE.md
 ```
+
+---
+
+## Layer Terminology — CRITICAL
+
+**Get this right. Every time. No exceptions.**
+
+| Layer name | Screen position | Content | Variable names |
+|------------|----------------|---------|----------------|
+| **Bottom** | Lowest on screen | User's **native** language (the language the user speaks, e.g. English for an English speaker) | `native_file`, `native_subs`, `native_text`, `bottom_text`, `native_lang` |
+| **Top** | Above Bottom | **Foreign / media** language (the language of the video, e.g. Japanese, Thai, Korean) — this is the "target" of the processing/romanization pipeline | `target_file`, `target_subs`, `target_text`, `top_html`, `target_lang_code` |
+| **Romanized** | Above Top | Phonetic transcription of the Top/foreign text (Pinyin, Romaji, etc.) | `romaji_text` |
+| **Annotation** | Above individual Top tokens | Per-token readings of the Top/foreign text (furigana, bopomofo, etc.) | via `\pos()` in ASS, ruby in PGS |
+
+- "**Native**" = user's own language. NOT the language native to the media.
+- "**Target**" = the foreign language being processed/romanized. It is the "target" of the pipeline, not the user's learning target.
+- `content_key = (bottom, top, romaji, preserved)` — bottom is native, top is foreign.
+- `_derive_region_keys` → region 0 = top (foreign), region 1 = bottom (native).
+- In `build_output_filename()`: `native_lang` = user's language code, `target_lang` = media language code.
 
 ---
 
@@ -54,11 +77,15 @@ CLAUDE.md
 - No Playwright dependency
 
 **PGS pipeline** (`generate_pgs_file()` → `str|None`):
-- `rasterize_pgs_to_file()`: memory-bounded batched rendering (batches of 50), streaming write via `SupWriter`
-- Playwright async API, 4 browser pages (created once, reused), `asyncio.gather()`
+- `rasterize_pgs_to_file()`: memory-bounded batched rendering, streaming write via `SupWriter`
+- Playwright async API, N-worker parallel pool (`num_workers` param, default 1). Workers render in parallel, reorder heap preserves timestamp order, consumer writes sequentially via `SupWriter`. Falls back to sequential when `num_workers=1`.
 - Nested event loop support (Streamlit) via background thread
 - ~50–100ms per screenshot; 300 events ≈ 15–30s. Memory constant regardless of frame count/resolution.
 - Requires `pip install playwright && playwright install chromium`
+- **Union timeline:** `_build_pgs_timeline()` computes union of all timing boundaries from native + target tracks. Creates one interval per segment so that when only one track changes, the epoch system can emit a Normal update (only changed region re-encoded). Fixes subtitle flicker when English and Japanese tracks have independently-timed line breaks.
+- **Concurrent event merging:** `_merge_concurrent_target_events()` runs after Phase A collection. Groups target events by identical `(start, end)`. Drops music-only events (♪, ♫) when real dialogue is concurrent; stacks remaining concurrent events with `<br>` / `\N`. `_is_music_only()` strips HTML tags + ASS overrides before checking `_MUSIC_CHARS` frozenset.
+- **Canvas-aware region splitting:** `split_regions(canvas_height=)` guards against splitting when both content clusters are in the same screen half. Gap midpoint must be in 25%–75% of canvas height to allow a 2-region split. Prevents subtitle dropout when only top-half content is rendered (e.g. romaji + Japanese with no English).
+- **Epoch management:** `SupWriter.write()` accepts `region_content_keys` for epoch-aware path. Composition states: Epoch Start (full redraw), Acquisition Point (periodic for seek safety, every 12 display sets), Normal (incremental, only changed region re-encoded), Skip (identical content). Reserved palette ranges: obj 0 → indices 1–127, obj 1 → 128–254. Generous fixed windows: top 45%, bottom 25%. Abutting threshold ≤ 50ms. Clears always Epoch Start. `region_content_keys=None` → backward-compatible Epoch Start path.
 
 **Annotation infrastructure is language-agnostic.** `get_annotation_func(lang_code)` → span producer. `build_annotation_html(spans, mode)` → HTML with 3 pluggable render modes: `"ruby"`, `"interlinear"`, `"inline"`. `annotation_render_mode` threaded through processing → rasterizer → preview. `annotation_font_ratio` (CJK=0.5, alphabetic=0.4). Adding a new annotated script = new `get_annotation_func()` implementation only; rendering unchanged.
 
@@ -68,11 +95,13 @@ CLAUDE.md
 
 **`merge_subs_to_mkv()`:** Accepts optional `ass_path` and `sup_path`. `disposition:default` on PGS if both present. `default_audio_index` sets audio disposition. `keep_existing_subs`/`keep_attachments` params for track stripping.
 
-**Output filenames:** `build_output_filename()` → `{media}.{year}.{native}.{target}[.{annotation}][.{romanization}].{ext}`. Title/year from `get_video_metadata()`.
+**Output filenames:** `build_output_filename()` → `{media}.{year}.{native_lang}.{target_lang}[.{annotation}][.{romanization}].{ext}` where `native_lang` = user's language code (e.g. "en") and `target_lang` = foreign/media language code (e.g. "ja"). Title/year from `get_video_metadata()`.
 
 **No RAM-loading of large video files** — always local path + ffmpeg subprocess.
 
 **Modularity:** `mkv_handler.py` is the only file that touches ffmpeg.
+
+**SSAFile caching:** `load_subs_cached(path, cache)` in `sub_utils.py`. Cache keyed by `(path, mtime)`. `generate_ass_file()` / `generate_pgs_file()` accept optional `lang_config=None` param to avoid redundant `get_lang_config()` calls across Streamlit reruns.
 
 **Scan performance:** Single-pass ffmpeg extraction. Shared probe — `get_video_metadata()` returns `(metadata_dict, probe_data)` tuple; `scan_and_extract_tracks(probe_data=probe_data)` reuses it. `probesize='100M'` + `analyzeduration='100M'` on ffprobe.
 
@@ -86,7 +115,7 @@ CLAUDE.md
 
 ## Language Pipelines
 
-**Japanese:** `_make_japanese_pipeline()` returns `(resolve_spans, spans_to_romaji)`. Three-tier furigana: (1) author inline `kanji(hiragana)`, (2) pre-existing ASS furigana, (3) pykakasi fallback. Three long vowel modes: macrons (default), doubled, unmarked.
+**Japanese:** `_make_japanese_pipeline()` returns `(resolve_spans, spans_to_romaji)`. Uses `fugashi` (MeCab backend) + `unidic-lite` for morpheme analysis. Three-tier furigana: (1) author inline `kanji(hiragana)`, (2) pre-existing ASS furigana, (3) MeCab reading fallback. Three long vowel modes: macrons (default), doubled, unmarked. POS-aware verb chain merging via `_should_merge_for_romaji()` (conjugation suffixes, progressive い, 準体助詞 ん). Particle は → wa via `pos1=助詞, pos2=係助詞` detection. `_merge_katakana_fragments()` rejoins MeCab splits. Closure state `_romaji_meta` dict carries merge_mask + particle_ha between `resolve_spans()` → `spans_to_romaji()` calls.
 
 **Chinese variants:**
 - Simplified (`zh-Hans`/`zh-CN`/`chs`/bare `zh`) → Pinyin
@@ -129,7 +158,7 @@ Default font sizes (1080-scale): Bottom=48, Top=52, Romanized=30, Annotation=22.
 
 `detect_ass_styles()`: two-pass — pattern match is final, not overridable by event count. Priority: (1) `_PRESERVE_PATTERNS` → preserve, (2) `_EXCLUDE_PATTERNS` → exclude, (3) literal "Dialogue"/"Default" → dialogue (`_DIALOGUE_NAME_RE`), (4) 0 events → exclude, (5) remaining → most-events = dialogue. OP/ED/song/karaoke patterns are preserved (not excluded).
 
-`_iter_dialogue_events()`: selects layer with most non-drawing events (not highest-numbered). Excludes all non-main layers.
+`_iter_dialogue_events()`: selects layer with most non-drawing events (not highest-numbered). Excludes all non-main layers. Yields ALL events in the main layer including overlapping ones — concurrent event merging is handled downstream by `_merge_concurrent_target_events()` (PGS path) or left for the player (ASS path).
 
 `has_animation` detection per style. `_strip_animation_tags()` for PGS path (strips `\k`, `\t()`, `\move()`, `\fad()`, etc.; preserves visual tags). `.ass` path passes all tags through.
 
@@ -147,7 +176,8 @@ Default font sizes (1080-scale): Bottom=48, Top=52, Romanized=30, Annotation=22.
 | R4: Korean + Cyrillic + Thai (block + per-token annotation) | ✅ |
 | R6a: Color pickers + style controls | ✅ |
 | R5: Indic scripts + RTL (experimental) | 🔲 Next |
-| R6b: Font validation + preset themes | 🔲 |
+| R6b-presets: Color preset system | ✅ |
+| R6b-fonts: Font validation | 🔲 |
 
 **R5 details:**
 - `indic-transliteration` for Hindi, Bengali, Tamil, Telugu, Gujarati, Punjabi

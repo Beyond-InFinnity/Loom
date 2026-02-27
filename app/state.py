@@ -49,3 +49,7 @@ def initialize_state():
         st.session_state.native_style_mapping = None
     if 'target_style_mapping' not in st.session_state:
         st.session_state.target_style_mapping = None
+
+    # --- Color preset system (R6b) ---
+    if 'active_color_preset' not in st.session_state:
+        st.session_state.active_color_preset = ""

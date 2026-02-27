@@ -1,13 +1,17 @@
 # app/processing.py
 import functools
+import logging
 import os
 import re
 import subprocess
 import streamlit as st
 import pysubs2
 import tempfile
+
+logger = logging.getLogger(__name__)
 from .styles import get_lang_config
 from .romanize import build_annotation_html, _strip_inline_furigana, _strip_reverse_furigana
+from .sub_utils import load_subs
 
 # Matches ASS vector-path drawing commands (\p1, \p2, etc.)
 # Events containing these are graphical shapes, never subtitle text.
@@ -25,10 +29,8 @@ _PRESERVE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 # No styles currently default to exclude — 0-event styles still get "exclude".
-_EXCLUDE_PATTERNS = re.compile(
-    r'(?!)',  # never matches
-    re.IGNORECASE,
-)
+# Set to a compiled regex if exclude-by-name patterns are needed in the future.
+_EXCLUDE_PATTERNS = None
 
 # Fixed ASS PlayRes reference — all font sizes, margins, and coordinates in the
 # generated .ass file are in this coordinate space.  The ASS renderer scales them
@@ -36,6 +38,85 @@ _EXCLUDE_PATTERNS = re.compile(
 # so that the preview is WYSIWYG.
 _PLAY_RES_X = 1920
 _PLAY_RES_Y = 1080
+
+# Music-indicator characters — used to detect music-only subtitle events
+# (♪, ♫, etc.) that are redundant when concurrent with real dialogue.
+_MUSIC_CHARS = frozenset('♪♫♩♬🎵🎶')
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
+
+
+def _is_music_only(text: str) -> bool:
+    """Return True if *text* contains only music indicator characters.
+
+    Strips HTML tags and ASS override blocks before checking, so annotation
+    HTML like ``<ruby>♪</ruby>`` is handled correctly.
+    """
+    plain = _HTML_TAG_RE.sub('', text)
+    plain = re.sub(r'\{[^}]*\}', '', plain)  # ASS overrides
+    plain = plain.strip()
+    return len(plain) > 0 and all(c in _MUSIC_CHARS or c.isspace() for c in plain)
+
+
+def _merge_concurrent_target_events(target_event_data):
+    """Merge target events with identical timing.
+
+    Source subtitle tracks (especially SRTs) may contain concurrent events at
+    the same timestamp — e.g. a ``♪`` music indicator overlapping with dialogue.
+    PGS can only render one bitmap per time interval, so the union timeline
+    silently drops all but the first match.
+
+    This function groups events by ``(start, end)`` and:
+
+    - Drops music-only events when real dialogue is concurrent (♪ is
+      redundant alongside visible lyrics/dialogue).
+    - Stacks remaining concurrent events vertically (``<br>`` for top_html,
+      ``\\N`` for romaji_text).
+
+    Returns a new list; does not mutate input.
+    """
+    if not target_event_data:
+        return target_event_data
+
+    # Group by (start, end), preserving insertion order.
+    groups: dict[tuple[int, int], list[dict]] = {}
+    for d in target_event_data:
+        key = (d['start'], d['end'])
+        groups.setdefault(key, []).append(d)
+
+    result = []
+    for events in groups.values():
+        if len(events) == 1:
+            result.append(events[0])
+            continue
+
+        # Partition into music-only and real dialogue.
+        music = []
+        dialogue = []
+        for ev in events:
+            if _is_music_only(ev['top_html']):
+                music.append(ev)
+            else:
+                dialogue.append(ev)
+
+        # Keep dialogue if any; otherwise keep a single music event.
+        keep = dialogue if dialogue else music[:1]
+
+        if len(keep) == 1:
+            result.append(keep[0])
+        else:
+            # Stack multiple concurrent dialogue events.
+            merged_html = '<br>'.join(ev['top_html'] for ev in keep)
+            romaji_parts = [ev['romaji_text'] for ev in keep
+                            if ev['romaji_text']]
+            merged_romaji = '\\N'.join(romaji_parts) if romaji_parts else None
+            result.append({
+                'start': keep[0]['start'],
+                'end': keep[0]['end'],
+                'top_html': merged_html,
+                'romaji_text': merged_romaji,
+            })
+
+    return result
 
 
 @functools.lru_cache(maxsize=16)
@@ -209,11 +290,8 @@ def _make_annotation_events(line, spans, annotation_cfg, top_marginv,
 
 
 def _load_subs(source):
-    """Load subtitles from either a file path (str) or a Streamlit file object."""
-    if isinstance(source, str):
-        return pysubs2.load(source)
-    source.seek(0)
-    return pysubs2.SSAFile.from_string(source.getvalue().decode("utf-8"))
+    """Load subtitles — delegates to shared cached loader."""
+    return load_subs(source)
 
 
 def _get_source_playres(subs):
@@ -315,7 +393,7 @@ def detect_ass_styles(source):
         elif _PRESERVE_PATTERNS.search(style_name):
             role = "preserve"
             pattern_assigned.add(style_name)
-        elif _EXCLUDE_PATTERNS.search(style_name):
+        elif _EXCLUDE_PATTERNS is not None and _EXCLUDE_PATTERNS.search(style_name):
             role = "exclude"
             pattern_assigned.add(style_name)
         elif _DIALOGUE_NAME_RE.match(style_name):
@@ -800,7 +878,8 @@ def _make_opencc_converter(chinese_variant, script_display):
 def generate_ass_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_playres=None,
                       progress_callback=None, include_annotations=True,
-                      native_style_mapping=None, target_style_mapping=None):
+                      native_style_mapping=None, target_style_mapping=None,
+                      lang_config=None):
     """
     Generates a complete 4-layer .ass file from subtitle sources and styles.
 
@@ -811,11 +890,13 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
     Parameters
     ----------
     native_file, target_file : str or file object
-        Paths or Streamlit uploaded file objects for the two subtitle tracks.
+        native_file = user's language (Bottom layer).
+        target_file = foreign/media language (Top layer).
+        Paths or Streamlit uploaded file objects.
     styles : dict
         Live style config from st.session_state.styles.
     target_lang_code : str
-        BCP 47 language code for the target track.
+        BCP 47 language code for the foreign/media language track.
     resolution : (int, int)
         Video (width, height) in pixels from mkv_resolution.
     output_playres : (int, int) | None
@@ -912,8 +993,11 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
                     new_line.text = f'{{\\blur{glow_configs["Bottom"]}}}{new_line.text}'
                 stitched_subs.events.append(new_line)
 
-        phonetic_system = styles.get('Annotation', {}).get('phonetic_system')
-        lang_cfg = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
+        if lang_config is not None:
+            lang_cfg = lang_config
+        else:
+            phonetic_system = styles.get('Annotation', {}).get('phonetic_system')
+            lang_cfg = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
         romanize_func = lang_cfg["romanize_func"]
         annotation_func = lang_cfg["annotation_func"]
 
@@ -1076,10 +1160,84 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         return None
 
 
+def _build_pgs_timeline(target_event_data, native_events, bottom_enabled):
+    """Build union timeline from target + native event data.
+
+    Computes the union of all timing boundaries from both tracks and creates
+    one interval per resulting segment.  When only one track changes between
+    consecutive intervals, the epoch system can emit a Normal update (only the
+    changed region is re-encoded).
+
+    Parameters
+    ----------
+    target_event_data : list[dict]
+        Each dict has 'start', 'end', 'top_html', 'romaji_text'.
+    native_events : list[tuple]
+        Each tuple is (start_ms, end_ms, text).
+    bottom_enabled : bool
+
+    Returns
+    -------
+    list[tuple]
+        Each tuple: (start_ms, end_ms, top_html, romaji_text, bottom_text_or_None)
+    """
+    if not bottom_enabled or not native_events:
+        # Degenerate case: no native track — return target-only events.
+        return [
+            (d['start'], d['end'], d['top_html'], d['romaji_text'], None)
+            for d in target_event_data
+        ]
+
+    # Collect all boundary timestamps from both tracks.
+    boundaries = set()
+    for d in target_event_data:
+        boundaries.add(d['start'])
+        boundaries.add(d['end'])
+    for n_start, n_end, _ in native_events:
+        boundaries.add(n_start)
+        boundaries.add(n_end)
+
+    boundaries = sorted(boundaries)
+
+    result = []
+    for i in range(len(boundaries) - 1):
+        iv_start = boundaries[i]
+        iv_end = boundaries[i + 1]
+        if iv_start >= iv_end:
+            continue
+
+        # Find active target event (first with non-zero overlap).
+        active_target = None
+        for d in target_event_data:
+            if d['start'] < iv_end and d['end'] > iv_start:
+                active_target = d
+                break
+
+        # Find active native event (first with non-zero overlap).
+        active_native_text = None
+        for n_start, n_end, n_text in native_events:
+            if n_start < iv_end and n_end > iv_start:
+                active_native_text = n_text
+                break
+
+        # Skip intervals where neither track has content.
+        if active_target is None and active_native_text is None:
+            continue
+
+        top_html = active_target['top_html'] if active_target else ''
+        romaji_text = active_target['romaji_text'] if active_target else None
+        bottom_text = active_native_text
+
+        result.append((iv_start, iv_end, top_html, romaji_text, bottom_text))
+
+    return result
+
+
 def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_resolution=None,
                       progress_callback=None,
-                      native_style_mapping=None, target_style_mapping=None):
+                      native_style_mapping=None, target_style_mapping=None,
+                      lang_config=None, debug_dump_dir=None):
     """
     Generates a PGS .sup file with all enabled subtitle layers as bitmaps.
 
@@ -1090,11 +1248,13 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
     Parameters
     ----------
     native_file, target_file : str or file object
-        Paths or Streamlit uploaded file objects for the two subtitle tracks.
+        native_file = user's language (Bottom layer).
+        target_file = foreign/media language (Top layer).
+        Paths or Streamlit uploaded file objects.
     styles : dict
         Live style config from st.session_state.styles.
     target_lang_code : str
-        BCP 47 language code for the target track.
+        BCP 47 language code for the foreign/media language track.
     resolution : (int, int)
         Source video (width, height) in pixels.
     output_resolution : (int, int) | None
@@ -1116,8 +1276,11 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         out_res = output_resolution or (_PLAY_RES_X, _PLAY_RES_Y)
         _scale = out_res[1] / _PLAY_RES_Y
 
-        phonetic_system = styles.get('Annotation', {}).get('phonetic_system')
-        lang_cfg = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
+        if lang_config is not None:
+            lang_cfg = lang_config
+        else:
+            phonetic_system = styles.get('Annotation', {}).get('phonetic_system')
+            lang_cfg = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
         romanize_func = lang_cfg["romanize_func"]
         annotation_func = lang_cfg["annotation_func"]
 
@@ -1149,8 +1312,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                 text = text.replace(r'\N', '\\N').replace(r'\n', '\\N').replace('\n', '\\N')
                 native_events.append((line.start, line.end, text.strip()))
 
-        # --- Build PGSFrameEvents from target events ---
-        pgs_events = []
+        # --- Phase A: Collect target event data (top_html + romaji) ---
+        target_event_data = []
 
         for line in _iter_dialogue_events(target_subs, style_mapping=target_style_mapping):
             display_text = (opencc_converter.convert(line.text)
@@ -1184,23 +1347,32 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                 else:
                     romaji_text = romanize_func(display_text)
 
-            # Pair with native event by maximum temporal overlap
-            bottom_text = None
-            if bottom_enabled and native_events:
-                best_overlap = 0
-                for n_start, n_end, n_text in native_events:
-                    overlap = max(0, min(line.end, n_end) - max(line.start, n_start))
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        bottom_text = n_text
+            target_event_data.append({
+                'start': line.start,
+                'end': line.end,
+                'top_html': top_html,
+                'romaji_text': romaji_text,
+            })
 
-            pgs_events.append(PGSFrameEvent(
-                start_ms=line.start,
-                end_ms=line.end,
+        # --- Phase A½: Merge concurrent target events ---
+        # SRT tracks may have overlapping events (e.g. ♪ + dialogue at the
+        # same timestamp).  Merge them before the timeline build so that the
+        # union timeline sees one event per unique time range.
+        target_event_data = _merge_concurrent_target_events(target_event_data)
+
+        # --- Phase B: Build union timeline and create PGSFrameEvents ---
+        timeline = _build_pgs_timeline(target_event_data, native_events, bottom_enabled)
+
+        pgs_events = [
+            PGSFrameEvent(
+                start_ms=iv_start,
+                end_ms=iv_end,
                 bottom_text=bottom_text,
                 top_html=top_html,
                 romaji_text=romaji_text,
-            ))
+            )
+            for iv_start, iv_end, top_html, romaji_text, bottom_text in timeline
+        ]
 
         if not pgs_events:
             return None
@@ -1251,6 +1423,33 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
         sup_path = sup_fd.name
         sup_fd.close()
 
+        # ── Pre-render system state ──────────────────────────────────
+        import time as _time
+        _pgs_num_frames = len(pgs_events)
+        try:
+            import psutil as _psutil
+            _proc = _psutil.Process()
+            _rss_mb = _proc.memory_info().rss / (1024 ** 2)
+            _avail_mb = _psutil.virtual_memory().available / (1024 ** 2)
+        except Exception:
+            _rss_mb = _avail_mb = -1
+        _cached_ssa_count = 0
+        try:
+            for _k in st.session_state:
+                if str(_k).startswith("_cached_ssa_"):
+                    _cached_ssa_count += 1
+        except Exception:
+            pass
+        _lang_cfg_source = "passed-in" if lang_config is not None else "re-derived"
+        print(
+            f"[PGS PRE-RENDER] {_pgs_num_frames} frames, "
+            f"canvas={out_res[0]}x{out_res[1]}, scale={_scale}, "
+            f"RSS={_rss_mb:.0f}MB, avail={_avail_mb:.0f}MB, "
+            f"cached_SSAFiles={_cached_ssa_count}, lang_config={_lang_cfg_source}"
+        )
+
+        _t_start = _time.monotonic()
+
         count = rasterize_pgs_to_file(
             pgs_events,
             styles=styles,
@@ -1260,6 +1459,16 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
             scale=_scale,
             progress_callback=progress_callback,
             annotation_render_mode=ann_render_mode,
+            debug_dump_dir=debug_dump_dir,
+        )
+
+        _t_end = _time.monotonic()
+        _elapsed = _t_end - _t_start
+        _per_frame = (_elapsed / _pgs_num_frames * 1000) if _pgs_num_frames else 0
+        print(
+            f"[PGS TOTAL] {_elapsed:.1f}s for {_pgs_num_frames} frames "
+            f"= {_per_frame:.0f}ms/frame effective, "
+            f"{count} display sets written"
         )
 
         if count == 0:
@@ -1288,9 +1497,9 @@ def build_output_filename(media_title=None, year=None, native_lang=None,
     year : str | None
         Release year from MKV metadata.
     native_lang : str | None
-        Native language code (e.g. "en").
+        User's language code (e.g. "en"). Bottom layer.
     target_lang : str | None
-        Target language code (e.g. "ja").
+        Foreign/media language code (e.g. "ja"). Top layer.
     annotation_system : str | None
         Annotation system name (e.g. "furigana", "pinyin").
     romanization_system : str | None

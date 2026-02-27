@@ -1,4 +1,9 @@
 # srt_stitcher_app.py
+import logging
+import sys
+logging.basicConfig(stream=sys.stderr, level=logging.INFO,
+                    format="%(name)s %(levelname)s: %(message)s")
+
 import streamlit as st
 import os
 import tempfile
@@ -13,6 +18,7 @@ from app.language import detect_language
 from app.preview import get_lines_at_timestamp, generate_unified_preview
 from app.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
 from app.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
+from app.color_presets import build_preset_selectbox_options, get_preset_styles, preset_swatch_colors, PRESETS
 import pysubs2
 
 
@@ -327,7 +333,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     st.write("---")
     st.header("3. Style & Preview")
 
-    # --- Detect target language for romanization ---
+    # --- Detect foreign/media language for romanization ---
     target_lang_code = detect_language(st.session_state.target_sub_path)
     st.session_state.target_lang_code = target_lang_code
 
@@ -405,6 +411,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         )]
 
     lang_config = get_lang_config(target_lang_code, phonetic_system=phonetic_system)
+    st.session_state["_lang_config"] = lang_config
     romanize_func = lang_config["romanize_func"]
     annotation_func = lang_config["annotation_func"]
     annotation_system_name = lang_config["annotation_system_name"]
@@ -583,6 +590,81 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         st.session_state.styles["annotation_gap"] = 2
     if "romanized_gap" not in st.session_state.styles:
         st.session_state.styles["romanized_gap"] = 0
+
+    # --- Color preset selector (R6b) ---
+    _preset_options = build_preset_selectbox_options(target_lang_code or "")
+    _preset_labels = [label for _, label in _preset_options]
+    _preset_ids = [pid for pid, _ in _preset_options]
+
+    _current_preset_idx = next(
+        (i for i, pid in enumerate(_preset_ids)
+         if pid == st.session_state.get("active_color_preset", "")),
+        0,
+    )
+
+    _chosen_preset_idx = st.selectbox(
+        "Color preset",
+        range(len(_preset_labels)),
+        index=_current_preset_idx,
+        format_func=lambda i: _preset_labels[i],
+        key="color_preset_select",
+        help="Apply a preset color combination to all layers. Manual color "
+             "controls below remain active and override individual colors "
+             "after applying a preset.",
+    )
+    _chosen_preset_id = _preset_ids[_chosen_preset_idx]
+
+    # Skip None (group header rows)
+    if _chosen_preset_id is not None:
+        _prev_preset = st.session_state.get("active_color_preset", "")
+        _preset_changed = _chosen_preset_id != _prev_preset
+        st.session_state.active_color_preset = _chosen_preset_id
+
+        # Show 4-swatch strip when a real preset is active
+        if _chosen_preset_id != "":
+            _swatches = preset_swatch_colors(_chosen_preset_id, target_lang_code or "")
+            # Push swatch values into widget keys so they update on preset change
+            if _preset_changed:
+                for _sw_layer, _sw_hex in _swatches:
+                    st.session_state[f"_swatch_{_sw_layer}"] = _sw_hex
+            _sw_cols = st.columns(len(_swatches))
+            for _sw_col, (_sw_layer, _sw_hex) in zip(_sw_cols, _swatches):
+                _sw_col.color_picker(_sw_layer, _sw_hex, disabled=True,
+                                     label_visibility="visible",
+                                     key=f"_swatch_{_sw_layer}")
+
+            # Only merge preset on actual change — otherwise the per-layer
+            # widgets' own values (stored under their keys) would be
+            # overwritten on every Streamlit rerun.
+            if _preset_changed:
+                st.session_state.styles = get_preset_styles(
+                    _chosen_preset_id, target_lang_code or "",
+                    st.session_state.styles,
+                )
+
+            # Push preset colors into per-layer widget keys so the
+            # color pickers / sliders reflect the new values instead
+            # of returning their stale cached state.
+            if _preset_changed:
+                for _lname in ["Bottom", "Top", "Romanized", "Annotation"]:
+                    _lcfg = st.session_state.styles.get(_lname)
+                    if not isinstance(_lcfg, dict):
+                        continue
+                    pc = _lcfg.get("primarycolor")
+                    if pc:
+                        st.session_state[f"{_lname}_color"] = _ass_color_to_hex(pc)
+                    if "opacity" in _lcfg:
+                        st.session_state[f"{_lname}_opacity"] = _lcfg["opacity"]
+                    oc = _lcfg.get("outlinecolor")
+                    if oc:
+                        st.session_state[f"{_lname}_outline_color"] = _ass_color_to_hex(oc)
+                    if "outline_opacity" in _lcfg:
+                        st.session_state[f"{_lname}_outline_opacity"] = _lcfg["outline_opacity"]
+                    if "glow_color_hex" in _lcfg:
+                        st.session_state[f"{_lname}_glow_color"] = _lcfg["glow_color_hex"]
+                    # If preset enables glow, push that into the checkbox key
+                    if not _lcfg.get("glow_none", True):
+                        st.session_state[f"{_lname}_no_glow"] = False
 
     # --- Style editing per track ---
     # Annotation expander shown for any language with annotation_func;
@@ -799,7 +881,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
     # Romaji preview — uses shared pipeline when available (Japanese),
     # respects the user's long vowel mode selection.  When annotation_spans
-    # are already computed, spans_to_romaji_func reuses them (one pykakasi
+    # are already computed, spans_to_romaji_func reuses them (one MeCab tagger
     # call, two consumers).
     pinyin_text = ""
     long_vowel_mode = st.session_state.styles.get("Romanized", {}).get("long_vowel_mode", "macrons")
@@ -842,8 +924,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
         with d_col2:
             st.warning("📝 **Subtitle Text Check**")
-            st.code(f"Native (Bottom): '{native_text}'")
-            st.code(f"Target (Top): '{target_text}'")
+            st.code(f"User's Language / Bottom: '{native_text}'")
+            st.code(f"Foreign / Media Language / Top: '{target_text}'")
             st.code(f"Pinyin/Romaji (Romanized): '{pinyin_text}'")
             if target_lang_code and target_lang_code.lower().split("-")[0] == "ja":
                 furigana_text = get_hiragana(target_lang_code, target_text)
@@ -973,6 +1055,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             include_annotations=_include_ann_in_ass,
             native_style_mapping=st.session_state.get("native_style_mapping"),
             target_style_mapping=st.session_state.get("target_style_mapping"),
+            lang_config=st.session_state.get("_lang_config"),
         )
         _gen_status.empty()
 
@@ -1014,6 +1097,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 progress_callback=_pgs_progress_cb,
                 native_style_mapping=st.session_state.get("native_style_mapping"),
                 target_style_mapping=st.session_state.get("target_style_mapping"),
+                lang_config=st.session_state.get("_lang_config"),
             )
             _pgs_status.empty()
             _pgs_progress.empty()

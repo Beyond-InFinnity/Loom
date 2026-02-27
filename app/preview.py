@@ -4,6 +4,7 @@ import os
 import re
 import pysubs2
 from .romanize import build_annotation_html
+from .sub_utils import load_subs
 
 # Fixed reference height — must match _PLAY_RES_Y in processing.py.
 _REF_H = 1080
@@ -31,11 +32,8 @@ _ALIGN_CSS = {
 
 
 def _load_subs(source):
-    """Load subtitles from either a file path (str) or a Streamlit file object."""
-    if isinstance(source, str):
-        return pysubs2.load(source)
-    source.seek(0)
-    return pysubs2.SSAFile.from_string(source.getvalue().decode("utf-8"))
+    """Load subtitles — delegates to shared cached loader."""
+    return load_subs(source)
 
 
 def _clean_text(text):
@@ -242,8 +240,8 @@ def get_lines_at_timestamp(native_file, target_file, timestamp_seconds,
     the video shows and is useful feedback to the user.
 
     Args:
-        native_file: Path string to the native subtitle file.
-        target_file: Path string to the target subtitle file.
+        native_file: Path to user's language subtitle file (Bottom layer).
+        target_file: Path to foreign/media language subtitle file (Top layer).
         timestamp_seconds: Timestamp in seconds (int or float).
         native_style_mapping: Style role mapping dict or None.
         target_style_mapping: Style role mapping dict or None.

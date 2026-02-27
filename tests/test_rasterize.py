@@ -269,6 +269,131 @@ def test_scaled_output():
     print(f"  [PASS] Scaled output: 1x={ds_1x[0].image.size}, 2x={ds_2x[0].image.size}")
 
 
+def test_4k_renders_at_1080p_and_upscales():
+    """4K target renders at reduced viewport and upscales — including non-16:9."""
+    events = [PGSFrameEvent(
+        start_ms=0, end_ms=1000,
+        bottom_text="Test",
+        top_html='<ruby>字<rt>じ</rt></ruby>',
+        romaji_text="ji",
+    )]
+
+    styles = _make_styles()
+
+    # --- Standard 16:9 (3840×2160) ---
+    ds_1080 = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=1920, canvas_height=1080, scale=1.0,
+    )
+    ds_4k = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=3840, canvas_height=2160, scale=2.0,
+    )
+
+    assert len(ds_1080) == 1 and len(ds_4k) == 1
+    s1, s4 = ds_1080[0], ds_4k[0]
+
+    assert s4.canvas_width == 3840
+    assert s4.canvas_height == 2160
+    assert abs(s4.image.width - s1.image.width * 2) <= 1
+    assert abs(s4.image.height - s1.image.height * 2) <= 1
+
+    # --- Cinematic aspect ratio (3840×2064, like GitS) ---
+    # render_height should be round(2064 * 1920 / 3840) = 1032, not 1080
+    ds_cine = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=3840, canvas_height=2064, scale=2064 / 1080,
+    )
+
+    assert len(ds_cine) == 1
+    sc = ds_cine[0]
+
+    assert sc.canvas_width == 3840
+    assert sc.canvas_height == 2064
+
+    # Bitmap must fit within the cinematic canvas
+    assert sc.x + sc.image.width <= 3840, (
+        f"bitmap overflows x: x={sc.x}, w={sc.image.width}")
+    assert sc.y + sc.image.height <= 2064, (
+        f"bitmap overflows y: y={sc.y}, h={sc.image.height}")
+
+    # Dimensions should be 2x the equivalent 1920×1032 render (within rounding).
+    # Phase 2 renders at render_scale=1.0 (full 1080p font sizes), so the
+    # reference must also use scale=1.0 to produce matching CSS layout.
+    ds_1032 = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=1920, canvas_height=1032, scale=1.0,
+    )
+    assert len(ds_1032) == 1
+    sr = ds_1032[0]
+    assert abs(sc.image.width - sr.image.width * 2) <= 1, (
+        f"cine width: render={sr.image.width}, upscaled={sc.image.width}")
+    assert abs(sc.image.height - sr.image.height * 2) <= 1, (
+        f"cine height: render={sr.image.height}, upscaled={sc.image.height}")
+
+    print(f"  [PASS] 4K renders at 1080p and upscales "
+          f"(16:9={s4.image.size}, cine={sc.image.size}, "
+          f"render@1032={sr.image.size})")
+
+
+def test_4k_coordinates_scale_proportionally():
+    """Scaled x/y coordinates are proportional between 1080p and 4K."""
+    events = [PGSFrameEvent(
+        start_ms=0, end_ms=1000,
+        bottom_text="Subtitle at bottom",
+        top_html='<ruby>上<rt>うえ</rt></ruby>のテキスト',
+        romaji_text="ue no tekisuto",
+    )]
+
+    styles = _make_styles()
+
+    ds_1080 = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=1920, canvas_height=1080, scale=1.0,
+    )
+    ds_4k = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=3840, canvas_height=2160, scale=2.0,
+    )
+
+    assert len(ds_1080) == 1 and len(ds_4k) == 1
+    s1, s4 = ds_1080[0], ds_4k[0]
+
+    # x/y should be 2x (within rounding tolerance of 1px)
+    assert abs(s4.x - round(s1.x * 2)) <= 1, f"x: 1080p={s1.x}, 4K={s4.x}"
+    assert abs(s4.y - round(s1.y * 2)) <= 1, f"y: 1080p={s1.y}, 4K={s4.y}"
+
+    print(f"  [PASS] 4K coordinates scale proportionally "
+          f"(1080p=({s1.x},{s1.y}), 4K=({s4.x},{s4.y}))")
+
+
+def test_720p_no_upscale():
+    """720p target renders natively — no upscale path activated."""
+    events = [PGSFrameEvent(
+        start_ms=0, end_ms=1000,
+        bottom_text="Test",
+        top_html="テスト",
+        romaji_text="tesuto",
+    )]
+
+    styles = _make_styles()
+    ds = rasterize_pgs_frames(
+        events, styles=styles,
+        canvas_width=1280, canvas_height=720, scale=720/1080,
+    )
+
+    assert len(ds) == 1
+    assert ds[0].canvas_width == 1280
+    assert ds[0].canvas_height == 720
+    # Image must fit within 720p canvas
+    assert ds[0].image.width <= 1280
+    assert ds[0].image.height <= 720
+    assert ds[0].x + ds[0].image.width <= 1280
+    assert ds[0].y + ds[0].image.height <= 720
+
+    print(f"  [PASS] 720p renders natively (image={ds[0].image.size})")
+
+
 if __name__ == '__main__':
     print("Running rasterizer tests...\n")
     test_is_playwright_available()
@@ -278,4 +403,7 @@ if __name__ == '__main__':
     test_progress_callback()
     test_full_pipeline_rasterize_to_sup()
     test_scaled_output()
+    test_4k_renders_at_1080p_and_upscales()
+    test_4k_coordinates_scale_proportionally()
+    test_720p_no_upscale()
     print("\nAll tests passed!")

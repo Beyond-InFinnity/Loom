@@ -185,7 +185,7 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     if primary == 'th' and phonetic_system in _THAI_PHONETIC_META:
         rom_name, confidence = _THAI_PHONETIC_META[phonetic_system]
 
-    # For Japanese: create one shared pipeline — single pykakasi instance
+    # For Japanese: create one shared pipeline — single MeCab tagger instance
     # serves both the annotation (resolve_spans) and romaji (spans_to_romaji)
     # consumers.  For all other languages: independent functions, no pipeline.
     resolve_spans_func = None

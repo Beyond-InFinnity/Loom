@@ -1,7 +1,8 @@
 streamlit
 pysubs2
 pypinyin
-pykakasi
+fugashi
+unidic-lite
 langdetect
 langcodes
 language_data

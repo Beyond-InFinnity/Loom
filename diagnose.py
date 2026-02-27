@@ -28,8 +28,8 @@ DEBUG_BLOCK = """
         
         with d_col2:
             st.warning("📝 **Subtitle Text Check**")
-            st.code(f"Native (Bottom): '{native_text}'")
-            st.code(f"Target (Top): '{target_text}'")
+            st.code(f"User's Language / Bottom: '{native_text}'")
+            st.code(f"Foreign / Media Language / Top: '{target_text}'")
             st.code(f"Pinyin (Romanized): '{pinyin_text}'")
             
             st.warning("🎨 **Style Visibility Check**")

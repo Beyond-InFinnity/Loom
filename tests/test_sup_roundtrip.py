@@ -12,8 +12,11 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from PIL import Image
+import numpy as np
 from app.sup_writer import (
-    DisplaySet, write_sup, SupWriter, _encode_rle, _rgb_to_ycbcr, _quantize_image,
+    DisplaySet, write_sup, SupWriter, _encode_rle, _encode_rle_python,
+    _rgb_to_ycbcr, _quantize_image, split_regions, _build_show_segments,
+    _ALPHA_CLAMP_THRESHOLD,
 )
 from app.ocr import _parse_sup, _decode_rle, _ycbcr_to_rgb
 
@@ -231,6 +234,58 @@ def test_quantize_preserves_transparency():
     assert a == 0, f"Palette index 0 alpha should be 0, got {a}"
 
     print("  [PASS] Quantization preserves transparency")
+
+
+def test_alpha_clamp_prevents_inflation():
+    """Near-zero alpha glow fringe pixels must be clamped to transparent.
+
+    Simulates the real artifact: a glow gradient produces pixels at alpha 1–7
+    alongside opaque text at alpha 255 with the same RGB color.  Without the
+    clamp, PIL quantize(method=2) clusters them together, inflating the faint
+    pixels' alpha to the cluster average.  With the clamp, faint pixels become
+    fully transparent before quantization.
+    """
+    w, h = 200, 50
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+
+    # Opaque red text block (center)
+    for x in range(60, 140):
+        for y in range(15, 35):
+            img.putpixel((x, y), (255, 50, 50, 255))
+
+    # Faint red glow fringe (alpha 1–7) around the text edges
+    faint_pixels = []
+    for x in range(50, 150):
+        for y in [12, 13, 14, 35, 36, 37]:
+            alpha = max(1, 7 - abs(y - 24) // 5)
+            if alpha < _ALPHA_CLAMP_THRESHOLD:
+                img.putpixel((x, y), (255, 50, 50, alpha))
+                faint_pixels.append((x, y))
+
+    indices, palette = _quantize_image(img)
+    idx_2d = indices.reshape(h, w)
+
+    # ALL faint-alpha pixels must be mapped to index 0 (transparent)
+    for x, y in faint_pixels:
+        assert idx_2d[y, x] == 0, (
+            f"Faint pixel at ({x},{y}) mapped to palette index {idx_2d[y, x]} "
+            f"instead of 0 (transparent) — alpha inflation not prevented"
+        )
+
+    # Opaque text pixels must still be non-transparent
+    assert idx_2d[25, 100] != 0, "Opaque text pixel incorrectly made transparent"
+
+    # Verify no palette entry has inflated alpha for faint-pixel indices
+    # (All faint pixels should be index 0, so this is a belt-and-suspenders check)
+    for x, y in faint_pixels:
+        idx = idx_2d[y, x]
+        if idx != 0:
+            _, _, _, pa = palette[idx]
+            assert pa < _ALPHA_CLAMP_THRESHOLD, (
+                f"Palette entry {idx} has alpha {pa} — inflation detected"
+            )
+
+    print("  [PASS] Alpha clamp prevents glow fringe inflation")
 
 
 def test_ods_fragmentation_large_bitmap():
@@ -619,6 +674,623 @@ def test_sup_writer_image_released_after_flush():
         os.unlink(tmp_path)
 
 
+def test_numpy_rle_matches_python_rle():
+    """Numpy-accelerated RLE encoder produces byte-identical output to Python reference."""
+    # Test 1: Simple mixed patterns
+    width, height = 10, 3
+    indices = (
+        [0, 0, 0, 0, 0, 1, 1, 1, 1, 1] +
+        [2] * 10 +
+        [1, 3, 1, 3, 1, 3, 1, 3, 1, 3]
+    )
+    assert _encode_rle(indices, width, height) == _encode_rle_python(indices, width, height)
+
+    # Test 2: Long runs (extended encoding)
+    width2 = 200
+    indices2 = [0] * width2 + [5] * width2
+    assert _encode_rle(indices2, width2, 2) == _encode_rle_python(indices2, width2, 2)
+
+    # Test 3: Single pixels (direct byte encoding)
+    indices3 = [1, 2, 3, 4, 5]
+    assert _encode_rle(indices3, 5, 1) == _encode_rle_python(indices3, 5, 1)
+
+    # Test 4: All transparent
+    indices4 = [0] * 500
+    assert _encode_rle(indices4, 50, 10) == _encode_rle_python(indices4, 50, 10)
+
+    # Test 5: Very long run exceeding 16383 (PGS max run length)
+    indices5 = [7] * 20000
+    assert _encode_rle(indices5, 20000, 1) == _encode_rle_python(indices5, 20000, 1)
+
+    # Test 6: Realistic subtitle-like bitmap (large transparent area + small content)
+    width6, height6 = 1920, 100
+    indices6 = []
+    for row in range(height6):
+        if 40 <= row < 60:
+            # Content rows: some colored pixels in the middle
+            indices6.extend([0] * 700)
+            indices6.extend([3] * 520)
+            indices6.extend([0] * 700)
+        else:
+            indices6.extend([0] * width6)
+    assert _encode_rle(indices6, width6, height6) == _encode_rle_python(indices6, width6, height6)
+
+    print("  [PASS] Numpy RLE matches Python RLE (6 test patterns)")
+
+
+def test_numpy_rle_roundtrip_with_quantized_image():
+    """Numpy RLE from a real quantized image round-trips through decode correctly."""
+    # Create an image resembling real subtitle content: text-like colored pixels
+    # on transparent background with anti-aliased edges
+    img = Image.new('RGBA', (400, 100), (0, 0, 0, 0))
+    pixels = img.load()
+    # Draw some "text-like" content
+    for y in range(30, 70):
+        for x in range(50, 350):
+            if (x + y) % 7 < 3:
+                pixels[x, y] = (255, 255, 255, 255)
+            elif (x + y) % 7 == 3:
+                pixels[x, y] = (255, 255, 255, 128)  # anti-aliased edge
+
+    indices, palette = _quantize_image(img)
+    indices_list = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
+
+    # Encode with numpy, decode, compare
+    encoded = _encode_rle(indices_list, 400, 100)
+    decoded = _decode_rle(encoded, 400, 100)
+    assert decoded == indices_list, "Numpy RLE from quantized image failed round-trip"
+
+    # Verify byte-identical to Python reference
+    python_encoded = _encode_rle_python(indices_list, 400, 100)
+    assert encoded == python_encoded, (
+        f"Numpy ({len(encoded)} bytes) != Python ({len(python_encoded)} bytes)"
+    )
+
+    print("  [PASS] Numpy RLE round-trip with quantized image")
+
+
+def test_split_regions_two_regions():
+    """Bitmap with top and bottom content separated by large gap splits into 2 regions."""
+    # 2400×1972 image: content at top (rows 10–110) and bottom (rows 1850–1950),
+    # transparent gap of ~1740 rows in between.
+    img = Image.new('RGBA', (2400, 1972), (0, 0, 0, 0))
+    px = img.load()
+    # Top cluster: white text
+    for y in range(10, 110):
+        for x in range(200, 2200):
+            if (x + y) % 5 < 2:
+                px[x, y] = (255, 255, 255, 255)
+    # Bottom line: yellow text
+    for y in range(1850, 1950):
+        for x in range(300, 2100):
+            if (x + y) % 4 < 2:
+                px[x, y] = (255, 255, 0, 255)
+
+    regions = split_regions(img, 100, 50)
+    assert len(regions) == 2, f"Expected 2 regions, got {len(regions)}"
+
+    top_img, top_x, top_y = regions[0]
+    bot_img, bot_x, bot_y = regions[1]
+
+    # Top region should be roughly rows 10–110, x 200–2200
+    assert top_img.height < 200, f"Top region too tall: {top_img.height}"
+    assert top_y < 200, f"Top region y too large: {top_y}"
+
+    # Bottom region should be roughly rows 1850–1950
+    assert bot_img.height < 200, f"Bottom region too tall: {bot_img.height}"
+    assert bot_y > 1800, f"Bottom region y too small: {bot_y}"
+
+    # Total pixels should be much less than original
+    total_pixels = top_img.width * top_img.height + bot_img.width * bot_img.height
+    original_pixels = 2400 * 1972
+    assert total_pixels < original_pixels * 0.2, (
+        f"Split didn't reduce pixels enough: {total_pixels} vs {original_pixels}"
+    )
+
+    print(f"  [PASS] 2-region split: top={top_img.width}x{top_img.height}@({top_x},{top_y}), "
+          f"bottom={bot_img.width}x{bot_img.height}@({bot_x},{bot_y}), "
+          f"pixel reduction: {original_pixels/total_pixels:.1f}x")
+
+
+def test_split_regions_single_region():
+    """Bitmap with only bottom content produces 1 region (no split)."""
+    img = Image.new('RGBA', (1920, 1080), (0, 0, 0, 0))
+    px = img.load()
+    # Only content at bottom
+    for y in range(950, 1050):
+        for x in range(200, 1720):
+            px[x, y] = (255, 255, 255, 255)
+
+    regions = split_regions(img, 0, 0)
+    assert len(regions) == 1, f"Expected 1 region, got {len(regions)}"
+    print("  [PASS] Single content region → no split")
+
+
+def test_split_regions_small_gap_no_split():
+    """Top cluster elements separated by small gaps (< 50 rows) don't split."""
+    # Simulate romaji at top, then 30-row gap, then furigana/kanji text
+    img = Image.new('RGBA', (1920, 400), (0, 0, 0, 0))
+    px = img.load()
+    # Romaji: rows 10–40
+    for y in range(10, 40):
+        for x in range(200, 1720):
+            if x % 3 == 0:
+                px[x, y] = (255, 255, 255, 255)
+    # 30-row transparent gap (rows 40–70) — less than min_gap=50
+    # Furigana + kanji: rows 70–200
+    for y in range(70, 200):
+        for x in range(200, 1720):
+            if x % 3 == 0:
+                px[x, y] = (255, 255, 255, 255)
+
+    regions = split_regions(img, 0, 0)
+    assert len(regions) == 1, f"Expected 1 region (gap < 50), got {len(regions)}"
+    print("  [PASS] Small gap (30 rows) does not trigger split")
+
+
+def test_split_regions_same_half_no_split():
+    """Two top-half clusters with gap > 50 rows but both in top 25% → 1 region."""
+    # Romaji at rows 10–40, gap 60 rows, Japanese at rows 100–170
+    img = Image.new('RGBA', (1920, 200), (0, 0, 0, 0))
+    px = img.load()
+    for row in range(10, 40):
+        for col in range(200, 1720):
+            if col % 3 == 0:
+                px[col, row] = (255, 255, 255, 255)
+    for row in range(100, 170):
+        for col in range(200, 1720):
+            if col % 3 == 0:
+                px[col, row] = (255, 255, 255, 255)
+
+    # Gap = 60 rows (≥ 50), gap midpoint at canvas y = 0 + (40+100)/2 = 70 → 6.5%
+    # Outside middle band → should NOT split
+    regions = split_regions(img, 0, 0, canvas_height=1080)
+    assert len(regions) == 1, f"Expected 1 region (same-half guard), got {len(regions)}"
+
+    # Backward compat: canvas_height=None → still splits
+    regions_no_guard = split_regions(img, 0, 0, canvas_height=None)
+    assert len(regions_no_guard) == 2, (
+        f"Expected 2 regions without guard, got {len(regions_no_guard)}"
+    )
+    print("  [PASS] Same-half clusters → no split (canvas-aware guard)")
+
+
+def test_split_regions_cross_half_splits():
+    """Top cluster + bottom cluster spanning the canvas midpoint → 2 regions."""
+    img = Image.new('RGBA', (1920, 1080), (0, 0, 0, 0))
+    px = img.load()
+    # Top cluster: rows 10–160
+    for row in range(10, 160):
+        for col in range(200, 1720):
+            if col % 5 == 0:
+                px[col, row] = (255, 255, 255, 255)
+    # Bottom cluster: rows 850–950
+    for row in range(850, 950):
+        for col in range(200, 1720):
+            if col % 5 == 0:
+                px[col, row] = (255, 255, 255, 255)
+
+    # Gap midpoint at canvas y = 0 + (160+850)/2 = 505 → 46.8%, inside 25–75% band
+    regions = split_regions(img, 0, 0, canvas_height=1080)
+    assert len(regions) == 2, f"Expected 2 regions (cross-half), got {len(regions)}"
+    print("  [PASS] Cross-half clusters → 2 regions (split allowed)")
+
+
+def test_split_regions_bottom_half_no_split():
+    """Two bottom-half clusters with gap > 50 rows but both below 75% → 1 region."""
+    # Two clusters at bottom of canvas, placed via y offset
+    img = Image.new('RGBA', (1920, 200), (0, 0, 0, 0))
+    px = img.load()
+    # Cluster A: rows 0–50 in image (canvas y = 800–850)
+    for row in range(0, 50):
+        for col in range(200, 1720):
+            if col % 3 == 0:
+                px[col, row] = (255, 255, 255, 255)
+    # 70-row gap (rows 50–120)
+    # Cluster B: rows 120–170 in image (canvas y = 920–970)
+    for row in range(120, 170):
+        for col in range(200, 1720):
+            if col % 3 == 0:
+                px[col, row] = (255, 255, 255, 255)
+
+    # Gap midpoint at canvas y = 800 + (50+120)/2 = 885 → 81.9%, outside band
+    regions = split_regions(img, 0, 800, canvas_height=1080)
+    assert len(regions) == 1, f"Expected 1 region (bottom-half guard), got {len(regions)}"
+    print("  [PASS] Bottom-half clusters → no split (canvas-aware guard)")
+
+
+def test_two_object_pgs_structure():
+    """2-object display set has valid PGS structure: PCS with 2 objects, 2 windows, 2 ODS."""
+    import struct as s
+
+    # Create a DisplaySet with 2 regions
+    top_img = Image.new('RGBA', (200, 50), (255, 255, 255, 255))
+    bot_img = Image.new('RGBA', (180, 40), (255, 255, 0, 255))
+
+    ds = DisplaySet(
+        start_ms=5000, end_ms=7000,
+        image=top_img,  # primary image (used if no extra_regions)
+        x=100, y=50,
+        canvas_width=1920, canvas_height=1080,
+    )
+    regions = [
+        (top_img, 100, 50),
+        (bot_img, 120, 900),
+    ]
+
+    segments = _build_show_segments(ds, comp_number=0, extra_regions=regions)
+
+    # Concatenate all segment bytes
+    raw = b''.join(segments)
+
+    # Parse and validate PGS structure
+    pos = 0
+    seg_types = []
+    pcs_data_bytes = None
+    wds_data_bytes = None
+    ods_count = 0
+
+    while pos + 13 <= len(raw):
+        magic = raw[pos:pos+2]
+        assert magic == b'PG', f"Bad magic at offset {pos}"
+        seg_type = raw[pos + 10]
+        seg_size = s.unpack_from('>H', raw, pos + 11)[0]
+        seg_data = raw[pos + 13: pos + 13 + seg_size]
+        seg_types.append(seg_type)
+
+        if seg_type == 0x16:  # PCS
+            pcs_data_bytes = seg_data
+        elif seg_type == 0x17:  # WDS
+            wds_data_bytes = seg_data
+        elif seg_type == 0x15:  # ODS
+            ods_count += 1
+
+        pos += 13 + seg_size
+
+    # PCS: check num_composition_objects == 2
+    assert pcs_data_bytes is not None, "No PCS segment found"
+    num_objects = pcs_data_bytes[10]
+    assert num_objects == 2, f"Expected 2 composition objects in PCS, got {num_objects}"
+
+    # WDS: check 2 windows
+    assert wds_data_bytes is not None, "No WDS segment found"
+    num_windows = wds_data_bytes[0]
+    assert num_windows == 2, f"Expected 2 windows in WDS, got {num_windows}"
+
+    # ODS: should have at least 2 ODS segments (one per object, possibly fragmented)
+    assert ods_count >= 2, f"Expected ≥2 ODS segments, got {ods_count}"
+
+    # Segment order: PCS, WDS, PDS, ODS..., END
+    assert seg_types[0] == 0x16, "First segment should be PCS"
+    assert seg_types[1] == 0x17, "Second segment should be WDS"
+    assert seg_types[2] == 0x14, "Third segment should be PDS"
+    assert seg_types[-1] == 0x80, "Last segment should be END"
+
+    print(f"  [PASS] 2-object PGS structure valid: {num_objects} objects, "
+          f"{num_windows} windows, {ods_count} ODS segments")
+
+
+def test_two_object_sup_roundtrip():
+    """Write a 2-object display set via SupWriter, read back, verify both objects."""
+    # Create image with top and bottom content separated by large gap
+    img = Image.new('RGBA', (400, 500), (0, 0, 0, 0))
+    px = img.load()
+    # Top content: rows 10–60
+    for y in range(10, 60):
+        for x in range(50, 350):
+            px[x, y] = (255, 0, 0, 255)
+    # Large transparent gap: rows 60–400
+    # Bottom content: rows 400–450
+    for y in range(400, 450):
+        for x in range(80, 320):
+            px[x, y] = (0, 255, 0, 255)
+
+    # Split into regions
+    regions = split_regions(img, 100, 200)
+    assert len(regions) == 2, f"Expected 2 regions for test setup, got {len(regions)}"
+
+    ds = DisplaySet(
+        start_ms=3000, end_ms=5000,
+        image=regions[0][0],  # first region image
+        x=regions[0][1], y=regions[0][2],
+        canvas_width=1920, canvas_height=1080,
+    )
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        region_tuples = [(r[0], r[1], r[2]) for r in regions]
+        writer = SupWriter(tmp_path, 1920, 1080)
+        writer.write(ds, extra_regions=region_tuples)
+        writer.close()
+
+        assert writer.count == 1
+        assert os.path.getsize(tmp_path) > 0
+
+        # Parse and verify we get at least 1 visible display set back
+        results = _parse_sup(tmp_path)
+        assert len(results) >= 1, f"Expected >=1 display set, got {len(results)}"
+
+        print(f"  [PASS] 2-object SupWriter round-trip ({os.path.getsize(tmp_path)} bytes)")
+    finally:
+        os.unlink(tmp_path)
+
+
+# ── Epoch management tests ───────────────────────────────────────────
+
+def _parse_pcs_records(raw_bytes):
+    """Parse raw .sup binary and extract PCS records for epoch tests.
+
+    Returns list of dicts with keys: pts, comp_state, num_objects, seg_types_in_ds.
+    Also returns list of all (seg_type, seg_size, seg_data) tuples.
+    """
+    import struct as s
+    pos = 0
+    all_segments = []
+    while pos + 13 <= len(raw_bytes):
+        magic = raw_bytes[pos:pos+2]
+        if magic != b'PG':
+            break
+        pts = s.unpack_from('>I', raw_bytes, pos + 2)[0]
+        seg_type = raw_bytes[pos + 10]
+        seg_size = s.unpack_from('>H', raw_bytes, pos + 11)[0]
+        seg_data = raw_bytes[pos + 13: pos + 13 + seg_size]
+        all_segments.append((seg_type, pts, seg_size, seg_data))
+        pos += 13 + seg_size
+
+    # Group segments into display sets (PCS starts a new DS)
+    pcs_records = []
+    current_ds_segs = []
+    for seg_type, pts, seg_size, seg_data in all_segments:
+        if seg_type == 0x16:  # PCS
+            if current_ds_segs:
+                pass  # previous DS closed implicitly
+            current_ds_segs = [seg_type]
+            comp_state = seg_data[7] if len(seg_data) > 7 else 0
+            num_objects = seg_data[10] if len(seg_data) > 10 else 0
+            pcs_records.append({
+                'pts': pts,
+                'comp_state': comp_state,
+                'num_objects': num_objects,
+                'ds_seg_types': current_ds_segs,
+            })
+        else:
+            current_ds_segs.append(seg_type)
+
+    return pcs_records, all_segments
+
+
+def _make_two_region_ds(start_ms, end_ms, top_color, bot_color):
+    """Helper: create a DisplaySet + 2-region tuple for epoch tests."""
+    top_img = Image.new('RGBA', (200, 50), top_color)
+    bot_img = Image.new('RGBA', (180, 40), bot_color)
+    ds = DisplaySet(
+        start_ms=start_ms, end_ms=end_ms,
+        image=top_img, x=100, y=50,
+        canvas_width=1920, canvas_height=1080,
+    )
+    regions = [(top_img, 100, 50), (bot_img, 120, 900)]
+    return ds, regions
+
+
+def test_epoch_normal_one_object_changed():
+    """Two abutting 2-object events: same bottom, different top → Normal update."""
+    ds1, regions1 = _make_two_region_ds(1000, 3000, (255, 0, 0, 255), (0, 255, 0, 255))
+    ds2, regions2 = _make_two_region_ds(3000, 5000, (0, 0, 255, 255), (0, 255, 0, 255))
+
+    # Region keys: region 0 = top, region 1 = bottom
+    keys1 = [('top_v1',), ('bottom_v1',)]
+    keys2 = [('top_v2',), ('bottom_v1',)]  # only top changed
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        writer.write(ds1, extra_regions=regions1, region_content_keys=keys1)
+        writer.write(ds2, extra_regions=regions2, region_content_keys=keys2)
+        writer.close()
+
+        # Check stats
+        assert writer.stats['epoch_start'] >= 1, f"Expected >=1 ES, got {writer.stats}"
+        assert writer.stats['normal'] >= 1, f"Expected >=1 Normal, got {writer.stats}"
+
+        # Parse raw binary
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, all_segs = _parse_pcs_records(raw)
+
+        # Find the show PCS records (num_objects > 0)
+        show_pcs = [p for p in pcs_records if p['num_objects'] > 0]
+        assert len(show_pcs) >= 2, f"Expected >=2 show PCS, got {len(show_pcs)}"
+
+        # First show should be Epoch Start
+        assert show_pcs[0]['comp_state'] == 0x80, (
+            f"First show comp_state=0x{show_pcs[0]['comp_state']:02X}, expected 0x80")
+
+        # Second show should be Normal (0x00)
+        assert show_pcs[1]['comp_state'] == 0x00, (
+            f"Second show comp_state=0x{show_pcs[1]['comp_state']:02X}, expected 0x00")
+
+        # Count ODS segments in the Normal display set
+        # Find the segment range for the second show PCS
+        normal_ds_segs = show_pcs[1]['ds_seg_types']
+        ods_count = sum(1 for t in normal_ds_segs if t == 0x15)
+        assert ods_count >= 1, f"Normal DS should have >=1 ODS, got {ods_count}"
+        # Normal should NOT have 2 ODS (unchanged object not re-encoded)
+        # Note: ODS fragmentation could produce >1 for a single object
+        # We verify by checking there's no WDS (Normal omits it)
+        assert 0x17 not in normal_ds_segs, "Normal DS should not have WDS"
+
+        print(f"  [PASS] Epoch Normal: one object changed (stats={writer.stats})")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_epoch_skip_identical_content():
+    """Two abutting events with identical content keys → second is skipped."""
+    ds1, regions1 = _make_two_region_ds(1000, 3000, (255, 0, 0, 255), (0, 255, 0, 255))
+    ds2, regions2 = _make_two_region_ds(3000, 5000, (255, 0, 0, 255), (0, 255, 0, 255))
+
+    keys = [('top_v1',), ('bottom_v1',)]
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        writer.write(ds1, extra_regions=regions1, region_content_keys=keys)
+        writer.write(ds2, extra_regions=regions2, region_content_keys=keys)
+        writer.close()
+
+        assert writer.stats['skipped'] >= 1, f"Expected >=1 skip, got {writer.stats}"
+
+        # Parse: should have only 1 show + 1 clear (second show skipped)
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, _ = _parse_pcs_records(raw)
+        show_pcs = [p for p in pcs_records if p['num_objects'] > 0]
+        assert len(show_pcs) == 1, f"Expected 1 show PCS (second skipped), got {len(show_pcs)}"
+
+        print(f"  [PASS] Epoch Skip: identical content (stats={writer.stats})")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_epoch_clear_after_content():
+    """Single event → clear.  Clear PCS must be Epoch Start (0x80)."""
+    ds1, regions1 = _make_two_region_ds(1000, 3000, (255, 0, 0, 255), (0, 255, 0, 255))
+    keys = [('top_v1',), ('bottom_v1',)]
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        writer.write(ds1, extra_regions=regions1, region_content_keys=keys)
+        writer.close()
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, _ = _parse_pcs_records(raw)
+        clear_pcs = [p for p in pcs_records if p['num_objects'] == 0 and p['pts'] > 0]
+        assert len(clear_pcs) >= 1, f"Expected >=1 clear PCS, got {len(clear_pcs)}"
+        for cp in clear_pcs:
+            assert cp['comp_state'] == 0x80, (
+                f"Clear PCS at PTS={cp['pts']} has comp_state=0x{cp['comp_state']:02X}, "
+                f"expected 0x80 (Epoch Start for seek safety)")
+
+        print(f"  [PASS] Epoch Clear: Epoch Start for seek safety")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_epoch_start_after_gap():
+    """Two events with gap → both shows must be Epoch Start."""
+    ds1, regions1 = _make_two_region_ds(1000, 3000, (255, 0, 0, 255), (0, 255, 0, 255))
+    ds2, regions2 = _make_two_region_ds(5000, 7000, (0, 0, 255, 255), (0, 255, 0, 255))
+
+    keys1 = [('top_v1',), ('bottom_v1',)]
+    keys2 = [('top_v2',), ('bottom_v1',)]
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        writer.write(ds1, extra_regions=regions1, region_content_keys=keys1)
+        writer.write(ds2, extra_regions=regions2, region_content_keys=keys2)
+        writer.close()
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, _ = _parse_pcs_records(raw)
+        show_pcs = [p for p in pcs_records if p['num_objects'] > 0]
+        assert len(show_pcs) == 2, f"Expected 2 show PCS, got {len(show_pcs)}"
+
+        # Both shows must be Epoch Start (gap > 50ms → clear between them → epoch reset)
+        for i, sp in enumerate(show_pcs):
+            assert sp['comp_state'] == 0x80, (
+                f"Show {i} comp_state=0x{sp['comp_state']:02X}, expected 0x80 "
+                f"(gap between events should reset epoch)")
+
+        print(f"  [PASS] Epoch Start after gap (stats={writer.stats})")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_epoch_acquisition_point_periodic():
+    """Chain of 15+ abutting events → at least one AP appears."""
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        for i in range(16):
+            start = 1000 + i * 2000
+            end = start + 2000
+            # Alternate top text to ensure changes (not skipped)
+            top_color = (255, 0, 0, 255) if i % 2 == 0 else (0, 0, 255, 255)
+            ds, regions = _make_two_region_ds(start, end, top_color, (0, 255, 0, 255))
+            keys = [(f'top_v{i}',), ('bottom_v1',)]
+            writer.write(ds, extra_regions=regions, region_content_keys=keys)
+        writer.close()
+
+        assert writer.stats['acquisition_point'] >= 1, (
+            f"Expected >=1 AP in 16 abutting events, got {writer.stats}")
+
+        # Verify at least one PCS with comp_state == 0x40
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, _ = _parse_pcs_records(raw)
+        ap_pcs = [p for p in pcs_records if p['comp_state'] == 0x40 and p['num_objects'] > 0]
+        assert len(ap_pcs) >= 1, f"Expected >=1 AP PCS in binary, got {len(ap_pcs)}"
+
+        print(f"  [PASS] Epoch AP periodic (stats={writer.stats})")
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_epoch_backward_compatible_no_keys():
+    """SupWriter without region_content_keys → all PCS are Epoch Start."""
+    import struct as s
+
+    with tempfile.NamedTemporaryFile(suffix='.sup', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        writer = SupWriter(tmp_path, 1920, 1080)
+        for i in range(3):
+            img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
+            ds = DisplaySet(
+                start_ms=i * 3000 + 1000, end_ms=i * 3000 + 2500,
+                image=img, x=100, y=500,
+                canvas_width=1920, canvas_height=1080,
+            )
+            writer.write(ds)  # no region_content_keys
+        writer.close()
+
+        with open(tmp_path, 'rb') as f:
+            raw = f.read()
+        pcs_records, _ = _parse_pcs_records(raw)
+
+        # All PCS must be Epoch Start (backward compatible)
+        for p in pcs_records:
+            assert p['comp_state'] == 0x80, (
+                f"PCS at PTS={p['pts']} has comp_state=0x{p['comp_state']:02X}, "
+                f"expected 0x80 (backward compatible = all Epoch Start)")
+
+        # Stats should all be zero (old path doesn't touch stats)
+        assert writer.stats['normal'] == 0
+        assert writer.stats['acquisition_point'] == 0
+        assert writer.stats['skipped'] == 0
+
+        print(f"  [PASS] Epoch backward compatible: no keys → all Epoch Start")
+    finally:
+        os.unlink(tmp_path)
+
+
 if __name__ == '__main__':
     print("Running SUP writer round-trip tests...\n")
     test_rle_roundtrip_simple()
@@ -626,6 +1298,7 @@ if __name__ == '__main__':
     test_rle_roundtrip_single_pixels()
     test_ycbcr_roundtrip()
     test_quantize_preserves_transparency()
+    test_alpha_clamp_prevents_inflation()
     test_sup_roundtrip_solid_rect()
     test_sup_roundtrip_transparent_bg()
     test_sup_multiple_display_sets()
@@ -637,4 +1310,20 @@ if __name__ == '__main__':
     test_sup_writer_context_manager()
     test_sup_writer_anchor_late_start()
     test_sup_writer_image_released_after_flush()
+    test_numpy_rle_matches_python_rle()
+    test_numpy_rle_roundtrip_with_quantized_image()
+    test_split_regions_two_regions()
+    test_split_regions_single_region()
+    test_split_regions_small_gap_no_split()
+    test_split_regions_same_half_no_split()
+    test_split_regions_cross_half_splits()
+    test_split_regions_bottom_half_no_split()
+    test_two_object_pgs_structure()
+    test_two_object_sup_roundtrip()
+    test_epoch_normal_one_object_changed()
+    test_epoch_skip_identical_content()
+    test_epoch_clear_after_content()
+    test_epoch_start_after_gap()
+    test_epoch_acquisition_point_periodic()
+    test_epoch_backward_compatible_no_keys()
     print("\nAll tests passed!")

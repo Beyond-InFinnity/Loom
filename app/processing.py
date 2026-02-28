@@ -11,7 +11,7 @@ import tempfile
 logger = logging.getLogger(__name__)
 from .styles import get_lang_config
 from .romanize import build_annotation_html, _strip_inline_furigana, _strip_reverse_furigana
-from .sub_utils import load_subs
+from .sub_utils import load_subs, shift_events
 
 # Matches ASS vector-path drawing commands (\p1, \p2, etc.)
 # Events containing these are graphical shapes, never subtitle text.
@@ -879,7 +879,8 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_playres=None,
                       progress_callback=None, include_annotations=True,
                       native_style_mapping=None, target_style_mapping=None,
-                      lang_config=None):
+                      lang_config=None,
+                      native_offset_ms=0, target_offset_ms=0):
     """
     Generates a complete 4-layer .ass file from subtitle sources and styles.
 
@@ -921,8 +922,8 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
         Path to the generated .ass file, or None on error.
     """
     try:
-        native_subs = _load_subs(native_file)
-        target_subs = _load_subs(target_file)
+        native_subs = shift_events(_load_subs(native_file), native_offset_ms)
+        target_subs = shift_events(_load_subs(target_file), target_offset_ms)
 
         stitched_subs = pysubs2.SSAFile()
         _out_res = output_playres or (_PLAY_RES_X, _PLAY_RES_Y)
@@ -1237,7 +1238,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
                       resolution=(1920, 1080), output_resolution=None,
                       progress_callback=None,
                       native_style_mapping=None, target_style_mapping=None,
-                      lang_config=None, debug_dump_dir=None):
+                      lang_config=None, debug_dump_dir=None,
+                      native_offset_ms=0, target_offset_ms=0):
     """
     Generates a PGS .sup file with all enabled subtitle layers as bitmaps.
 
@@ -1270,8 +1272,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
     from .rasterize import PGSFrameEvent, rasterize_pgs_to_file
 
     try:
-        native_subs = _load_subs(native_file)
-        target_subs = _load_subs(target_file)
+        native_subs = shift_events(_load_subs(native_file), native_offset_ms)
+        target_subs = shift_events(_load_subs(target_file), target_offset_ms)
 
         out_res = output_resolution or (_PLAY_RES_X, _PLAY_RES_Y)
         _scale = out_res[1] / _PLAY_RES_Y

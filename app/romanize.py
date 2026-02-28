@@ -427,34 +427,104 @@ def _strip_ass(text: str) -> str:
     return clean
 
 
-def _make_pinyin_romanizer():
-    """Return a Chinese pinyin romanizer built on pypinyin.
+def _is_cjk_punct(char: str) -> bool:
+    """Return True if *char* is a CJK or fullwidth punctuation character.
 
-    Imported lazily so users who never select a Chinese track are not affected
-    by a missing pypinyin installation.
+    Covers:
+    - U+3000–U+303F  CJK Symbols and Punctuation (。、「」etc.)
+    - U+FF00–U+FF0F  Fullwidth digits/symbols prefix (！＂＃)
+    - U+FF1A–U+FF20  Fullwidth colon–at (：；＜＝＞？＠)
+    - U+FF3B–U+FF40  Fullwidth brackets (［＼］＾＿｀)
+    - U+FF5B–U+FF65  Fullwidth braces + halfwidth CJK punct (｛｜｝～｟｠)
+    - U+FE30–U+FE4F  CJK Compatibility Forms (︰︱etc.)
+    - U+2000–U+206F  General Punctuation (en-dash, em-dash, ellipsis, etc.)
+    """
+    cp = ord(char)
+    return (0x3000 <= cp <= 0x303F or
+            0xFF01 <= cp <= 0xFF0F or
+            0xFF1A <= cp <= 0xFF20 or
+            0xFF3B <= cp <= 0xFF40 or
+            0xFF5B <= cp <= 0xFF65 or
+            0xFE30 <= cp <= 0xFE4F or
+            0x2000 <= cp <= 0x206F)
+
+
+def _is_cjk_punct_segment(seg: str) -> bool:
+    """Return True if *seg* consists entirely of CJK/fullwidth punctuation or whitespace."""
+    return all(_is_cjk_punct(c) or c.isspace() for c in seg)
+
+
+def _make_pinyin_romanizer(variant: str = None):
+    """Return a Chinese pinyin romanizer with word-segmented output.
+
+    Uses jieba for word segmentation so that multi-character words are grouped
+    (e.g. "nǐhǎo shìjiè" instead of "nǐ hǎo shì jiè").
+
+    Parameters
+    ----------
+    variant : str | None
+        Chinese variant: ``"zh-Hant"`` for Traditional, ``"zh-Hans"`` or None
+        for Simplified.  When Traditional, text is converted to Simplified via
+        OpenCC for jieba segmentation (jieba's dictionary is Simplified-oriented),
+        then word boundaries are mapped back to the original Traditional text
+        for pypinyin processing.
 
     Behaviour
     ---------
     * ASS override tags and line-break markers are stripped before processing.
-    * pypinyin.pinyin() is called with Style.TONE (tone marks, e.g. "nǐ hǎo")
-      and errors='default', which passes non-CJK characters (punctuation,
-      numerals, Latin letters) through unchanged rather than crashing or
-      silently dropping them.
-    * The list-of-lists result is flattened and joined with spaces.
-    * Empty input returns an empty string.
-
-    This produces output like:
-        "你好，世界"  →  "nǐ hǎo ， shì jiè"
-        "（艾連）那天"  →  "（ ài lián ） nà tiān"
+    * jieba.cut() provides word boundaries.
+    * CJK punctuation segments are stripped entirely (punctuation is already
+      visible in the Top layer).
+    * For each CJK word, pypinyin syllables are joined without spaces within
+      the word, then words are joined with spaces.
+    * Non-CJK segments (Latin, numerals) pass through unchanged.
     """
     from pypinyin import pinyin as _pinyin, Style  # lazy import
+    import jieba  # lazy import
+
+    # Suppress jieba's noisy initialization log to stderr
+    import logging as _logging
+    _logging.getLogger('jieba').setLevel(_logging.WARNING)
+
+    # For Traditional Chinese: convert to Simplified for jieba segmentation
+    _t2s = None
+    if variant == 'zh-Hant':
+        import opencc  # lazy import
+        _t2s = opencc.OpenCC('t2s')
 
     def romanize(text: str) -> str:
         if not text:
             return ''
         clean = _strip_ass(text)
-        syllables = [item[0] for item in _pinyin(clean, style=Style.TONE, errors='default')]
-        return ' '.join(syllables)
+
+        # For Traditional: convert to Simplified for segmentation, then map
+        # word boundaries back to original Traditional text for pypinyin.
+        if _t2s is not None:
+            simplified = _t2s.convert(clean)
+            seg_words = list(jieba.cut(simplified))
+            # Map segment lengths back to original Traditional characters.
+            # Simplified and Traditional have 1:1 character correspondence
+            # (OpenCC t2s never changes string length for CJK text).
+            words = []
+            pos = 0
+            for sw in seg_words:
+                words.append(clean[pos:pos + len(sw)])
+                pos += len(sw)
+        else:
+            words = list(jieba.cut(clean))
+
+        parts = []
+        for word in words:
+            # Skip whitespace-only and CJK punctuation-only segments
+            if not word.strip() or _is_cjk_punct_segment(word):
+                continue
+            # Check if word contains any CJK characters
+            if any(_is_cjk(c) for c in word):
+                syllables = [s[0] for s in _pinyin(word, style=Style.TONE, errors='default')]
+                parts.append(''.join(syllables))
+            else:
+                parts.append(word.strip())
+        return ' '.join(p for p in parts if p)
 
     return romanize
 
@@ -1025,32 +1095,39 @@ def _make_korean_romanizer():
 
 
 def _make_korean_annotation_func():
-    """Return a Korean per-word annotation span producer.
+    """Return a Korean per-syllable annotation span producer.
 
-    Korean is space-delimited — each word is romanized via korean-romanizer
-    and paired with its original Hangul.  Spaces pass through with
-    reading=None so the rendering pipeline maintains word spacing.
+    Each Hangul syllable block (가–힣) gets its own ruby annotation with
+    its individual Revised Romanization reading, matching how Mandarin
+    gives each 汉字 its own pinyin ruby.
+
+    Non-Hangul characters (punctuation, Latin, numbers, spaces) pass
+    through with ``reading=None``.
+
+    Per-syllable romanization is produced by calling ``korean-romanizer``
+    on each syllable independently.  This loses some inter-syllable
+    phonological rules (liaison 연음, tensification 경음화, nasalization
+    비음화), but shows the base reading of each character — which is more
+    useful for character-level lookup.  The romanization *line* (block
+    text from ``_make_korean_romanizer``) uses full-word romanization
+    and captures those rules correctly.
     """
     from korean_romanizer.romanizer import Romanizer
 
-    def _has_hangul(word: str) -> bool:
-        return any('\uAC00' <= c <= '\uD7AF' or '\u1100' <= c <= '\u11FF' for c in word)
+    def _is_hangul_syllable(c: str) -> bool:
+        return '\uAC00' <= c <= '\uD7AF'
 
     def get_spans(text: str) -> list:
         if not text:
             return []
         clean = _strip_ass(text)
         spans = []
-        parts = clean.split(' ')
-        for i, word in enumerate(parts):
-            if word:
-                if _has_hangul(word):
-                    rom = Romanizer(word).romanize().strip()
-                    spans.append((word, rom if rom else None))
-                else:
-                    spans.append((word, None))
-            if i < len(parts) - 1:
-                spans.append((' ', None))
+        for char in clean:
+            if _is_hangul_syllable(char):
+                rom = Romanizer(char).romanize().strip()
+                spans.append((char, rom if rom else None))
+            else:
+                spans.append((char, None))
         return spans
 
     return get_spans
@@ -1611,9 +1688,11 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
-    # Chunk R2 — Chinese pinyin (pypinyin) ─────────────────────────── ✅
+    # Chunk R2 — Chinese pinyin (pypinyin + jieba segmentation) ────── ✅
     if primary == "zh":
-        return _make_pinyin_romanizer()
+        lc = (lang_code or "").lower()
+        variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
+        return _make_pinyin_romanizer(variant=variant)
 
     # Chunk R2c — Cantonese Jyutping (pycantonese) ────────────────── ✅
     if primary == "yue":

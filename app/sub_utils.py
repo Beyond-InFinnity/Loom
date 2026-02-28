@@ -9,8 +9,15 @@ The cached SSAFile objects must be treated as **read-only** by all consumers.
 Any code that needs to mutate events or styles must work on copies.
 """
 
+import bisect
+import collections
 import os
+import re
+
 import pysubs2
+
+# Matches ASS drawing mode commands (\p1, \p2, etc.).
+_DRAWING_RE = re.compile(r'\\p[1-9]')
 
 
 def load_subs_cached(path, cache=None):
@@ -45,6 +52,120 @@ def load_subs_cached(path, cache=None):
     subs = pysubs2.load(path)
     cache[cache_key] = (mtime, subs)
     return subs
+
+
+def shift_events(subs, offset_ms):
+    """Return a new SSAFile with all events shifted by *offset_ms*.
+
+    Parameters
+    ----------
+    subs : pysubs2.SSAFile
+        Source subtitle file (**not** mutated).
+    offset_ms : int | float
+        Milliseconds to shift.  Positive = later, negative = earlier.
+        Each event's start/end is clamped to >= 0.
+
+    Returns
+    -------
+    pysubs2.SSAFile
+        A deep copy with shifted timings, or the original object when
+        *offset_ms* is 0 (avoids an unnecessary copy).
+    """
+    if not offset_ms:
+        return subs
+    import copy
+    shifted = copy.deepcopy(subs)
+    off = int(round(offset_ms))
+    for event in shifted.events:
+        event.start = max(0, event.start + off)
+        event.end = max(0, event.end + off)
+    return shifted
+
+
+def compute_subtitle_offset(reference_subs, target_subs):
+    """Compute the timing offset between two same-language subtitle tracks.
+
+    Uses a pairwise-difference histogram (coarse) followed by a bisect-based
+    refinement pass (fine) to find the shift that maximises event alignment.
+
+    Sign convention
+    ---------------
+    Returns ``target_time - reference_time`` in seconds.
+
+    * **Positive** → reference events are earlier than the target video's;
+      tracks from the reference source need to be shifted *later*.
+    * **Negative** → reference events are later; shift *earlier*.
+
+    This matches the manual offset fields where positive = subs appear later.
+
+    Parameters
+    ----------
+    reference_subs : pysubs2.SSAFile
+        Subtitle track from the reference source.
+    target_subs : pysubs2.SSAFile
+        Subtitle track from the target video (one of the loaded tracks).
+
+    Returns
+    -------
+    tuple[float, str | None]
+        ``(offset_seconds, warning_message)``.  *warning_message* is ``None``
+        on success, or a human-readable string when the result is unreliable.
+    """
+
+    def _dialogue_starts(subs):
+        """Extract start-times (ms) of dialogue events, skipping comments and drawings."""
+        starts = []
+        for ev in subs.events:
+            if ev.is_comment:
+                continue
+            if _DRAWING_RE.search(ev.text):
+                continue
+            starts.append(ev.start)
+        return starts
+
+    ref_starts = _dialogue_starts(reference_subs)
+    tgt_starts = _dialogue_starts(target_subs)
+
+    if len(ref_starts) < 5 or len(tgt_starts) < 5:
+        return 0.0, (
+            "Too few dialogue events for reliable alignment "
+            f"(reference: {len(ref_starts)}, comparison: {len(tgt_starts)}; "
+            "need at least 5 in each track)."
+        )
+
+    # ── Coarse pass: pairwise-difference histogram, 100 ms bins ──────────
+    bins = collections.Counter()
+    for r in ref_starts:
+        for t in tgt_starts:
+            bins[(t - r) // 100] += 1
+
+    coarse_bin = max(bins, key=bins.get)
+    coarse_ms = coarse_bin * 100
+
+    # ── Fine pass: ±2 s around coarse peak, 10 ms steps ─────────────────
+    # Collect scores for all candidates, then take the midpoint of the
+    # best-scoring plateau (avoids systematic bias from first-wins).
+    sorted_tgt = sorted(tgt_starts)
+    n_tgt = len(sorted_tgt)
+    best_count = -1
+    scores = []
+
+    for step in range(-200, 201):  # ±2000 ms in 10 ms steps
+        candidate_ms = coarse_ms + step * 10
+        count = 0
+        for r in ref_starts:
+            shifted = r + candidate_ms
+            lo = bisect.bisect_left(sorted_tgt, shifted - 500)
+            if lo < n_tgt and sorted_tgt[lo] <= shifted + 500:
+                count += 1
+        scores.append((candidate_ms, count))
+        if count > best_count:
+            best_count = count
+
+    best_candidates = [ms for ms, cnt in scores if cnt == best_count]
+    best_offset_ms = (best_candidates[0] + best_candidates[-1]) // 2
+
+    return best_offset_ms / 1000.0, None
 
 
 def load_subs(source, cache=None):

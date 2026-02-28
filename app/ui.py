@@ -141,8 +141,8 @@ def render_hybrid_selector(label, options, key):
 
     if selected_value == "upload":
         uploaded_file = st.file_uploader(
-            "Upload a .srt or .ass file",
-            type=["srt", "ass", "ssa"],
+            "Upload a subtitle file",
+            type=["srt", "ass", "ssa", "vtt"],
             key=f"{key}_uploader"
         )
         if uploaded_file:

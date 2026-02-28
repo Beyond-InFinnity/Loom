@@ -110,24 +110,33 @@ def test_korean_romanizer():
 
 
 def test_korean_annotation():
-    """Korean should have per-word annotation (space-delimited romanization)."""
+    """Korean should have per-syllable annotation (one span per Hangul block)."""
     from app.romanize import get_annotation_func
 
     ann = get_annotation_func('ko')
     assert ann is not None, "Korean should have annotation_func"
 
+    # Single word — each syllable gets its own span
     spans = ann('안녕하세요')
-    assert len(spans) > 0, "Korean annotation returned empty spans"
-    # At least one span should have a reading
-    has_reading = any(reading is not None for _, reading in spans)
-    assert has_reading, f"No readings in Korean spans: {spans}"
-    # Readings should be ASCII
-    for orig, reading in spans:
-        if reading:
-            assert all(c.isascii() or c.isspace() for c in reading), \
-                f"Korean annotation reading not ASCII: '{reading}'"
+    hangul_spans = [(c, r) for c, r in spans if r is not None]
+    assert len(hangul_spans) == 5, (
+        f"Expected 5 annotated syllables for '안녕하세요', got {len(hangul_spans)}: {spans}")
+    # Each span should be a single character with an ASCII reading
+    for orig, reading in hangul_spans:
+        assert len(orig) == 1, f"Span should be single char, got '{orig}'"
+        assert all(c.isascii() for c in reading), \
+            f"Korean annotation reading not ASCII: '{reading}'"
 
-    print(f"  [PASS] Korean annotation: '안녕하세요' → {spans}")
+    # Multi-word with spaces and non-Hangul — spaces/punctuation get reading=None
+    spans2 = ann('한국어를 배우고 있습니다')
+    hangul_spans2 = [(c, r) for c, r in spans2 if r is not None]
+    assert len(hangul_spans2) == 11, (
+        f"Expected 11 annotated syllables, got {len(hangul_spans2)}: {spans2}")
+    # Spaces should pass through with None
+    space_spans = [(c, r) for c, r in spans2 if c == ' ']
+    assert all(r is None for _, r in space_spans), "Spaces should have no reading"
+
+    print(f"  [PASS] Korean per-syllable annotation: '안녕하세요' → {spans}")
 
 
 def test_korean_lang_config():

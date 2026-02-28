@@ -4,13 +4,13 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-02-26):** R1–R4 complete + R6a complete + R6b-presets complete + all supporting infrastructure. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container.
+**Current state (2026-02-28):** R1–R4 complete + R6a complete + R6b-presets complete + timing offsets + auto-alignment + all supporting infrastructure. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container. Manual timing offsets per track + auto-alignment from reference file (cross-correlation algorithm).
 
 **Active focus:** R5 — Indic scripts + RTL.
 
 **Known broken / dead code:** None currently tracked.
 
-**Test suite:** 173 tests across 8 files, all passing.
+**Test suite:** 209 tests across 9 files, all passing.
 
 ---
 
@@ -31,7 +31,7 @@ app/
   processing.py            # ASS generation + PGS generation + union timeline + concurrent event merge + opencc + style mapping + output filename builder
   preview.py               # Composite HTML preview
   color_presets.py         # Color preset system: 28 presets (classic/cultural/dark/adaptive), language-scoped
-  sub_utils.py             # Shared subtitle loading + mtime-based SSAFile caching
+  sub_utils.py             # Shared subtitle loading + mtime-based SSAFile caching + shift_events() + compute_subtitle_offset()
 tests/
   test_sup_roundtrip.py    # SUP writer ↔ ocr.py parser round-trip + split_regions + epoch (33 tests)
   test_rasterize.py        # Playwright rasterizer smoke tests (10 tests)
@@ -41,6 +41,7 @@ tests/
   test_color_presets.py    # Color preset system tests (21 tests)
   test_union_timeline.py   # Union timeline + concurrent event merge + EVA scenarios (42 tests)
   test_epoch_diagnostic.py # PGS epoch binary structure diagnostic (1 test)
+  test_chinese_romanization.py # Chinese Pinyin word segmentation + punctuation + annotation (36 tests)
 requirements.txt
 CLAUDE.md
 ```
@@ -89,7 +90,7 @@ CLAUDE.md
 
 **Annotation infrastructure is language-agnostic.** `get_annotation_func(lang_code)` → span producer. `build_annotation_html(spans, mode)` → HTML with 3 pluggable render modes: `"ruby"`, `"interlinear"`, `"inline"`. `annotation_render_mode` threaded through processing → rasterizer → preview. `annotation_font_ratio` (CJK=0.5, alphabetic=0.4). Adding a new annotated script = new `get_annotation_func()` implementation only; rendering unchanged.
 
-**Container-agnostic input:** ffprobe/ffmpeg accept any video container. Output always `.mkv`. UI file pickers accept all formats; output extension forced to `.mkv`.
+**Container-agnostic input:** ffprobe/ffmpeg accept any video container. Output always `.mkv`. UI file pickers accept all formats; output extension forced to `.mkv`. Subtitle upload accepts `.srt`, `.ass`, `.ssa`, `.vtt`.
 
 **MKV mux critical flags:** `-c:s:N ass` re-encodes ASS track (fixes timestamp conversion), `-max_interleave_delta 0` forces strict DTS-order interleaving (fixes subtitle clustering). PTS=0 anchor in `SupWriter`/`write_sup()` prevents ffmpeg timestamp rebasing.
 
@@ -102,6 +103,10 @@ CLAUDE.md
 **Modularity:** `mkv_handler.py` is the only file that touches ffmpeg.
 
 **SSAFile caching:** `load_subs_cached(path, cache)` in `sub_utils.py`. Cache keyed by `(path, mtime)`. `generate_ass_file()` / `generate_pgs_file()` accept optional `lang_config=None` param to avoid redundant `get_lang_config()` calls across Streamlit reruns.
+
+**Timing offsets:** `shift_events(subs, offset_ms)` in `sub_utils.py` — deep-copies an SSAFile and shifts all event start/end by offset_ms, clamped to >=0 (returns original when offset is 0). UI: collapsible "Timing Offsets" expander in Section 2 with two `number_input` widgets (`bottom_offset_sec`, `top_offset_sec`, 0.01s step) + a Link toggle for linked adjustment (delta-based: changing one shifts the other by the same amount). Offsets applied as `native_offset_ms`/`target_offset_ms` params via `shift_events()` immediately after `_load_subs()` in `preview.py` (`get_lines_at_timestamp`), `processing.py` (`generate_ass_file`, `generate_pgs_file`). Conversion: `int(round(sec * 1000))` at call sites.
+
+**Auto-alignment from reference:** `compute_subtitle_offset(reference_subs, target_subs)` in `sub_utils.py` → `(float, str|None)`. Sign convention: returns `target_time - reference_time` (positive = reference earlier, shift source-A tracks later). Algorithm: coarse pass = pairwise-difference histogram (N×M pairs, 100ms bins, `collections.Counter`); fine pass = ±2s around peak in 10ms steps, ±500ms tolerance with `bisect`, midpoint of best-scoring plateau. Filters out Comment events and `\p` drawing events; minimum 5 dialogue events per track. UI: inside "Timing Offsets" expander below manual controls. File picker (video+subtitle via `render_path_input`), video scanning via `get_video_metadata()` + `scan_and_extract_tracks()` into `{temp_dir}/ref_align/` subdir, track selectbox, "Compare against" (Bottom/Top), "Compute Offset" button, result display with workflow help text, "Apply to" + "Apply" button. Apply uses deferred pending keys (`_pending_top_offset_sec`/`_pending_bottom_offset_sec`) drained at top of script before `number_input` widgets bind — avoids Streamlit's `StreamlitAPIException` on post-widget state mutation. Linked adjustment propagated through pending path.
 
 **Scan performance:** Single-pass ffmpeg extraction. Shared probe — `get_video_metadata()` returns `(metadata_dict, probe_data)` tuple; `scan_and_extract_tracks(probe_data=probe_data)` reuses it. `probesize='100M'` + `analyzeduration='100M'` on ffprobe.
 
@@ -120,11 +125,14 @@ CLAUDE.md
 **Chinese variants:**
 - Simplified (`zh-Hans`/`zh-CN`/`chs`/bare `zh`) → Pinyin
 - Traditional (`zh-Hant`/`zh-TW`/`cht`) → Zhuyin default (Bopomofo)
-- Cantonese (`yue`/`zh-yue`/title "CantoCaptions"/2+ `_CANTONESE_MARKERS`) → Jyutping (annotation off by default)
-- opencc script conversion (`s2tw`, `t2s`) in `processing.py`
+- Cantonese (`yue`/`zh-yue`/title "CantoCaptions"/2+ `_CANTONESE_MARKERS`) → Jyutping (annotation on by default)
+- **Word-segmented Pinyin:** `_make_pinyin_romanizer(variant=)` uses `jieba.cut()` for word boundaries → syllables joined within words (e.g. "nǐhǎo shìjiè" not "nǐ hǎo shì jiè"). Traditional text converted to Simplified via OpenCC `t2s` for jieba segmentation (Simplified-oriented dictionary), word boundaries mapped back to original Traditional characters for pypinyin processing.
+- **CJK punctuation stripping:** `_is_cjk_punct()` / `_is_cjk_punct_segment()` filter punctuation-only segments from romanization output. Covers U+3000–U+303F, fullwidth forms U+FF00–U+FF65, CJK compatibility U+FE30–U+FE4F, general punctuation U+2000–U+206F.
+- Per-character annotation spans for all three variants (Pinyin/Zhuyin/Jyutping ruby)
+- opencc script conversion (`s2tw`, `t2s`) in `processing.py` + `t2s` in `_make_pinyin_romanizer()` for jieba segmentation
 - Metadata map: exact match first, then longest-prefix
 
-**Korean:** `korean-romanizer`, Revised Romanization. Per-word annotation (space-split, `_has_hangul()` guard).
+**Korean:** `korean-romanizer`, Revised Romanization. Per-syllable annotation — each Hangul syllable block (가–힣) gets its own ruby with individual RR reading via `Romanizer(char)`. Loses inter-syllable phonological rules (liaison 연음, tensification 경음화, nasalization 비음화) in ruby, but the romanization line uses full-word `Romanizer(text)` which captures them correctly. Two layers, two purposes: ruby = base reading per character (lookup aid), romanization line = actual pronunciation (reading aid).
 
 **Cyrillic:** `cyrtranslit`. `_CYRILLIC_LANG_CODES` BCP-47→cyrtranslit mapping (ru, uk/ua, be/by, sr, bg, mk, mn). Ukrainian/Belarusian disambiguation via `_UKRAINIAN_UNIQUE`/`_BELARUSIAN_UNIQUE` frozensets in `language.py`.
 

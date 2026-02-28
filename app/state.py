@@ -50,6 +50,36 @@ def initialize_state():
     if 'target_style_mapping' not in st.session_state:
         st.session_state.target_style_mapping = None
 
+    # --- Timing offsets ---
+    if 'bottom_offset_sec' not in st.session_state:
+        st.session_state.bottom_offset_sec = 0.0
+    if 'top_offset_sec' not in st.session_state:
+        st.session_state.top_offset_sec = 0.0
+    if 'timing_offsets_linked' not in st.session_state:
+        st.session_state.timing_offsets_linked = False
+    if '_prev_bottom_offset' not in st.session_state:
+        st.session_state._prev_bottom_offset = 0.0
+    if '_prev_top_offset' not in st.session_state:
+        st.session_state._prev_top_offset = 0.0
+
+    # --- Pending offset values (deferred writes for auto-alignment Apply) ---
+    if '_pending_top_offset_sec' not in st.session_state:
+        st.session_state._pending_top_offset_sec = None
+    if '_pending_bottom_offset_sec' not in st.session_state:
+        st.session_state._pending_bottom_offset_sec = None
+
+    # --- Auto-alignment from reference ---
+    if '_ref_align_path' not in st.session_state:
+        st.session_state._ref_align_path = ""
+    if '_ref_align_tracks' not in st.session_state:
+        st.session_state._ref_align_tracks = None
+    if '_ref_align_scanned_path' not in st.session_state:
+        st.session_state._ref_align_scanned_path = None
+    if '_ref_align_offset' not in st.session_state:
+        st.session_state._ref_align_offset = None
+    if '_ref_align_warning' not in st.session_state:
+        st.session_state._ref_align_warning = None
+
     # --- Color preset system (R6b) ---
     if 'active_color_preset' not in st.session_state:
         st.session_state.active_color_preset = ""

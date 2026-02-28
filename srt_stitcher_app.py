@@ -19,6 +19,7 @@ from app.preview import get_lines_at_timestamp, generate_unified_preview
 from app.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
 from app.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
 from app.color_presets import build_preset_selectbox_options, get_preset_styles, preset_swatch_colors, PRESETS
+from app.sub_utils import compute_subtitle_offset, load_subs_cached
 import pysubs2
 
 
@@ -194,6 +195,18 @@ def _render_style_mapping_ui(source_key):
 st.set_page_config(page_title="SRTStitcher Pro", layout="wide")
 initialize_state()
 
+# --- Drain pending offset values (set by auto-alignment Apply) ---
+# Must run before st.number_input widgets bind to these keys.
+for _pending_key, _target_key in (
+    ("_pending_bottom_offset_sec", "bottom_offset_sec"),
+    ("_pending_top_offset_sec", "top_offset_sec"),
+):
+    _pv = st.session_state.get(_pending_key)
+    if _pv is not None:
+        st.session_state[_target_key] = _pv
+        st.session_state[f"_prev_{_target_key}"] = _pv
+        st.session_state[_pending_key] = None
+
 # --- Temporary Directory Management ---
 # This ensures we have a consistent temp folder for the session
 if "temp_dir_obj" not in st.session_state:
@@ -277,6 +290,211 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
             _render_style_mapping_ui('native')
         with map_col2:
             _render_style_mapping_ui('target')
+
+    # --- Timing offset controls ---
+    with st.expander("Timing Offsets"):
+        def _on_bottom_offset_change():
+            if st.session_state.timing_offsets_linked:
+                delta = st.session_state.bottom_offset_sec - st.session_state._prev_bottom_offset
+                st.session_state.top_offset_sec = round(
+                    st.session_state.top_offset_sec + delta, 2)
+                st.session_state._prev_top_offset = st.session_state.top_offset_sec
+            st.session_state._prev_bottom_offset = st.session_state.bottom_offset_sec
+
+        def _on_top_offset_change():
+            if st.session_state.timing_offsets_linked:
+                delta = st.session_state.top_offset_sec - st.session_state._prev_top_offset
+                st.session_state.bottom_offset_sec = round(
+                    st.session_state.bottom_offset_sec + delta, 2)
+                st.session_state._prev_bottom_offset = st.session_state.bottom_offset_sec
+            st.session_state._prev_top_offset = st.session_state.top_offset_sec
+
+        _off_col1, _off_col2, _off_col3 = st.columns([2, 2, 1])
+        with _off_col1:
+            st.number_input(
+                "Bottom (native) offset (sec)",
+                key="bottom_offset_sec",
+                step=0.01,
+                format="%.2f",
+                on_change=_on_bottom_offset_change,
+            )
+        with _off_col2:
+            st.number_input(
+                "Top (foreign) offset (sec)",
+                key="top_offset_sec",
+                step=0.01,
+                format="%.2f",
+                on_change=_on_top_offset_change,
+            )
+        with _off_col3:
+            st.toggle(
+                "Link",
+                key="timing_offsets_linked",
+                help="When linked, changing one offset shifts the other by the same amount.",
+            )
+
+        # ── Auto-alignment from reference ────────────────────────────────
+        st.divider()
+        st.markdown("**Auto-detect offset from reference**")
+
+        _ref_filetypes = [
+            ("Video & subtitle files",
+             "*.mkv *.mp4 *.avi *.mov *.webm *.ts *.m2ts *.srt *.ass *.ssa *.sub *.vtt"),
+            ("All files", "*.*"),
+        ]
+        render_path_input(
+            "Reference file (video or subtitle)",
+            "_ref_align_path",
+            filetypes=_ref_filetypes,
+        )
+
+        _ref_path = st.session_state.get("_ref_align_path", "").strip()
+        _SUB_EXTS = {'.srt', '.ass', '.ssa', '.sub', '.vtt'}
+        _VID_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.ts', '.m2ts'}
+        _ref_subs = None  # Will hold SSAFile for the reference track
+
+        if _ref_path and os.path.isfile(_ref_path):
+            _ref_ext = os.path.splitext(_ref_path)[1].lower()
+
+            if _ref_ext in _VID_EXTS:
+                # ── Video file: scan for subtitle tracks ──
+                if st.session_state.get('_ref_align_scanned_path') != _ref_path:
+                    if st.button("Scan Reference Video", key="_ref_scan_btn"):
+                        with st.spinner("Scanning reference video..."):
+                            _ref_temp = os.path.join(
+                                st.session_state.temp_dir, "ref_align")
+                            os.makedirs(_ref_temp, exist_ok=True)
+                            _, _ref_probe = get_video_metadata(_ref_path)
+                            if _ref_probe:
+                                _ref_trks = scan_and_extract_tracks(
+                                    _ref_path, _ref_temp,
+                                    probe_data=_ref_probe)
+                                st.session_state._ref_align_tracks = [
+                                    t for t in _ref_trks if t.get('selectable')]
+                                st.session_state._ref_align_scanned_path = _ref_path
+                                st.session_state._ref_align_offset = None
+                                st.session_state._ref_align_warning = None
+                                st.rerun()
+                            else:
+                                st.error("Failed to probe reference video.")
+
+                # Show track selectbox if already scanned
+                if st.session_state.get('_ref_align_scanned_path') == _ref_path:
+                    _ref_tracks = st.session_state.get('_ref_align_tracks') or []
+                    if not _ref_tracks:
+                        st.warning(
+                            "No text subtitle tracks found in reference video.")
+                    else:
+                        _ref_labels = [t['label'] for t in _ref_tracks]
+                        _ref_sel = st.selectbox(
+                            "Reference subtitle track",
+                            range(len(_ref_labels)),
+                            format_func=lambda i: _ref_labels[i],
+                            key="_ref_align_track_sel",
+                        )
+                        _sel_track = _ref_tracks[_ref_sel]
+                        if _sel_track.get('path'):
+                            _ref_subs = load_subs_cached(_sel_track['path'])
+
+            elif _ref_ext in _SUB_EXTS:
+                # ── Subtitle file: load directly ──
+                try:
+                    _ref_subs = load_subs_cached(_ref_path)
+                except Exception as _e:
+                    st.error(f"Failed to load subtitle file: {_e}")
+
+            else:
+                st.warning(f"Unrecognised file extension: {_ref_ext}")
+
+        # ── Compare + Compute + Apply ──
+        if _ref_subs is not None:
+            _compare_against = st.selectbox(
+                "Compare against",
+                ["Bottom (native)", "Top (foreign)"],
+                key="_ref_compare_against",
+                help="Select which loaded track shares a language with the reference.",
+            )
+
+            if st.button("Compute Offset", key="_ref_compute_btn"):
+                _cmp_path = (
+                    st.session_state.native_sub_path
+                    if _compare_against == "Bottom (native)"
+                    else st.session_state.target_sub_path
+                )
+                if not _cmp_path:
+                    _which = ("native" if _compare_against == "Bottom (native)"
+                              else "target")
+                    st.error(f"No {_which} subtitle loaded.")
+                else:
+                    _cmp_subs = load_subs_cached(_cmp_path)
+                    with st.spinner("Computing offset..."):
+                        _off_val, _off_warn = compute_subtitle_offset(
+                            _ref_subs, _cmp_subs)
+                    st.session_state._ref_align_offset = _off_val
+                    st.session_state._ref_align_warning = _off_warn
+                    st.rerun()
+
+            # ── Display result ──
+            _det_warn = st.session_state.get('_ref_align_warning')
+            _det_offset = st.session_state.get('_ref_align_offset')
+
+            if _det_warn:
+                st.warning(_det_warn)
+            elif _det_offset is not None:
+                _sign = "+" if _det_offset >= 0 else ""
+                if abs(_det_offset) < 0.005:
+                    st.success(
+                        "Detected offset: **0.00s** — Tracks are already aligned.")
+                elif _det_offset > 0:
+                    st.info(
+                        f"Detected offset: **{_sign}{_det_offset:.2f}s** — "
+                        f"The reference source's subtitles start "
+                        f"{abs(_det_offset):.2f}s earlier than this video's. "
+                        f"Tracks from the reference source need to be shifted "
+                        f"{abs(_det_offset):.2f}s later to align."
+                    )
+                else:
+                    st.info(
+                        f"Detected offset: **{_det_offset:.2f}s** — "
+                        f"The reference source's subtitles start "
+                        f"{abs(_det_offset):.2f}s later than this video's. "
+                        f"Tracks from the reference source need to be shifted "
+                        f"{abs(_det_offset):.2f}s earlier to align."
+                    )
+
+                # ── Apply controls ──
+                _app_col1, _app_col2 = st.columns([2, 1])
+                with _app_col1:
+                    _apply_to = st.selectbox(
+                        "Apply to",
+                        ["Top (foreign)", "Bottom (native)"],
+                        key="_ref_apply_to",
+                        help=(
+                            "You compared the reference against your native "
+                            "track, so the offset should typically be applied "
+                            "to the foreign track that came from the same "
+                            "source as the reference."
+                        ),
+                    )
+                with _app_col2:
+                    st.write("<br>", unsafe_allow_html=True)
+                    if st.button("Apply", key="_ref_apply_btn"):
+                        _new_val = round(_det_offset, 2)
+                        if _apply_to == "Bottom (native)":
+                            _old = st.session_state.bottom_offset_sec
+                            st.session_state._pending_bottom_offset_sec = _new_val
+                            if st.session_state.timing_offsets_linked:
+                                _delta = _new_val - _old
+                                st.session_state._pending_top_offset_sec = round(
+                                    st.session_state.top_offset_sec + _delta, 2)
+                        else:
+                            _old = st.session_state.top_offset_sec
+                            st.session_state._pending_top_offset_sec = _new_val
+                            if st.session_state.timing_offsets_linked:
+                                _delta = _new_val - _old
+                                st.session_state._pending_bottom_offset_sec = round(
+                                    st.session_state.bottom_offset_sec + _delta, 2)
+                        st.rerun()
 
     # Handle OCR requests for PGS tracks
     _ocr_request = _ocr_native or _ocr_target
@@ -860,6 +1078,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
         preview_ts,
         native_style_mapping=st.session_state.get("native_style_mapping"),
         target_style_mapping=st.session_state.get("target_style_mapping"),
+        native_offset_ms=int(round(st.session_state.bottom_offset_sec * 1000)),
+        target_offset_ms=int(round(st.session_state.top_offset_sec * 1000)),
     )
     native_text = preview_lines["native"]
     target_text = preview_lines["target"]
@@ -1056,6 +1276,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             native_style_mapping=st.session_state.get("native_style_mapping"),
             target_style_mapping=st.session_state.get("target_style_mapping"),
             lang_config=st.session_state.get("_lang_config"),
+            native_offset_ms=int(round(st.session_state.bottom_offset_sec * 1000)),
+            target_offset_ms=int(round(st.session_state.top_offset_sec * 1000)),
         )
         _gen_status.empty()
 
@@ -1098,6 +1320,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 native_style_mapping=st.session_state.get("native_style_mapping"),
                 target_style_mapping=st.session_state.get("target_style_mapping"),
                 lang_config=st.session_state.get("_lang_config"),
+                native_offset_ms=int(round(st.session_state.bottom_offset_sec * 1000)),
+                target_offset_ms=int(round(st.session_state.top_offset_sec * 1000)),
             )
             _pgs_status.empty()
             _pgs_progress.empty()

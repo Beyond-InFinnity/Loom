@@ -221,10 +221,11 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     # because romanized words are often longer than their originals.
     ann_font_ratio = 0.5 if primary in _CJK_ANN_LANGS else 0.4
 
-    # Annotation default: off for Cantonese (block romanization sufficient)
-    # and Thai (every word would be annotated, replicating the romaji line
-    # with more visual noise — block romanization line is sufficient).
-    _ANN_DEFAULT_OFF = frozenset({'yue', 'th'})
+    # Annotation default: off for Thai (every word would be annotated,
+    # replicating the romaji line with more visual noise — block romanization
+    # line is sufficient).  Cantonese per-character Jyutping is on by default
+    # (valuable for learners, unlike Thai where romanization line suffices).
+    _ANN_DEFAULT_OFF = frozenset({'th'})
     ann_default_enabled = primary not in _ANN_DEFAULT_OFF
 
     # Word boundary function: Thai only (no natural word spaces in Thai script).

@@ -9,6 +9,7 @@ language_data
 ffmpeg-python
 pycantonese
 opencc-python-reimplemented
+jieba
 pytesseract
 Pillow
 playwright

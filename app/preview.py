@@ -4,7 +4,7 @@ import os
 import re
 import pysubs2
 from .romanize import build_annotation_html
-from .sub_utils import load_subs
+from .sub_utils import load_subs, shift_events
 
 # Fixed reference height — must match _PLAY_RES_Y in processing.py.
 _REF_H = 1080
@@ -222,7 +222,8 @@ def _collect_preserved_html(subs, style_mapping, ts_ms):
 
 
 def get_lines_at_timestamp(native_file, target_file, timestamp_seconds,
-                           native_style_mapping=None, target_style_mapping=None):
+                           native_style_mapping=None, target_style_mapping=None,
+                           native_offset_ms=0, target_offset_ms=0):
     """Return the active subtitle text for each track at the given timestamp.
 
     Scans each subtitle file independently for the first event whose time range
@@ -272,7 +273,7 @@ def get_lines_at_timestamp(native_file, target_file, timestamp_seconds,
     # --- Dialogue text ---
     native_subs = None
     try:
-        native_subs = _load_subs(native_file)
+        native_subs = shift_events(_load_subs(native_file), native_offset_ms)
         for event in native_subs:
             if native_dialogue is not None and event.style not in native_dialogue:
                 continue
@@ -284,7 +285,7 @@ def get_lines_at_timestamp(native_file, target_file, timestamp_seconds,
 
     target_subs = None
     try:
-        target_subs = _load_subs(target_file)
+        target_subs = shift_events(_load_subs(target_file), target_offset_ms)
         for event in target_subs:
             if target_dialogue is not None and event.style not in target_dialogue:
                 continue

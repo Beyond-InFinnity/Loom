@@ -13,6 +13,5 @@ jieba
 pytesseract
 Pillow
 playwright
-korean-romanizer
 cyrtranslit
 pythainlp

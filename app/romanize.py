@@ -1081,15 +1081,15 @@ _CYRILLIC_LANG_CODES = {
 def _make_korean_romanizer():
     """Return a Korean Revised Romanization block romanizer.
 
-    Uses korean-romanizer library.
+    Uses app.korean_rr (standalone MIT implementation).
     """
-    from korean_romanizer.romanizer import Romanizer
+    from app.korean_rr import romanize as _kr_romanize
 
     def romanize(text: str) -> str:
         if not text:
             return ''
         clean = _strip_ass(text)
-        return Romanizer(clean).romanize()
+        return _kr_romanize(clean)
 
     return romanize
 
@@ -1104,15 +1104,15 @@ def _make_korean_annotation_func():
     Non-Hangul characters (punctuation, Latin, numbers, spaces) pass
     through with ``reading=None``.
 
-    Per-syllable romanization is produced by calling ``korean-romanizer``
-    on each syllable independently.  This loses some inter-syllable
-    phonological rules (liaison 연음, tensification 경음화, nasalization
-    비음화), but shows the base reading of each character — which is more
-    useful for character-level lookup.  The romanization *line* (block
-    text from ``_make_korean_romanizer``) uses full-word romanization
-    and captures those rules correctly.
+    Per-syllable romanization uses ``romanize_syllable()`` from
+    app.korean_rr on each syllable independently.  This loses some
+    inter-syllable phonological rules (liaison 연음, tensification
+    경음화, nasalization 비음화), but shows the base reading of each
+    character — which is more useful for character-level lookup.  The
+    romanization *line* (block text from ``_make_korean_romanizer``)
+    uses full-word romanization and captures those rules correctly.
     """
-    from korean_romanizer.romanizer import Romanizer
+    from app.korean_rr import romanize_syllable
 
     def _is_hangul_syllable(c: str) -> bool:
         return '\uAC00' <= c <= '\uD7AF'
@@ -1124,7 +1124,7 @@ def _make_korean_annotation_func():
         spans = []
         for char in clean:
             if _is_hangul_syllable(char):
-                rom = Romanizer(char).romanize().strip()
+                rom = romanize_syllable(char)
                 spans.append((char, rom if rom else None))
             else:
                 spans.append((char, None))

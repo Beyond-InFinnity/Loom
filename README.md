@@ -1,4 +1,4 @@
-# SRTStitcher
+# Loom
 
 A subtitle merging and language-learning tool. Load a video with multiple subtitle tracks, stitch them together into a single `.ass` file, and get phonetic annotations — pinyin above hanzi, furigana above kanji, romaji above Japanese — displayed character-by-character, the way Duolingo renders it, but for any video you own.
 
@@ -8,7 +8,7 @@ The goal is to make the experience of watching foreign-language content with pho
 
 ## What It Does
 
-SRTStitcher takes two subtitle tracks — typically a target language and your native language — and combines them into a single layered `.ass` subtitle file. For supported scripts, it generates phonetic annotation aligned above each character or word compound.
+Loom takes two subtitle tracks — typically a target language and your native language — and combines them into a single layered `.ass` subtitle file. For supported scripts, it generates phonetic annotation aligned above each character or word compound.
 
 **The four-layer output for Japanese content:**
 
@@ -29,11 +29,11 @@ The layer ordering follows interlinear gloss convention — the standard format 
 
 The furigana layer uses a priority sourcing system:
 
-**1. Author-annotated readings (ground truth).** Quality fansub files often contain inline readings written directly into the dialogue text — a convention where the subtitle author annotates a hard kanji with its reading in parentheses immediately after: `奴(やつ)`. SRTStitcher detects this pattern and uses the author's reading in preference to anything generated. The person who wrote the subtitle knew the correct reading for that specific line in context — that's better than any automated system, especially for unusual readings, character names, and readings that depend on narrative context.
+**1. Author-annotated readings (ground truth).** Quality fansub files often contain inline readings written directly into the dialogue text — a convention where the subtitle author annotates a hard kanji with its reading in parentheses immediately after: `奴(やつ)`. Loom detects this pattern and uses the author's reading in preference to anything generated. The person who wrote the subtitle knew the correct reading for that specific line in context — that's better than any automated system, especially for unusual readings, character names, and readings that depend on narrative context.
 
 The detection exploits a reserved Japanese typographic convention: hiragana-only content in parentheses immediately adjacent to kanji has essentially one meaning in Japanese writing. The false positive rate for subtitle content is effectively zero.
 
-**2. Pre-existing ASS ruby annotations.** If the source track already contains positioned furigana events, SRTStitcher detects them and defers to them rather than regenerating.
+**2. Pre-existing ASS ruby annotations.** If the source track already contains positioned furigana events, Loom detects them and defers to them rather than regenerating.
 
 **3. pykakasi fallback.** For everything else, pykakasi provides morpheme-level tokenization and hiragana readings.
 
@@ -52,7 +52,7 @@ Note: `ei` sequences are intentionally not macronized — strict Hepburn convent
 
 ## Romanization Confidence
 
-Not all romanization is created equal. SRTStitcher assigns a confidence level to each language's phonetic output, displayed in the UI:
+Not all romanization is created equal. Loom assigns a confidence level to each language's phonetic output, displayed in the UI:
 
 | Confidence | Languages | Why |
 |-----------|-----------|-----|
@@ -99,7 +99,7 @@ Zhuyin is the default for Traditional Chinese because Taiwan uses Zhuyin Fuhao a
 
 Learning a language through media is one of the most effective and enjoyable ways to build comprehension — but the tooling has always been fragmented. You either watch with subtitles in your target language and miss content when you hit unknown vocabulary, or you watch with native-language subtitles and lose the immersion. Tools like Duolingo nail the phonetic annotation UX but only work within their own controlled content environment.
 
-SRTStitcher is an attempt to bring that UX to any video you watch. The immediate use case is anime with Japanese and Chinese fansub tracks, but the architecture is designed to generalize to any script where phonetic annotation is meaningful for learners — Devanagari, Thai, Hangul, Cantonese, and others.
+Loom is an attempt to bring that UX to any video you watch. The immediate use case is anime with Japanese and Chinese fansub tracks, but the architecture is designed to generalize to any script where phonetic annotation is meaningful for learners — Devanagari, Thai, Hangul, Cantonese, and others.
 
 The longer-term goal is a browser extension that works on YouTube, Netflix, and other streaming platforms. The local desktop tool is the prototype that proves the pipeline.
 
@@ -107,7 +107,7 @@ The longer-term goal is a browser extension that works on YouTube, Netflix, and 
 
 ## How Is This Different From Aegisub / SubSync / Alass?
 
-Those tools align, edit, or synchronize subtitles — they solve the problem of getting subtitle timing right. SRTStitcher solves a different problem: merging two subtitle tracks into a single layered file with phonetic annotation. No existing subtitle tool takes a Japanese track and an English track and produces a four-layer output with furigana above kanji and romaji above that. The annotation pipeline — three-tier furigana sourcing, per-script romanization with confidence scoring, inline reading detection — is the core of what SRTStitcher does, and it's not something you can get by combining existing tools.
+Those tools align, edit, or synchronize subtitles — they solve the problem of getting subtitle timing right. Loom solves a different problem: merging two subtitle tracks into a single layered file with phonetic annotation. No existing subtitle tool takes a Japanese track and an English track and produces a four-layer output with furigana above kanji and romaji above that. The annotation pipeline — three-tier furigana sourcing, per-script romanization with confidence scoring, inline reading detection — is the core of what Loom does, and it's not something you can get by combining existing tools.
 
 ---
 
@@ -130,7 +130,7 @@ Subtitle input formats supported: `.srt`, `.ass`, `.ssa`, `.vtt`, `.sub`, `.sbv`
 ## Project Structure
 
 ```
-srt_stitcher_app.py     # Streamlit entry point
+loom_app.py             # Streamlit entry point
 app/
   mkv_handler.py        # MKV scan, extraction, remux — all ffmpeg calls live here
   romanize.py           # Phonetic annotation module (romanizers + annotation spans)
@@ -150,12 +150,12 @@ CLAUDE.md               # Developer context and architecture notes
 
 ```bash
 pip install -r requirements.txt
-streamlit run srt_stitcher_app.py
+streamlit run loom_app.py
 ```
 
 ffmpeg must be installed and available on your PATH.
 
-**CJK font note:** For correct rendering of Japanese, Chinese, and Korean subtitles (both in the preview and in VLC/media players), you'll want CJK-capable fonts installed on your system. The [Noto CJK](https://fonts.google.com/noto#702) family (Noto Sans JP, Noto Sans SC, Noto Sans KR) is recommended — they're free, high quality, and cover all three scripts. SRTStitcher defaults to these fonts for CJK tracks. If they're not installed, subtitle text may render as empty boxes in the preview or in your media player.
+**CJK font note:** For correct rendering of Japanese, Chinese, and Korean subtitles (both in the preview and in VLC/media players), you'll want CJK-capable fonts installed on your system. The [Noto CJK](https://fonts.google.com/noto#702) family (Noto Sans JP, Noto Sans SC, Noto Sans KR) is recommended — they're free, high quality, and cover all three scripts. Loom defaults to these fonts for CJK tracks. If they're not installed, subtitle text may render as empty boxes in the preview or in your media player.
 
 ---
 
@@ -165,9 +165,9 @@ ffmpeg must be installed and available on your PATH.
 
 **Layer ordering follows interlinear gloss convention.** The decision to place romaji above furigana above Japanese is intentional. In linguistic interlinear gloss format, phonetic transcription sits above the intermediate annotation which sits above the base text. For a language-learning context, this progression from most accessible to most native is the right mental model — and it means the furigana sits directly above the kanji it annotates, which is where it belongs typographically.
 
-**Language detection runs a character-level override before probabilistic detection.** For Cyrillic scripts, certain characters are definitively diagnostic: ї, є, ґ only exist in Ukrainian Cyrillic; ў only exists in Belarusian. For Chinese, Cantonese-specific characters (係, 喺, 囉, 咁, 嘅) distinguish Cantonese from Mandarin with high confidence. In both cases, detecting these characters in source text identifies the language before any probabilistic model is consulted. This matters because misclassification doesn't just produce wrong output — it produces output under the wrong standard. SRTStitcher treats Ukrainian and Russian as the different languages they are, and treats Cantonese as distinct from Mandarin.
+**Language detection runs a character-level override before probabilistic detection.** For Cyrillic scripts, certain characters are definitively diagnostic: ї, є, ґ only exist in Ukrainian Cyrillic; ў only exists in Belarusian. For Chinese, Cantonese-specific characters (係, 喺, 囉, 咁, 嘅) distinguish Cantonese from Mandarin with high confidence. In both cases, detecting these characters in source text identifies the language before any probabilistic model is consulted. This matters because misclassification doesn't just produce wrong output — it produces output under the wrong standard. Loom treats Ukrainian and Russian as the different languages they are, and treats Cantonese as distinct from Mandarin.
 
-**Inline furigana in source subtitle files is treated as ground truth.** Fansub authors often annotate hard kanji readings directly in the dialogue text as `奴(やつ)`. SRTStitcher detects this pattern, extracts the author-provided reading, and uses it in preference to generated readings. The same detection strips the parenthetical before passing text to pykakasi, preventing doubled romanization output.
+**Inline furigana in source subtitle files is treated as ground truth.** Fansub authors often annotate hard kanji readings directly in the dialogue text as `奴(やつ)`. Loom detects this pattern, extracts the author-provided reading, and uses it in preference to generated readings. The same detection strips the parenthetical before passing text to pykakasi, preventing doubled romanization output.
 
 **No large files are loaded into RAM.** Video files are always handled as local paths passed to ffmpeg subprocesses. An 84GB 4K MKV and a 450MB MKV consume the same memory during processing.
 

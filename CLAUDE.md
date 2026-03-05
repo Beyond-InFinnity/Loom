@@ -1,4 +1,4 @@
-# SRTStitcher — Claude Code Project Briefing
+# Loom — Claude Code Project Briefing
 
 ## ⚡ Session Quick-Start
 
@@ -17,7 +17,7 @@
 ## Project Structure
 
 ```
-srt_stitcher_app.py        # Main Streamlit entry point
+loom_app.py                # Main Streamlit entry point
 app/
   mkv_handler.py           # Video scan/extract/screenshot/mux — all ffmpeg calls (any container in, MKV out)
   ocr.py                   # PGS OCR: SUP parser + Tesseract + parallel thread pool

@@ -1,4 +1,4 @@
-# srt_stitcher_app.py
+# loom_app.py
 import logging
 import sys
 logging.basicConfig(stream=sys.stderr, level=logging.INFO,
@@ -14,13 +14,35 @@ from app.mkv_handler import scan_and_extract_tracks, extract_screenshot, merge_s
 from app.rasterize import is_playwright_available
 from app.ui import render_mkv_path_input, render_hybrid_selector, render_ocr_buttons, render_path_input
 from app.styles import get_lang_config, FONT_LIST, CJK_FONT_LIST
-from app.language import detect_language
+from app.language import detect_language, detect_languages_by_style, code_to_name
 from app.preview import get_lines_at_timestamp, generate_unified_preview
 from app.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
 from app.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
 from app.color_presets import build_preset_selectbox_options, get_preset_styles, preset_swatch_colors, PRESETS
 from app.sub_utils import compute_subtitle_offset, load_subs_cached
 import pysubs2
+
+
+def _find_track_by_path(sub_path):
+    """Find lang_code for a subtitle path across primary and external tracks.
+
+    Searches ``mkv_tracks`` first, then the ``_ext_video_tracks`` shared pool.
+
+    Returns
+    -------
+    str | None
+        The ``lang_code`` of the matching track, or ``None``.
+    """
+    if not sub_path:
+        return None
+    for t in st.session_state.get("mkv_tracks", []):
+        if t.get('path') == sub_path:
+            return t.get('lang_code')
+    for _tracks in st.session_state.get("_ext_video_tracks", {}).values():
+        for t in _tracks:
+            if t.get('path') == sub_path:
+                return t.get('lang_code')
+    return None
 
 
 def _hex_to_ass_color(hex_str):
@@ -192,7 +214,7 @@ def _render_style_mapping_ui(source_key):
 
 
 # --- Initial Setup ---
-st.set_page_config(page_title="SRTStitcher Pro", layout="wide")
+st.set_page_config(page_title="Loom", layout="wide")
 initialize_state()
 
 # --- Drain pending offset values (set by auto-alignment Apply) ---
@@ -215,7 +237,7 @@ if "temp_dir_obj" not in st.session_state:
     atexit.register(st.session_state.temp_dir_obj.cleanup)
 
 # --- Main App ---
-st.title("🎬 SRTStitcher Pro")
+st.title("🎬 Loom")
 st.write("---")
 
 st.header("1. Load & Scan Video File")
@@ -269,14 +291,16 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
         st.session_state.native_sub_path = render_hybrid_selector(
             "Native Subtitle Source",
             st.session_state.mkv_tracks,
-            key="native"
+            key="native",
+            temp_dir=st.session_state.temp_dir,
         )
         _ocr_native = render_ocr_buttons(st.session_state.mkv_tracks, key="native")
     with col2:
         st.session_state.target_sub_path = render_hybrid_selector(
             "Target Subtitle Source",
             st.session_state.mkv_tracks,
-            key="target"
+            key="target",
+            temp_dir=st.session_state.temp_dir,
         )
         _ocr_target = render_ocr_buttons(st.session_state.mkv_tracks, key="target")
 
@@ -358,6 +382,17 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
 
             if _ref_ext in _VID_EXTS:
                 # ── Video file: scan for subtitle tracks ──
+                # Check shared external tracks pool first
+                _ext_pool = st.session_state.get('_ext_video_tracks', {})
+                if (st.session_state.get('_ref_align_scanned_path') != _ref_path
+                        and _ref_path in _ext_pool):
+                    # Reuse tracks from the shared pool (already scanned by a selector)
+                    st.session_state._ref_align_tracks = [
+                        t for t in _ext_pool[_ref_path] if t.get('selectable')]
+                    st.session_state._ref_align_scanned_path = _ref_path
+                    st.session_state._ref_align_offset = None
+                    st.session_state._ref_align_warning = None
+
                 if st.session_state.get('_ref_align_scanned_path') != _ref_path:
                     if st.button("Scan Reference Video", key="_ref_scan_btn"):
                         with st.spinner("Scanning reference video..."):
@@ -374,6 +409,8 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
                                 st.session_state._ref_align_scanned_path = _ref_path
                                 st.session_state._ref_align_offset = None
                                 st.session_state._ref_align_warning = None
+                                # Store in shared pool for selector reuse
+                                st.session_state._ext_video_tracks[_ref_path] = _ref_trks
                                 st.rerun()
                             else:
                                 st.error("Failed to probe reference video.")
@@ -552,7 +589,36 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     st.header("3. Style & Preview")
 
     # --- Detect foreign/media language for romanization ---
-    target_lang_code = detect_language(st.session_state.target_sub_path)
+    # Per-style detection for multi-style ASS files prevents a majority
+    # language from drowning out the user's actual target language.
+    _target_path = st.session_state.target_sub_path
+    _target_ext = os.path.splitext(_target_path)[1].lower() if _target_path else ""
+    _target_mapping = st.session_state.get("target_style_mapping")
+
+    if _target_ext in ('.ass', '.ssa') and _target_mapping:
+        _per_style_langs = detect_languages_by_style(
+            _target_path, style_mapping=_target_mapping)
+        _unique_langs = sorted(set(
+            lang for lang in _per_style_langs.values() if lang))
+
+        if len(_unique_langs) > 1:
+            _lang_labels = [f"{code_to_name(c)} ({c})" for c in _unique_langs]
+            _lang_sel_idx = st.selectbox(
+                "Target language",
+                range(len(_lang_labels)),
+                format_func=lambda i: _lang_labels[i],
+                key="_target_lang_override",
+                help="Multiple languages detected — select the target language "
+                     "for romanization and annotation.",
+            )
+            target_lang_code = _unique_langs[_lang_sel_idx]
+        elif len(_unique_langs) == 1:
+            target_lang_code = _unique_langs[0]
+        else:
+            target_lang_code = detect_language(_target_path)
+    else:
+        target_lang_code = detect_language(_target_path)
+
     st.session_state.target_lang_code = target_lang_code
 
     primary_lang = (target_lang_code or "").lower().split("-")[0].split("_")[0]
@@ -1175,11 +1241,8 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
     # --- Build suggested output filename from metadata ---
     _media_meta = st.session_state.get("mkv_metadata", {})
-    _native_lang_code = None
-    for t in st.session_state.get("mkv_tracks", []):
-        if t.get('path') == st.session_state.get("native_sub_path"):
-            _native_lang_code = t.get('lang_code')
-            break
+    _native_lang_code = _find_track_by_path(
+        st.session_state.get("native_sub_path"))
     _ann_sys_name_lower = annotation_system_name.lower() if (
         has_annotation and st.session_state.styles.get('Annotation', {}).get('enabled', False)
     ) else None
@@ -1397,7 +1460,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                     value=True,
                     key="mux_keep_existing_subs",
                     help="Uncheck to strip all original subtitle tracks from the source. "
-                         "Only the new SRTStitcher tracks will be included.",
+                         "Only the new Loom tracks will be included.",
                 )
                 _keep_attachments = st.checkbox(
                     "Keep font attachments",

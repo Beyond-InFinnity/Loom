@@ -18,7 +18,7 @@ def initialize_state():
     if 'mkv_scan_complete' not in st.session_state:
         st.session_state.mkv_scan_complete = False
     # NOTE: temp_dir is intentionally NOT created here.
-    # srt_stitcher_app.py owns temp dir creation via tempfile.TemporaryDirectory()
+    # loom_app.py owns temp dir creation via tempfile.TemporaryDirectory()
     # so that cleanup is managed and the dir path is registered via atexit.
     if 'temp_dir' not in st.session_state:
         st.session_state.temp_dir = None
@@ -79,6 +79,18 @@ def initialize_state():
         st.session_state._ref_align_offset = None
     if '_ref_align_warning' not in st.session_state:
         st.session_state._ref_align_warning = None
+
+    # --- External video tracks (shared pool) ---
+    if '_ext_video_tracks' not in st.session_state:
+        st.session_state._ext_video_tracks = {}   # {abs_path: [track_dicts]}
+    if '_ext_vid_path_native' not in st.session_state:
+        st.session_state._ext_vid_path_native = ""
+    if '_ext_vid_path_target' not in st.session_state:
+        st.session_state._ext_vid_path_target = ""
+
+    # --- ASS channel extraction cache ---
+    if '_ass_channel_cache' not in st.session_state:
+        st.session_state._ass_channel_cache = {}   # {(path, style): extracted_path}
 
     # --- Color preset system (R6b) ---
     if 'active_color_preset' not in st.session_state:

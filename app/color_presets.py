@@ -1,4 +1,4 @@
-"""Color preset system for SRTStitcher subtitle layers.
+"""Color preset system for Loom subtitle layers.
 
 Pure data + logic module — no Streamlit imports.
 

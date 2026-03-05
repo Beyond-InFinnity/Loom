@@ -278,6 +278,69 @@ def _sample_text(subs, sample_size):
     return text_sample if text_sample.strip() else None
 
 
+def detect_language_from_text(text_sample, metadata_lang=None, track_title=None):
+    """Detect language from a pre-built text sample.
+
+    This is the core detection pipeline used by :func:`detect_language` and
+    :func:`detect_languages_by_style`.  It runs script analysis followed by
+    statistical detection and script-specific reconciliation.
+
+    Parameters
+    ----------
+    text_sample : str
+        Concatenated subtitle text to analyze.
+    metadata_lang : str | None
+        Optional MKV metadata language tag hint.
+    track_title : str | None
+        Optional MKV track title string hint.
+
+    Returns
+    -------
+    str | None
+        A BCP-47 language code, or ``None`` on failure.
+    """
+    if not text_sample or not text_sample.strip():
+        return None
+
+    try:
+        # Stage 1: Script analysis
+        script = _dominant_script(text_sample)
+
+        # Stage 2: Statistical detection
+        raw_code = detect(text_sample)
+
+        # Stage 3: Reconcile script analysis with langdetect
+        if script == "CJK":
+            return _refine_cjk_detection(raw_code, text_sample, metadata_lang, track_title)
+
+        if script == "Hiragana_Katakana":
+            return "ja"
+
+        if script == "Hangul":
+            return "ko"
+
+        if script == "Cyrillic":
+            char_override = _detect_by_script_chars(text_sample)
+            if char_override:
+                return char_override
+            if raw_code in ('ru', 'sr', 'bg', 'mk', 'uk', 'be', 'mn'):
+                return raw_code
+            return 'ru'
+
+        if script == "Thai":
+            return "th"
+
+        if metadata_lang:
+            meta_code = _normalize_metadata_lang(metadata_lang)
+            if meta_code and meta_code != raw_code:
+                return meta_code
+
+        return raw_code
+
+    except (LangDetectException, IndexError, Exception):
+        return None
+
+
 def detect_language(file_path, sample_size=50, metadata_lang=None, track_title=None):
     """
     Detects language from a subtitle file on disk. Uses a two-stage approach:
@@ -309,50 +372,70 @@ def detect_language(file_path, sample_size=50, metadata_lang=None, track_title=N
         if not text_sample:
             return None
 
-        # Stage 1: Script analysis
-        script = _dominant_script(text_sample)
-
-        # Stage 2: Statistical detection
-        raw_code = detect(text_sample)
-
-        # Stage 3: Reconcile script analysis with langdetect
-        if script == "CJK":
-            return _refine_cjk_detection(raw_code, text_sample, metadata_lang, track_title)
-
-        if script == "Hiragana_Katakana":
-            return "ja"
-
-        if script == "Hangul":
-            return "ko"
-
-        if script == "Cyrillic":
-            # Try unique-character pre-detection first (і/ї/є/ґ→uk, ў→be)
-            char_override = _detect_by_script_chars(text_sample)
-            if char_override:
-                return char_override
-            # Fall back to langdetect for ru/sr/bg/mk disambiguation
-            if raw_code in ('ru', 'sr', 'bg', 'mk', 'uk', 'be', 'mn'):
-                return raw_code
-            # langdetect didn't recognise a Cyrillic language — default to Russian
-            return 'ru'
-
-        if script == "Thai":
-            return "th"
-
-        # For Latin and other scripts, prefer the MKV metadata tag when it
-        # resolves to a valid language that disagrees with langdetect.
-        # langdetect frequently misidentifies Romance languages (e.g. Spanish
-        # as English, Portuguese as Spanish) on short subtitle samples.
-        if metadata_lang:
-            meta_code = _normalize_metadata_lang(metadata_lang)
-            if meta_code and meta_code != raw_code:
-                return meta_code
-
-        return raw_code
+        return detect_language_from_text(text_sample, metadata_lang, track_title)
 
     except (LangDetectException, IndexError, Exception) as e:
         print(f"Language detection failed for {file_path}: {e}")
         return None
+
+
+# Matches ASS drawing mode commands (\p1, \p2, etc.) — local to this module
+# to avoid importing from sub_utils.
+_LANG_DRAWING_RE = __import__('re').compile(r'\\p[1-9]')
+
+
+def detect_languages_by_style(file_path, style_mapping=None, sample_size=50):
+    """Detect language separately per style group in an ASS/SSA file.
+
+    Groups dialogue events by their ``Style`` field, then runs the full
+    detection pipeline on each group independently.  This prevents a
+    majority language from drowning out a minority language when styles
+    encode separate language tracks (e.g. ``Dial_JP`` + ``Dial_CH``).
+
+    Parameters
+    ----------
+    file_path : str
+        Path to an ``.ass`` / ``.ssa`` file.
+    style_mapping : dict | None
+        ``{style_name: role}`` from the style mapper.  Styles whose role is
+        ``"exclude"`` are skipped.  ``None`` means all styles are analyzed.
+    sample_size : int
+        Maximum events to sample per style (middle-of-track strategy).
+
+    Returns
+    -------
+    dict[str, str | None]
+        ``{style_name: lang_code}`` for each analyzed style.
+    """
+    try:
+        subs = pysubs2.load(file_path)
+    except Exception:
+        return {}
+
+    # Group non-comment, non-drawing events by style
+    style_events = {}
+    for ev in subs.events:
+        if ev.is_comment:
+            continue
+        if _LANG_DRAWING_RE.search(ev.text):
+            continue
+        if style_mapping and style_mapping.get(ev.style) == "exclude":
+            continue
+        style_events.setdefault(ev.style, []).append(ev)
+
+    result = {}
+    for style_name, events in style_events.items():
+        # Sample from the middle (same strategy as _sample_text)
+        total = len(events)
+        mid = total // 2
+        start = max(0, mid - sample_size // 2)
+        end = min(total, start + sample_size)
+        text_sample = " ".join(
+            ev.text.replace("\\N", " ") for ev in events[start:end]
+        )
+        result[style_name] = detect_language_from_text(text_sample)
+
+    return result
 
 
 def code_to_name(code):

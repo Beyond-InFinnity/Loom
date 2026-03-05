@@ -41,9 +41,9 @@ DEBUG_BLOCK = """
         # --- 🔍 DIAGNOSTIC PROBE END ---
 """
 
-print("Injecting diagnostics into srt_stitcher_app.py...")
+print("Injecting diagnostics into loom_app.py...")
 
-with open("srt_stitcher_app.py", "r") as f:
+with open("loom_app.py", "r") as f:
     content = f.read()
 
 # We look for the line where 'preview_html' is assigned, which is the choke point
@@ -53,7 +53,7 @@ if target_str in content and "🔍 PIPELINE INSPECTION" not in content:
     # Insert the debug block right before the function call
     new_content = content.replace(target_str, DEBUG_BLOCK + "\n        " + target_str)
     
-    with open("srt_stitcher_app.py", "w") as f:
+    with open("loom_app.py", "w") as f:
         f.write(new_content)
     print("✅ Diagnostics injected. Please restart Streamlit.")
 else:

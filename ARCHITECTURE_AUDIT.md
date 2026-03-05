@@ -1,4 +1,4 @@
-# SRTStitcher Architecture Audit
+# Loom Architecture Audit
 
 **Date:** 2026-02-25
 **Scope:** Full codebase analysis — data flow, memory, performance, technical debt
@@ -12,7 +12,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    srt_stitcher_app.py (1199 lines)                  │
+│                    loom_app.py (1199 lines)                  │
 │                    ═══════════════════════════════                    │
 │                                                                      │
 │  ┌─────────────┐    ┌──────────────┐    ┌───────────────────┐       │
@@ -212,7 +212,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 
 **1. Repeated pysubs2 parsing (HIGH impact)**
 - `get_lines_at_timestamp()` in `preview.py` calls `_load_subs()` on both files **every rerun**
-- `_detect_styles_if_ass()` in `srt_stitcher_app.py` calls `detect_ass_styles()` which calls `_load_subs()`
+- `_detect_styles_if_ass()` in `loom_app.py` calls `detect_ass_styles()` which calls `_load_subs()`
 - `generate_ass_file()` calls `_load_subs()` on both files
 - `generate_pgs_file()` calls `_load_subs()` on both files
 - The same 2 files are parsed from disk **3-4+ times per session**, with 2 parses on every click
@@ -229,7 +229,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 - ~0.5MB per rerun — low absolute impact but wasteful
 
 **4. `get_lang_config()` called redundantly**
-- Called once in `srt_stitcher_app.py` for UI setup
+- Called once in `loom_app.py` for UI setup
 - Called again in `generate_ass_file()`
 - Called again in `generate_pgs_file()`
 - Each call to `get_lang_config('ja')` triggers `get_japanese_pipeline()` which creates closures. The pykakasi instance is cached, but the closure objects and pipeline setup are recreated.
@@ -277,7 +277,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 - **Risk:** Low-medium — cache miss rate may increase slightly, adding ~5-10% render time
 
 #### 5. Avoid re-calling `get_lang_config()` in generation functions
-- **What:** `srt_stitcher_app.py` calls `get_lang_config()` to set up UI, then `generate_ass_file()` and `generate_pgs_file()` each call it again
+- **What:** `loom_app.py` calls `get_lang_config()` to set up UI, then `generate_ass_file()` and `generate_pgs_file()` each call it again
 - **Problem:** Redundant work. For Japanese, each call creates new closure objects (though the underlying pykakasi instance is cached). More importantly, it's a confusing API — the caller has the config but the callee re-derives it.
 - **Fix:** Pass `lang_config` dict to `generate_ass_file()` and `generate_pgs_file()` instead of `target_lang_code`. The generation functions already extract everything they need from it.
 - **Effort:** Small-medium (API change, update all call sites)
@@ -309,7 +309,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 - **Risk:** Low — models are thread-safe after initialization
 
 #### 9. Reduce Streamlit rerun overhead with `st.fragment` or callbacks
-- **What:** Any widget interaction triggers a full rerun of the entire `srt_stitcher_app.py` (1199 lines of top-level code)
+- **What:** Any widget interaction triggers a full rerun of the entire `loom_app.py` (1199 lines of top-level code)
 - **Problem:** Every slider drag, checkbox toggle, or color picker change re-executes the entire script. This includes re-parsing subtitles for preview, re-computing annotation spans, re-generating HTML, etc.
 - **Fix:** Use `@st.fragment` (Streamlit 1.33+) to isolate the preview section and style editors. Only the fragment re-runs on widget changes within it, avoiding the full script re-execution.
 - **Effort:** Medium-large (requires restructuring the linear script into fragments)
@@ -340,7 +340,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 - **Impact:** LOW — only affects language detection (~50ms savings). But it's called on every rerun if detection is retriggered.
 - **Risk:** Low
 
-#### 13. `srt_stitcher_app.py` is a 1200-line monolith
+#### 13. `loom_app.py` is a 1200-line monolith
 - **What:** The entire application logic — UI, state management, style editing, preview, generation dispatch, remux — lives in one flat script
 - **Problem:** Hard to maintain, test, or refactor. Every function defined at module level is re-evaluated on every Streamlit rerun. The file has 151 references to `st.session_state`.
 - **Fix:** Extract into logical sections: `app/ui_styles.py` (style expanders), `app/ui_generate.py` (generation buttons), `app/ui_preview.py` (preview section). Each becomes a function called from the main script.
@@ -373,7 +373,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 - **Risk:** Low-medium — must ensure preview scaling (`_FONT_SCALE`) vs rasterizer scaling (`scale`) are handled correctly
 
 #### 17. The debug diagnostic probe is always rendered
-- **What:** Lines 824-861 of `srt_stitcher_app.py` — a "Pipeline Inspection" expander with debug info
+- **What:** Lines 824-861 of `loom_app.py` — a "Pipeline Inspection" expander with debug info
 - **Problem:** Even collapsed, this expander executes its body on every rerun (checking file existence, reading file headers, calling `get_hiragana()`, etc.)
 - **Fix:** Gate behind an environment variable or `st.secrets` flag, or use `@st.fragment` to isolate it
 - **Effort:** Trivial
@@ -405,8 +405,8 @@ The 1372MB RSS before PGS rendering starts is explained by:
 ### Implicit Dependencies Between Modules
 
 **3. `processing.py` imports from `styles.py` which imports from `romanize.py`**
-- But `srt_stitcher_app.py` also imports directly from all three
-- `processing.py` calls `get_lang_config()` internally, creating a hidden dependency on the same NLP model state that `srt_stitcher_app.py` already initialized
+- But `loom_app.py` also imports directly from all three
+- `processing.py` calls `get_lang_config()` internally, creating a hidden dependency on the same NLP model state that `loom_app.py` already initialized
 - If `get_lang_config()` behavior changes (e.g., caching semantics), both callers are affected
 
 **4. `_PLAY_RES_X/Y` in processing.py must match `_REF_H` in preview.py**
@@ -501,7 +501,7 @@ The 1372MB RSS before PGS rendering starts is explained by:
 
 | # | Change | Effort | Impact | Risk |
 |---|--------|--------|--------|------|
-| 13 | **Break up `srt_stitcher_app.py`** into logical sections | L | MED | Med |
+| 13 | **Break up `loom_app.py`** into logical sections | L | MED | Med |
 | — | **Add structured error handling** — replace bare `except Exception` with typed catches + logging | M-L | MED | Low |
 | — | **Add timeouts to all `subprocess.run()` calls** | S | LOW | Low |
 | — | **Consolidate `print()` calls to `logging`** across mkv_handler, language, etc. | S-M | LOW | Low |

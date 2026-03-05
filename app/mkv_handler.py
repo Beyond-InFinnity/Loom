@@ -298,11 +298,11 @@ def _build_track_title(target_lang_name, native_lang_name,
                        is_pgs=False):
     """Build a descriptive track title for MKV subtitle metadata.
 
-    Pattern: {TargetLang} + {NativeLang} [{Annotation} / {Romanization}] [PGS] (SRTStitcher)
+    Pattern: {TargetLang} + {NativeLang} [{Annotation} / {Romanization}] [PGS] (Loom)
 
     Examples:
-        "Japanese + English [Furigana / Hepburn] (SRTStitcher)"
-        "Japanese + English [Furigana / Hepburn] PGS (SRTStitcher)"
+        "Japanese + English [Furigana / Hepburn] (Loom)"
+        "Japanese + English [Furigana / Hepburn] PGS (Loom)"
     """
     parts = []
     if target_lang_name:
@@ -321,7 +321,7 @@ def _build_track_title(target_lang_name, native_lang_name,
     if is_pgs:
         parts.append("PGS")
 
-    parts.append("(SRTStitcher)")
+    parts.append("(Loom)")
     return ' '.join(parts)
 
 

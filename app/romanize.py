@@ -1,6 +1,6 @@
 # app/romanize.py
 """
-Romanization factory for SRTStitcher.
+Romanization factory for Loom.
 
 Public API
 ----------

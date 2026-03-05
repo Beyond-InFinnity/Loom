@@ -103,10 +103,15 @@ def render_mkv_path_input():
     # session state, and Streamlit will rerun automatically on state change or widget interaction.
     return st.session_state.get("mkv_path_input")
 
-def render_hybrid_selector(label, options, key):
+_SUB_EXTS = {'.srt', '.ass', '.ssa', '.vtt'}
+_VID_EXTS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.ts', '.m2ts'}
+
+
+def render_hybrid_selector(label, options, key, temp_dir=None):
     """
-    Renders a selectbox with provided options (MKV tracks) and an option to upload a custom file.
-    Always returns a file path string (saving uploads to temp if needed).
+    Renders a selectbox with provided options (MKV tracks), external video
+    tracks from the shared pool, and an option to browse for a custom file
+    (subtitle or video).
 
     Tracks with ``selectable=False`` (e.g. PGS image-based subtitles) are excluded
     from the dropdown and shown as informational captions below it.
@@ -117,6 +122,7 @@ def render_hybrid_selector(label, options, key):
                         like {'id': index, 'label': "Track X - [Lang]", 'path': temp_path,
                               'source': 'mkv', 'selectable': True}.
         key (str): A unique key for the Streamlit components.
+        temp_dir (str | None): Temp directory for extracting external tracks.
 
     Returns:
         str: The path to the selected subtitle file, or None if no file is selected.
@@ -124,10 +130,29 @@ def render_hybrid_selector(label, options, key):
     selectable = [opt for opt in options if opt.get('selectable', True)]
     non_selectable = [opt for opt in options if not opt.get('selectable', True)]
 
+    # Primary tracks from the main scanned video
     display_options = {"-- Select a source --": None}
     for opt in selectable:
         display_options[opt['label']] = opt['path']
-    display_options["📂 Upload Custom File..."] = "upload"
+
+    # External video tracks from shared pool
+    _primary_path = st.session_state.get('mkv_path')
+    _ext_pool = st.session_state.get('_ext_video_tracks', {})
+    for vid_path, ext_tracks in _ext_pool.items():
+        # Skip if this is the same video as the primary scan
+        if _primary_path and os.path.abspath(vid_path) == os.path.abspath(_primary_path):
+            continue
+        ext_selectable = [t for t in ext_tracks if t.get('selectable', True)]
+        if not ext_selectable:
+            continue
+        fname = os.path.basename(vid_path)
+        sep_label = f"─── {fname} ───"
+        display_options[sep_label] = None
+        for t in ext_selectable:
+            ext_label = f"{t['label']}  [{fname}]"
+            display_options[ext_label] = t['path']
+
+    display_options["📂 Browse for File..."] = "upload"
 
     selection_label = st.selectbox(
         label,
@@ -140,25 +165,70 @@ def render_hybrid_selector(label, options, key):
     file_path = None
 
     if selected_value == "upload":
-        uploaded_file = st.file_uploader(
-            "Upload a subtitle file",
-            type=["srt", "ass", "ssa", "vtt"],
-            key=f"{key}_uploader"
+        _path_state_key = f"_ext_vid_path_{key}"
+        _browse_filetypes = [
+            ("Subtitle & video files",
+             "*.srt *.ass *.ssa *.vtt *.mkv *.mp4 *.avi *.mov *.webm *.ts *.m2ts"),
+            ("All files", "*.*"),
+        ]
+        render_path_input(
+            "File path (subtitle or video)",
+            _path_state_key,
+            filetypes=_browse_filetypes,
         )
-        if uploaded_file:
-            # Save the uploaded file to the session's temp directory
-            temp_dir = st.session_state.get('temp_dir')
-            if not temp_dir:
-                st.error("Temporary directory not initialized.")
-                return None
 
-            # Create a unique filename to avoid conflicts
-            unique_filename = f"{key}_{uploaded_file.name}"
-            save_path = os.path.join(temp_dir, unique_filename)
+        _ext_path = st.session_state.get(_path_state_key, "").strip()
+        if _ext_path and os.path.isfile(_ext_path):
+            _ext = os.path.splitext(_ext_path)[1].lower()
 
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getvalue())
-            file_path = save_path
+            if _ext in _SUB_EXTS:
+                # Subtitle file — use directly
+                file_path = _ext_path
+            elif _ext in _VID_EXTS:
+                # Video file — check shared cache or offer scan
+                if _ext_path in _ext_pool:
+                    # Already scanned — show track sub-selectbox
+                    _cached = [t for t in _ext_pool[_ext_path]
+                               if t.get('selectable', True)]
+                    if not _cached:
+                        st.warning("No text subtitle tracks in this video.")
+                    else:
+                        _tlabels = [t['label'] for t in _cached]
+                        _tsel = st.selectbox(
+                            "Select track",
+                            range(len(_tlabels)),
+                            format_func=lambda i: _tlabels[i],
+                            key=f"{key}_ext_track_sel",
+                        )
+                        file_path = _cached[_tsel].get('path')
+                else:
+                    # Not yet scanned — show Scan button
+                    if st.button("Scan Video", key=f"{key}_ext_scan_btn"):
+                        _td = temp_dir or st.session_state.get('temp_dir')
+                        if not _td:
+                            st.error("Temporary directory not initialized.")
+                        else:
+                            with st.spinner("Scanning external video..."):
+                                from app.mkv_handler import (
+                                    get_video_metadata,
+                                    scan_and_extract_tracks,
+                                )
+                                _ext_temp = os.path.join(
+                                    _td, f"ext_{key}_{os.path.basename(_ext_path)}")
+                                os.makedirs(_ext_temp, exist_ok=True)
+                                _, _probe = get_video_metadata(_ext_path)
+                                if _probe:
+                                    _trks = scan_and_extract_tracks(
+                                        _ext_path, _ext_temp,
+                                        probe_data=_probe)
+                                    st.session_state._ext_video_tracks[_ext_path] = _trks
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to probe video file.")
+            else:
+                st.warning(f"Unrecognised file extension: {_ext}")
+        elif _ext_path:
+            st.error("File not found.")
     else:
         file_path = selected_value
 

@@ -168,6 +168,77 @@ def compute_subtitle_offset(reference_subs, target_subs):
     return best_offset_ms / 1000.0, None
 
 
+def detect_ass_channels(ass_path, cache=None):
+    """Detect distinct style-based channels in an ASS/SSA file.
+
+    Groups dialogue events by their ``Style`` field.  Comment events and
+    vector-path drawing events (``\\p1`` etc.) are excluded from counts.
+
+    Parameters
+    ----------
+    ass_path : str
+        Path to the ASS/SSA file.
+    cache : dict | None
+        Optional SSAFile cache for :func:`load_subs_cached`.
+
+    Returns
+    -------
+    list[dict]
+        ``[{'style': str, 'count': int}, ...]`` sorted by *count*
+        descending.  Empty list if the file cannot be parsed.
+    """
+    try:
+        subs = load_subs_cached(ass_path, cache)
+    except Exception:
+        return []
+
+    counts = {}
+    for ev in subs.events:
+        if ev.is_comment:
+            continue
+        if _DRAWING_RE.search(ev.text):
+            continue
+        counts[ev.style] = counts.get(ev.style, 0) + 1
+
+    channels = [{'style': name, 'count': count}
+                for name, count in counts.items()]
+    channels.sort(key=lambda c: c['count'], reverse=True)
+    return channels
+
+
+def extract_ass_channel(ass_path, channel_style, output_path, cache=None):
+    """Extract events of a single style channel from an ASS file.
+
+    Preserves the source ``[Script Info]`` and ``[V4+ Styles]`` sections
+    intact.  Only events whose ``style`` matches *channel_style* are kept
+    (both ``Dialogue`` and ``Comment`` lines).
+
+    Parameters
+    ----------
+    ass_path : str
+        Source ASS/SSA file.
+    channel_style : str
+        Style name to extract.
+    output_path : str
+        Destination path for the extracted file.
+    cache : dict | None
+        Optional SSAFile cache for :func:`load_subs_cached`.
+
+    Returns
+    -------
+    str
+        *output_path* on success.
+    """
+    import copy
+
+    subs = load_subs_cached(ass_path, cache)
+    extracted = copy.deepcopy(subs)
+    extracted.events = [e for e in extracted.events
+                        if e.style == channel_style]
+    extracted.save(output_path)
+    return output_path
+
+
 def load_subs(source, cache=None):
     """Load subtitles from a file path (str) or Streamlit file object.
 

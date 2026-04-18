@@ -8,7 +8,7 @@ OpenAPI schema is at /openapi.json; interactive docs at /docs.
 
 from fastapi import FastAPI
 
-from .routes import files, generate, health, language
+from .routes import align, files, generate, health, language, preview, subs, video
 
 app = FastAPI(
     title="Loom API",
@@ -20,3 +20,7 @@ app.include_router(health.router)
 app.include_router(files.router)
 app.include_router(language.router)
 app.include_router(generate.router)
+app.include_router(video.router)
+app.include_router(subs.router)
+app.include_router(align.router)
+app.include_router(preview.router)

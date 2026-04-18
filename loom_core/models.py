@@ -199,14 +199,18 @@ TrackSource = Literal["mkv", "external"]
 class TrackInfo(BaseModel):
     """One subtitle track surfaced to the UI.
 
-    Mirrors the dict shape returned by ``video/mkv_handler.scan_and_extract_tracks``.
-    Image-based tracks (PGS, VobSub) carry ``selectable=False`` and ``path=None``.
+    Wire-safe view of the dict returned by
+    ``video/mkv_handler.scan_and_extract_tracks``. The engine returns ``path``
+    (a server-side filesystem path); the API route registers that path with
+    storage and exposes ``file_id`` instead so clients can reference the
+    extracted track in subsequent requests. Image-based tracks (PGS, VobSub)
+    carry ``selectable=False`` and ``file_id=None``.
     """
 
     id: int
     sub_num: Optional[int] = None
     label: str
-    path: Optional[str] = None
+    file_id: Optional[str] = None
     lang_code: Optional[str] = None
     source: TrackSource = "mkv"
     selectable: bool = True
@@ -262,12 +266,17 @@ StyleRole = Literal["dialogue", "preserve", "exclude"]
 
 
 class StyleInfo(BaseModel):
-    """Per-style metadata from ``subs/processing.detect_ass_styles``."""
+    """Per-style metadata from ``subs/processing.detect_ass_styles``.
+
+    Wire-safe — drops the engine's nested ``style: SSAStyle`` field which
+    can't cross JSON.
+    """
 
     name: str
     event_count: int
     has_animation: bool
     role: StyleRole
+    sample_text: str = ""
 
 
 # ── Pipeline requests ──────────────────────────────────────────────────

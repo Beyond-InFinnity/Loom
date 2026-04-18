@@ -1,23 +1,36 @@
 """Typed contracts for the loom_core engine and the API layer.
 
-Field names match the dict keys used in the engine today (e.g. ``"Bottom"``,
-``"Top"``), so ``StyleConfig.model_dump(by_alias=True)`` produces a dict that
-existing functions in ``subs/processing.py``, ``rasterize/pgs.py``, and
-``subs/preview.py`` consume unchanged. The engine keeps its current dict
-contract; this file is the wire/validation contract for FastAPI and the
-typed TS client generated from the OpenAPI schema.
+The engine in ``loom_core/`` consumes a styles dict whose shape evolved
+incrementally inside the Streamlit app — pysubs2-aligned attribute names
+(``fontname``, ``fontsize``, ``primarycolor``), inverted-alpha colors, and
+``*_none`` flags whose semantics are inverted ("True means disabled").
+
+This module exposes a clean wire contract instead. Every layer and the
+top-level config carry a ``to_engine_dict()`` method that produces the
+exact dict shape the engine wants. Wire features:
+
+  - Colors are ``#RRGGBB`` hex strings. Opacity is a 0-100 percentage.
+    ``to_engine_dict()`` combines them into ``pysubs2.Color`` objects with
+    pysubs2's inverted alpha (``100% opacity → alpha=0``).
+  - Effect toggles read positively (``outline_enabled``, ``shadow_enabled``,
+    ``background_enabled``, ``glow_enabled``); the adapter inverts to the
+    engine's ``*_none`` semantics.
+  - Layer-specific extras (``Annotation.phonetic_system``,
+    ``Romanized.long_vowel_mode``) live on the matching subclass.
+
+The engine signatures still take a plain dict — this file is the contract
+the API layer uses, plus the bridge to call into the engine.
 """
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
+import pysubs2
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ── Layer styles ───────────────────────────────────────────────────────
-# Field names use the casing the engine expects when keyed into the
-# ``styles`` dict (Bottom, Top, Romanized, Annotation).
+# ── Enumerations ───────────────────────────────────────────────────────
 
 PhoneticSystem = Literal[
     "pinyin", "zhuyin", "jyutping",
@@ -29,69 +42,153 @@ AnnotationRenderMode = Literal["ruby", "interlinear", "inline"]
 ScriptDisplay = Literal["original", "simplified", "traditional"]
 
 
+# ── Color conversion ──────────────────────────────────────────────────
+
+def _hex_to_color(hex_str: str, opacity: int) -> pysubs2.Color:
+    """``#RRGGBB`` + opacity 0-100 → ``pysubs2.Color`` with inverted alpha.
+
+    pysubs2 stores alpha inverted from the conventional sense:
+    ``alpha=0`` is fully opaque, ``alpha=255`` is fully transparent.
+    """
+    s = hex_str.lstrip("#")
+    alpha = round((1 - opacity / 100.0) * 255)
+    return pysubs2.Color(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16), alpha)
+
+
+# ── Layer styles ───────────────────────────────────────────────────────
+
 class LayerStyle(BaseModel):
-    """Per-layer visual style. All sizes/distances in 1080-scale units."""
+    """Per-layer visual style. Sizes/distances in 1080-scale units."""
 
     enabled: bool = True
-    color: str = "#FFFFFF"
-    opacity: int = Field(100, ge=0, le=100)
-    font_family: str = "Arial"
-    font_size: int = Field(..., ge=1)
 
+    fontname: str = "Arial"
+    fontsize: int = Field(48, ge=1)
+    bold: bool = False
+    italic: bool = False
+
+    # Colors split into hex + opacity for wire ergonomics.
+    primarycolor: str = "#FFFFFF"
+    primary_opacity: int = Field(100, ge=0, le=100)
+    outlinecolor: str = "#000000"
+    outline_opacity: int = Field(100, ge=0, le=100)
+    backcolor: str = "#000000"
+    back_opacity: int = Field(0, ge=0, le=100)
+
+    # Effects: positive-sense toggles. Adapter inverts to engine's ``*_none``.
     outline_enabled: bool = True
-    outline_thickness: float = Field(2.5, ge=0)
-    outline_color: str = "#000000"
-    outline_opacity: int = Field(90, ge=0, le=100)
-
+    outline: float = Field(2.5, ge=0)
     shadow_enabled: bool = False
-    shadow_distance: float = Field(1.5, ge=0)
+    shadow: float = Field(1.5, ge=0)
+    background_enabled: bool = False
+    glow_enabled: bool = False
+    glow_radius: int = Field(5, ge=0, le=20)
+    glow_color_hex: str = "#FFFF00"
 
-    glow_radius: int = Field(0, ge=0, le=20)
-    glow_color: str = "#000000"
+    # Layout (pysubs2 conventions: alignment 1-9 numpad-style).
+    alignment: int = Field(2, ge=1, le=9)
+    marginl: int = 10
+    marginr: int = 10
+    marginv: int = 30
 
-
-class AnnotationLayerStyle(LayerStyle):
-    font_size: int = Field(22, ge=1)
-    outline_thickness: float = Field(1.0, ge=0)
-    phonetic_system: Optional[PhoneticSystem] = None
-    font_ratio: float = Field(0.5, gt=0, le=1.0)
-
-
-class RomanizedLayerStyle(LayerStyle):
-    font_size: int = Field(30, ge=1)
-    outline_thickness: float = Field(1.5, ge=0)
-    long_vowel_mode: LongVowelMode = "macrons"
+    def to_engine_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "fontname": self.fontname,
+            "fontsize": self.fontsize,
+            "bold": self.bold,
+            "italic": self.italic,
+            "primarycolor": _hex_to_color(self.primarycolor, self.primary_opacity),
+            "outlinecolor": _hex_to_color(self.outlinecolor, self.outline_opacity),
+            "backcolor": _hex_to_color(self.backcolor, self.back_opacity),
+            "outline": self.outline,
+            "shadow": self.shadow,
+            "outline_none": not self.outline_enabled,
+            "shadow_none": not self.shadow_enabled,
+            "back_none": not self.background_enabled,
+            "glow_none": not self.glow_enabled,
+            "glow_radius": self.glow_radius,
+            "glow_color_hex": self.glow_color_hex,
+            "alignment": self.alignment,
+            "marginl": self.marginl,
+            "marginr": self.marginr,
+            "marginv": self.marginv,
+        }
 
 
 class BottomLayerStyle(LayerStyle):
-    font_size: int = Field(48, ge=1)
-    outline_thickness: float = Field(3.0, ge=0)
+    fontsize: int = Field(48, ge=1)
+    outline: float = Field(3.0, ge=0)
+    marginv: int = 30
 
 
 class TopLayerStyle(LayerStyle):
-    font_size: int = Field(52, ge=1)
-    outline_thickness: float = Field(2.5, ge=0)
+    fontsize: int = Field(52, ge=1)
+    outline: float = Field(2.5, ge=0)
+    marginv: int = 100
+
+
+class RomanizedLayerStyle(LayerStyle):
+    fontsize: int = Field(30, ge=1)
+    outline: float = Field(1.5, ge=0)
+    marginv: int = 160
+    long_vowel_mode: LongVowelMode = "macrons"
+
+    def to_engine_dict(self) -> dict[str, Any]:
+        d = super().to_engine_dict()
+        d["long_vowel_mode"] = self.long_vowel_mode
+        return d
+
+
+class AnnotationLayerStyle(LayerStyle):
+    enabled: bool = False
+    fontsize: int = Field(22, ge=1)
+    outline: float = Field(1.0, ge=0)
+    marginv: int = 0
+    phonetic_system: Optional[PhoneticSystem] = None
+
+    def to_engine_dict(self) -> dict[str, Any]:
+        d = super().to_engine_dict()
+        if self.phonetic_system is not None:
+            d["phonetic_system"] = self.phonetic_system
+        return d
 
 
 class StyleConfig(BaseModel):
     """The full styles dict the engine consumes.
 
-    Mirrors the hybrid shape of ``st.session_state.styles``: layer dicts
-    keyed by layer name, plus a few top-level scalars. Field aliases
-    preserve the layer-name casing the engine reads with ``styles[name]``.
+    Mirrors the hybrid shape used in the codebase: layer dicts keyed by
+    ``"Bottom"``/``"Top"``/``"Romanized"``/``"Annotation"`` plus a few
+    top-level scalars. Field aliases preserve the layer-name casing so a
+    JSON payload can use either the alias (``{"Bottom": {...}}``) or the
+    snake_case attribute (``{"bottom": {...}}``).
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
-    bottom: BottomLayerStyle = Field(..., alias="Bottom")
-    top: TopLayerStyle = Field(..., alias="Top")
-    romanized: RomanizedLayerStyle = Field(..., alias="Romanized")
-    annotation: AnnotationLayerStyle = Field(..., alias="Annotation")
+    bottom: BottomLayerStyle = Field(default_factory=BottomLayerStyle, alias="Bottom")
+    top: TopLayerStyle = Field(default_factory=TopLayerStyle, alias="Top")
+    romanized: RomanizedLayerStyle = Field(default_factory=RomanizedLayerStyle, alias="Romanized")
+    annotation: AnnotationLayerStyle = Field(default_factory=AnnotationLayerStyle, alias="Annotation")
 
-    top_offset_y: int = 0
+    vertical_offset: int = 0
     annotation_gap: int = 2
     romanized_gap: int = 0
     script_display: Optional[ScriptDisplay] = None
+
+    def to_engine_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "Bottom": self.bottom.to_engine_dict(),
+            "Top": self.top.to_engine_dict(),
+            "Romanized": self.romanized.to_engine_dict(),
+            "Annotation": self.annotation.to_engine_dict(),
+            "vertical_offset": self.vertical_offset,
+            "annotation_gap": self.annotation_gap,
+            "romanized_gap": self.romanized_gap,
+        }
+        if self.script_display is not None:
+            d["script_display"] = self.script_display
+        return d
 
 
 # ── Track / video metadata ─────────────────────────────────────────────
@@ -119,8 +216,6 @@ class TrackInfo(BaseModel):
 
 
 class VideoMetadata(BaseModel):
-    """Output of ``video/mkv_handler.get_video_metadata``."""
-
     title: Optional[str] = None
     year: Optional[int] = None
     duration_seconds: float = 0.0

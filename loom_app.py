@@ -10,16 +10,16 @@ import tempfile
 import atexit
 
 from app.state import initialize_state
-from app.mkv_handler import scan_and_extract_tracks, extract_screenshot, merge_subs_to_mkv, get_video_metadata, extract_pgs_stream, _build_track_title
-from app.rasterize import is_playwright_available
 from app.ui import render_mkv_path_input, render_hybrid_selector, render_ocr_buttons, render_path_input
-from app.styles import get_lang_config, FONT_LIST, CJK_FONT_LIST
-from app.language import detect_language, detect_languages_by_style, code_to_name
-from app.preview import get_lines_at_timestamp, generate_unified_preview
-from app.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
-from app.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
-from app.color_presets import build_preset_selectbox_options, get_preset_styles, preset_swatch_colors, PRESETS
-from app.sub_utils import compute_subtitle_offset, load_subs_cached
+from loom_core.video.mkv_handler import scan_and_extract_tracks, extract_screenshot, merge_subs_to_mkv, get_video_metadata, extract_pgs_stream, _build_track_title
+from loom_core.rasterize.pgs import is_playwright_available
+from loom_core.styles import get_lang_config, FONT_LIST, CJK_FONT_LIST
+from loom_core.language import detect_language, detect_languages_by_style, code_to_name
+from loom_core.subs.preview import get_lines_at_timestamp, generate_unified_preview
+from loom_core.subs.processing import generate_ass_file, generate_pgs_file, build_output_filename, detect_ass_styles
+from loom_core.romanize import get_hiragana, detect_preexisting_furigana, build_annotation_html
+from loom_core.color_presets import build_preset_selectbox_options, get_preset_styles, preset_swatch_colors, PRESETS
+from loom_core.subs.utils import compute_subtitle_offset, load_subs_cached
 import pysubs2
 
 
@@ -536,8 +536,8 @@ if st.session_state.mkv_path and st.session_state.get('mkv_scan_complete', False
     # Handle OCR requests for PGS tracks
     _ocr_request = _ocr_native or _ocr_target
     if _ocr_request:
-        from app.ocr import ocr_pgs_to_srt
-        from app import language as _lang_mod
+        from loom_core.video.ocr import ocr_pgs_to_srt
+        from loom_core import language as _lang_mod
         track = _ocr_request
         try:
             with st.spinner(f"Extracting PGS stream {track['id']}..."):
@@ -633,7 +633,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
     chinese_variant = None
     opencc_converter_preview = None
     if is_chinese:
-        from app.styles import _chinese_variant
+        from loom_core.styles import _chinese_variant
         chinese_variant = _chinese_variant(target_lang_code)
 
         st.subheader("Chinese Options")
@@ -673,7 +673,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
         # Create opencc converter for preview (reused later)
         if script_display and script_display != "Original" and chinese_variant:
-            from app.processing import _make_opencc_converter
+            from loom_core.subs.processing import _make_opencc_converter
             opencc_converter_preview = _make_opencc_converter(chinese_variant, script_display)
 
     # --- Thai phonetic system selector ---
@@ -1474,7 +1474,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
                 _audio_tracks = st.session_state.get("mkv_audio_tracks", [])
                 _selected_audio_idx = None
                 if _audio_tracks:
-                    from app.language import code_to_name as _audio_code_to_name
+                    from loom_core.language import code_to_name as _audio_code_to_name
                     import langcodes
 
                     _no_change = "No change (keep source default)"
@@ -1513,7 +1513,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
 
             if st.button("Mux Subtitles into MKV", key="remux_btn"):
                 with st.spinner("Muxing subtitle track(s) into MKV (no re-encoding)..."):
-                    from app.language import code_to_name as _code_to_name
+                    from loom_core.language import code_to_name as _code_to_name
                     _target_name = _code_to_name(target_lang_code)
                     _native_name = _code_to_name(_native_lang_code) if _native_lang_code else "Unknown"
 

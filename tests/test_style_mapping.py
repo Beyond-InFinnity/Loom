@@ -147,7 +147,7 @@ def _make_styles():
 
 def test_detect_multi_style():
     """4-style ASS file returns correct event counts + smart defaults."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'multi.ass')
@@ -172,7 +172,7 @@ def test_detect_multi_style():
 
 def test_detect_single_style():
     """Single-style ASS returns None."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'single.ass')
@@ -189,7 +189,7 @@ def test_detect_single_style():
 
 def test_detect_srt():
     """SRT file returns None."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         srt_path = os.path.join(tmpdir, 'test.srt')
@@ -204,7 +204,7 @@ def test_detect_srt():
 
 def test_smart_default_signs():
     """Style named 'Signs' gets 'preserve' default."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'signs.ass')
@@ -217,7 +217,7 @@ def test_smart_default_signs():
 
 def test_smart_default_song():
     """Style named 'OP Song' gets 'preserve' default (OP/ED karaoke preserved)."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'song.ass')
@@ -230,7 +230,7 @@ def test_smart_default_song():
 
 def test_smart_default_op_ed_patterns():
     """OP/ED style name variants all get 'preserve' default."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for style_name in ['OP_Rom', 'ED_Rom', 'op_karaoke', 'ed_lyrics',
@@ -258,7 +258,7 @@ def test_smart_default_op_ed_patterns():
 
 def test_has_animation_detection():
     """Styles with animation/karaoke tags get has_animation=True."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'anim.ass')
@@ -296,7 +296,7 @@ def test_has_animation_detection():
 
 def test_smart_default_most_events():
     """Style with the most events gets 'dialogue' default."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'most.ass')
@@ -309,7 +309,7 @@ def test_smart_default_most_events():
 
 def test_preserve_pattern_beats_most_events():
     """Pattern match is final — preserve-pattern style stays preserve even with most events."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'op_most.ass')
@@ -338,7 +338,7 @@ def test_preserve_pattern_beats_most_events():
 
 def test_smart_default_unused():
     """0-event style gets 'exclude' default."""
-    from app.processing import detect_ass_styles
+    from loom_core.subs.processing import detect_ass_styles
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'unused.ass')
@@ -355,7 +355,7 @@ def test_smart_default_unused():
 
 def test_iter_dialogue_with_mapping():
     """Only 'dialogue' events yielded when style_mapping provided."""
-    from app.processing import _iter_dialogue_events
+    from loom_core.subs.processing import _iter_dialogue_events
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'iter.ass')
@@ -376,7 +376,7 @@ def test_iter_dialogue_with_mapping():
 
 def test_iter_dialogue_no_mapping():
     """None mapping uses existing layer behavior."""
-    from app.processing import _iter_dialogue_events
+    from loom_core.subs.processing import _iter_dialogue_events
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'iter_none.ass')
@@ -396,7 +396,7 @@ def test_iter_dialogue_no_mapping():
 
 def test_iter_preserved():
     """Correct events yielded for 'preserve' styles."""
-    from app.processing import _iter_preserved_events
+    from loom_core.subs.processing import _iter_preserved_events
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ass_path = os.path.join(tmpdir, 'preserved.ass')
@@ -423,7 +423,7 @@ def test_iter_preserved():
 
 def test_scale_pos_tag():
     r"""\pos(960,540) scaled correctly for different PlayRes."""
-    from app.processing import _scale_pos_tag
+    from loom_core.subs.processing import _scale_pos_tag
 
     result = _scale_pos_tag(r'{\pos(960,540)}Hello', 2.0, 2.0)
     assert r'\pos(1920,1080)' in result, f"Expected scaled pos, got: {result}"
@@ -435,7 +435,7 @@ def test_scale_pos_tag():
 
 def test_get_source_playres():
     """Default (384,288) and explicit values returned correctly."""
-    from app.processing import _get_source_playres
+    from loom_core.subs.processing import _get_source_playres
 
     # Explicit PlayRes
     subs = pysubs2.SSAFile()
@@ -457,7 +457,7 @@ def test_get_source_playres():
 
 def test_preserve_playres_scaling():
     """1280x720 source → 1920x1080 output scales correctly."""
-    from app.processing import _scale_preserved_event
+    from loom_core.subs.processing import _scale_preserved_event
 
     event = pysubs2.SSAEvent(
         start=0, end=3000,
@@ -481,7 +481,7 @@ def test_preserve_playres_scaling():
 
 def test_generate_ass_preserve():
     """Output .ass includes prefixed Preserve styles and events."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -530,7 +530,7 @@ def test_generate_ass_preserve():
 
 def test_generate_ass_exclude():
     """Excluded styles not in output."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -585,7 +585,7 @@ def test_generate_ass_exclude():
 
 def test_preserved_event_to_html():
     """ASS style+overrides produce correct positioned CSS div."""
-    from app.processing import _preserved_event_to_html
+    from loom_core.subs.processing import _preserved_event_to_html
 
     style = pysubs2.SSAStyle(
         fontname='Arial', fontsize=36, alignment=2, marginv=30,
@@ -614,7 +614,7 @@ def test_preserved_event_to_html():
 
 def test_preserved_html_pos():
     r"""\pos(x,y) generates absolute CSS positioning."""
-    from app.processing import _preserved_event_to_html
+    from loom_core.subs.processing import _preserved_event_to_html
 
     style = pysubs2.SSAStyle(
         fontname='Arial', fontsize=36, alignment=8,
@@ -647,7 +647,7 @@ def test_preserved_html_pos():
 
 def test_strip_animation_tags():
     """Animation/timing tags stripped, visual tags preserved."""
-    from app.processing import _strip_animation_tags
+    from loom_core.subs.processing import _strip_animation_tags
 
     # Karaoke tags stripped
     assert _strip_animation_tags(r'{\k50}Hello') == 'Hello'
@@ -682,7 +682,7 @@ def test_strip_animation_tags():
 
 def test_strip_animation_in_preserved_html():
     """Preserved event HTML doesn't contain animation tag artifacts."""
-    from app.processing import _preserved_event_to_html
+    from loom_core.subs.processing import _preserved_event_to_html
 
     style = pysubs2.SSAStyle(
         fontname='Arial', fontsize=36, alignment=8, marginv=50,
@@ -718,7 +718,7 @@ def test_strip_animation_in_preserved_html():
 
 def test_dedup_karaoke_layers():
     """Multi-layer karaoke at same timestamp deduplicates to lowest layer."""
-    from app.processing import _dedup_preserved_for_pgs
+    from loom_core.subs.processing import _dedup_preserved_for_pgs
 
     style = pysubs2.SSAStyle(fontname='Arial', fontsize=30)
 
@@ -747,7 +747,7 @@ def test_dedup_karaoke_layers():
 
 def test_dedup_different_styles_not_merged():
     """Events from different styles are never merged."""
-    from app.processing import _dedup_preserved_for_pgs
+    from loom_core.subs.processing import _dedup_preserved_for_pgs
 
     style_op = pysubs2.SSAStyle(fontname='Arial', fontsize=30)
     style_signs = pysubs2.SSAStyle(fontname='Arial', fontsize=36)
@@ -771,7 +771,7 @@ def test_dedup_different_styles_not_merged():
 
 def test_dedup_non_overlapping_kept():
     """Non-overlapping events from the same style are all kept."""
-    from app.processing import _dedup_preserved_for_pgs
+    from loom_core.subs.processing import _dedup_preserved_for_pgs
 
     style = pysubs2.SSAStyle(fontname='Arial', fontsize=30)
 
@@ -792,7 +792,7 @@ def test_dedup_non_overlapping_kept():
 
 def test_dedup_substring_match():
     """Layer with substring of main text is a karaoke duplicate."""
-    from app.processing import _dedup_preserved_for_pgs
+    from loom_core.subs.processing import _dedup_preserved_for_pgs
 
     style = pysubs2.SSAStyle(fontname='Arial', fontsize=30)
 
@@ -816,7 +816,7 @@ def test_dedup_substring_match():
 
 def test_dedup_unrelated_text_not_merged():
     """Same-style overlapping events with different text are NOT merged."""
-    from app.processing import _dedup_preserved_for_pgs
+    from loom_core.subs.processing import _dedup_preserved_for_pgs
 
     style = pysubs2.SSAStyle(fontname='Arial', fontsize=30)
 
@@ -841,7 +841,7 @@ def test_dedup_unrelated_text_not_merged():
 
 def test_pgs_frame_preserved_field():
     """PGSFrameEvent carries preserved_html field."""
-    from app.rasterize import PGSFrameEvent
+    from loom_core.rasterize.pgs import PGSFrameEvent
 
     ev = PGSFrameEvent(
         start_ms=0, end_ms=3000,

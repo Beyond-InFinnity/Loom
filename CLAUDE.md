@@ -4,36 +4,45 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-02-28):** R1–R4 complete + R6a complete + R6b-presets complete + timing offsets + auto-alignment + all supporting infrastructure. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container. Manual timing offsets per track + auto-alignment from reference file (cross-correlation algorithm).
+**Current state (2026-04-18):** R1–R4 complete + R6a complete + R6b-presets complete + timing offsets + auto-alignment. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container. Manual timing offsets per track + auto-alignment from reference file (cross-correlation algorithm).
 
-**Active focus:** R5 — Indic scripts + RTL.
+**Monorepo restructure in progress.** Step 1 done (`monorepo-restructure` branch): pure engine carved out of `app/` into `loom_core/` package with no Streamlit imports; Pydantic wire contracts in `loom_core/models.py`; Streamlit shell now consumes `loom_core` and stays usable as the dev/debug client during the rewrite. Plan: (2) wrap `loom_core` in FastAPI; (3) Tauri desktop with Python sidecar; (4) Next.js web on Vercel; (5) WXT browser extension. Web/desktop/extension share `@loom/ui` React package + `@loom/api-client` generated from FastAPI's OpenAPI schema. Solo-maintainer scope, sequential build order — don't ship all three frontends at once.
 
-**Known broken / dead code:** None currently tracked.
+**Active focus:** Step 2 of monorepo restructure — FastAPI service over `loom_core`. R5 (Indic + RTL) is paused until the new architecture is in place.
 
-**Test suite:** 209 tests across 9 files, all passing.
+**Known broken / dead code:** None currently tracked. (`benchmark_memory.py` removed in step 1 — depended on a never-existed `app.memory_manager` module.)
+
+**Test suite:** 237 tests across 11 files, all passing in ~19s.
 
 ---
 
 ## Project Structure
 
 ```
-loom_app.py                # Main Streamlit entry point
+loom_app.py                # Main Streamlit entry point (kept as dev/debug client during the FastAPI/Tauri rewrite)
 app/
-  mkv_handler.py           # Video scan/extract/screenshot/mux — all ffmpeg calls (any container in, MKV out)
-  ocr.py                   # PGS OCR: SUP parser + Tesseract + parallel thread pool
-  sup_writer.py            # PGS/SUP binary writer (inverse of ocr.py parser); batch + streaming APIs; epoch state management
-  rasterize.py             # Playwright async full-frame subtitle rasterizer (N-worker parallel pool, batched streaming)
-  state.py                 # Streamlit session state
-  ui.py                    # UI helpers, OCR buttons, native file picker (zenity/kdialog/tkinter fallback)
+  state.py                 # Streamlit session state (Streamlit-only, stays here)
+  ui.py                    # Streamlit widgets, OCR buttons, native file picker (zenity/kdialog/tkinter fallback)
+loom_core/                 # Pure engine — no Streamlit imports. Consumed by loom_app.py today, by FastAPI in step 2.
+  __init__.py
+  models.py                # Pydantic wire contracts: StyleConfig, TrackInfo, LanguageMetadata, Generate*Request, JobStatus, etc.
   language.py              # Language detection + Cantonese discriminator + script analysis
   romanize.py              # Romanization: Pinyin, Zhuyin, Jyutping, Japanese (MeCab/fugashi), Korean, Cyrillic, Thai (3 systems)
   styles.py                # get_lang_config() factory with variant + phonetic_system support
-  processing.py            # ASS generation + PGS generation + union timeline + concurrent event merge + opencc + style mapping + output filename builder
-  preview.py               # Composite HTML preview
   color_presets.py         # Color preset system: 28 presets (classic/cultural/dark/adaptive), language-scoped
-  sub_utils.py             # Shared subtitle loading + mtime-based SSAFile caching + shift_events() + compute_subtitle_offset()
+  korean_rr.py             # Standalone Korean Revised Romanization implementation
+  subs/
+    utils.py               # Shared subtitle loading + mtime-based SSAFile caching + shift_events() + compute_subtitle_offset()
+    processing.py          # ASS generation + PGS generation + union timeline + concurrent event merge + opencc + style mapping + output filename builder
+    preview.py             # Composite HTML preview
+  video/
+    mkv_handler.py         # Video scan/extract/screenshot/mux — all ffmpeg calls (any container in, MKV out)
+    ocr.py                 # PGS OCR: SUP parser + Tesseract + parallel thread pool
+  rasterize/
+    pgs.py                 # Playwright async full-frame subtitle rasterizer (N-worker parallel pool, batched streaming)
+    sup_writer.py          # PGS/SUP binary writer (inverse of ocr.py parser); batch + streaming APIs; epoch state management
 tests/
-  test_sup_roundtrip.py    # SUP writer ↔ ocr.py parser round-trip + split_regions + epoch (33 tests)
+  test_sup_roundtrip.py    # SUP writer ↔ ocr parser round-trip + split_regions + epoch (33 tests)
   test_rasterize.py        # Playwright rasterizer smoke tests (10 tests)
   test_integration_pgs.py  # Full pipeline integration tests (4 tests)
   test_r4_romanization.py  # Korean, Cyrillic, Thai romanization + detection (34 tests)
@@ -42,6 +51,8 @@ tests/
   test_union_timeline.py   # Union timeline + concurrent event merge + EVA scenarios (42 tests)
   test_epoch_diagnostic.py # PGS epoch binary structure diagnostic (1 test)
   test_chinese_romanization.py # Chinese Pinyin word segmentation + punctuation + annotation (36 tests)
+  test_per_style_lang.py   # Per-style language detection (14 tests)
+  test_ass_channels.py     # ASS channel detection + extraction (14 tests)
 requirements.txt
 CLAUDE.md
 ```
@@ -100,17 +111,17 @@ CLAUDE.md
 
 **No RAM-loading of large video files** — always local path + ffmpeg subprocess.
 
-**Modularity:** `mkv_handler.py` is the only file that touches ffmpeg.
+**Modularity:** `loom_core/video/mkv_handler.py` is the only file that touches ffmpeg.
 
-**SSAFile caching:** `load_subs_cached(path, cache)` in `sub_utils.py`. Cache keyed by `(path, mtime)`. `generate_ass_file()` / `generate_pgs_file()` accept optional `lang_config=None` param to avoid redundant `get_lang_config()` calls across Streamlit reruns.
+**SSAFile caching:** `load_subs_cached(path, cache)` in `loom_core/subs/utils.py`. Cache keyed by `(path, mtime)`. After step 1 the engine is pure: pass an explicit dict to enable caching (`st.session_state` from the Streamlit shell, a per-request dict from the API layer), or `None` to skip. `generate_ass_file()` / `generate_pgs_file()` accept optional `lang_config=None` param to avoid redundant `get_lang_config()` calls across Streamlit reruns.
 
-**Timing offsets:** `shift_events(subs, offset_ms)` in `sub_utils.py` — deep-copies an SSAFile and shifts all event start/end by offset_ms, clamped to >=0 (returns original when offset is 0). UI: collapsible "Timing Offsets" expander in Section 2 with two `number_input` widgets (`bottom_offset_sec`, `top_offset_sec`, 0.01s step) + a Link toggle for linked adjustment (delta-based: changing one shifts the other by the same amount). Offsets applied as `native_offset_ms`/`target_offset_ms` params via `shift_events()` immediately after `_load_subs()` in `preview.py` (`get_lines_at_timestamp`), `processing.py` (`generate_ass_file`, `generate_pgs_file`). Conversion: `int(round(sec * 1000))` at call sites.
+**Timing offsets:** `shift_events(subs, offset_ms)` in `loom_core/subs/utils.py` — deep-copies an SSAFile and shifts all event start/end by offset_ms, clamped to >=0 (returns original when offset is 0). UI: collapsible "Timing Offsets" expander in Section 2 with two `number_input` widgets (`bottom_offset_sec`, `top_offset_sec`, 0.01s step) + a Link toggle for linked adjustment (delta-based: changing one shifts the other by the same amount). Offsets applied as `native_offset_ms`/`target_offset_ms` params via `shift_events()` immediately after `_load_subs()` in `loom_core/subs/preview.py` (`get_lines_at_timestamp`), `loom_core/subs/processing.py` (`generate_ass_file`, `generate_pgs_file`). Conversion: `int(round(sec * 1000))` at call sites.
 
-**Auto-alignment from reference:** `compute_subtitle_offset(reference_subs, target_subs)` in `sub_utils.py` → `(float, str|None)`. Sign convention: returns `target_time - reference_time` (positive = reference earlier, shift source-A tracks later). Algorithm: coarse pass = pairwise-difference histogram (N×M pairs, 100ms bins, `collections.Counter`); fine pass = ±2s around peak in 10ms steps, ±500ms tolerance with `bisect`, midpoint of best-scoring plateau. Filters out Comment events and `\p` drawing events; minimum 5 dialogue events per track. UI: inside "Timing Offsets" expander below manual controls. File picker (video+subtitle via `render_path_input`), video scanning via `get_video_metadata()` + `scan_and_extract_tracks()` into `{temp_dir}/ref_align/` subdir, track selectbox, "Compare against" (Bottom/Top), "Compute Offset" button, result display with workflow help text, "Apply to" + "Apply" button. Apply uses deferred pending keys (`_pending_top_offset_sec`/`_pending_bottom_offset_sec`) drained at top of script before `number_input` widgets bind — avoids Streamlit's `StreamlitAPIException` on post-widget state mutation. Linked adjustment propagated through pending path.
+**Auto-alignment from reference:** `compute_subtitle_offset(reference_subs, target_subs)` in `loom_core/subs/utils.py` → `(float, str|None)`. Sign convention: returns `target_time - reference_time` (positive = reference earlier, shift source-A tracks later). Algorithm: coarse pass = pairwise-difference histogram (N×M pairs, 100ms bins, `collections.Counter`); fine pass = ±2s around peak in 10ms steps, ±500ms tolerance with `bisect`, midpoint of best-scoring plateau. Filters out Comment events and `\p` drawing events; minimum 5 dialogue events per track. UI: inside "Timing Offsets" expander below manual controls. File picker (video+subtitle via `render_path_input`), video scanning via `get_video_metadata()` + `scan_and_extract_tracks()` into `{temp_dir}/ref_align/` subdir, track selectbox, "Compare against" (Bottom/Top), "Compute Offset" button, result display with workflow help text, "Apply to" + "Apply" button. Apply uses deferred pending keys (`_pending_top_offset_sec`/`_pending_bottom_offset_sec`) drained at top of script before `number_input` widgets bind — avoids Streamlit's `StreamlitAPIException` on post-widget state mutation. Linked adjustment propagated through pending path.
 
 **Scan performance:** Single-pass ffmpeg extraction. Shared probe — `get_video_metadata()` returns `(metadata_dict, probe_data)` tuple; `scan_and_extract_tracks(probe_data=probe_data)` reuses it. `probesize='100M'` + `analyzeduration='100M'` on ffprobe.
 
-**Native file picker:** `_native_file_dialog()` in `ui.py` — zenity → kdialog → tkinter fallback.
+**Native file picker:** `_native_file_dialog()` in `app/ui.py` — zenity → kdialog → tkinter fallback. (Streamlit-specific, lives outside `loom_core/`.)
 
 **Preview:** Resolution-independent CSS (`_REF_H=1080`). Font sizes scaled by `_FONT_SCALE = 600/1080` for 600px iframe. `.ass` vs `PGS` mode selector.
 
@@ -129,12 +140,12 @@ CLAUDE.md
 - **Word-segmented Pinyin:** `_make_pinyin_romanizer(variant=)` uses `jieba.cut()` for word boundaries → syllables joined within words (e.g. "nǐhǎo shìjiè" not "nǐ hǎo shì jiè"). Traditional text converted to Simplified via OpenCC `t2s` for jieba segmentation (Simplified-oriented dictionary), word boundaries mapped back to original Traditional characters for pypinyin processing.
 - **CJK punctuation stripping:** `_is_cjk_punct()` / `_is_cjk_punct_segment()` filter punctuation-only segments from romanization output. Covers U+3000–U+303F, fullwidth forms U+FF00–U+FF65, CJK compatibility U+FE30–U+FE4F, general punctuation U+2000–U+206F.
 - Per-character annotation spans for all three variants (Pinyin/Zhuyin/Jyutping ruby)
-- opencc script conversion (`s2tw`, `t2s`) in `processing.py` + `t2s` in `_make_pinyin_romanizer()` for jieba segmentation
+- opencc script conversion (`s2tw`, `t2s`) in `loom_core/subs/processing.py` + `t2s` in `_make_pinyin_romanizer()` for jieba segmentation
 - Metadata map: exact match first, then longest-prefix
 
 **Korean:** `korean-romanizer`, Revised Romanization. Per-syllable annotation — each Hangul syllable block (가–힣) gets its own ruby with individual RR reading via `Romanizer(char)`. Loses inter-syllable phonological rules (liaison 연음, tensification 경음화, nasalization 비음화) in ruby, but the romanization line uses full-word `Romanizer(text)` which captures them correctly. Two layers, two purposes: ruby = base reading per character (lookup aid), romanization line = actual pronunciation (reading aid).
 
-**Cyrillic:** `cyrtranslit`. `_CYRILLIC_LANG_CODES` BCP-47→cyrtranslit mapping (ru, uk/ua, be/by, sr, bg, mk, mn). Ukrainian/Belarusian disambiguation via `_UKRAINIAN_UNIQUE`/`_BELARUSIAN_UNIQUE` frozensets in `language.py`.
+**Cyrillic:** `cyrtranslit`. `_CYRILLIC_LANG_CODES` BCP-47→cyrtranslit mapping (ru, uk/ua, be/by, sr, bg, mk, mn). Ukrainian/Belarusian disambiguation via `_UKRAINIAN_UNIQUE`/`_BELARUSIAN_UNIQUE` frozensets in `loom_core/language.py`.
 
 **Thai:** `pythainlp`. 3 phonetic systems:
 - `"paiboon"` (default): Paiboon+-style with tone diacritics. `thai2rom` base + `tone_detector()` + combining diacritics. Vowel remapping (ae→ɛ, ue→ɯ). Syllables hyphenated within words.

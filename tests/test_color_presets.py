@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from app.color_presets import (
+from loom_core.color_presets import (
     PRESETS,
     ColorPreset,
     LayerColors,

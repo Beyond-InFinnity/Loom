@@ -19,7 +19,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from PIL import Image
-from app.sup_writer import DisplaySet, SupWriter
+from loom_core.rasterize.sup_writer import DisplaySet, SupWriter
 
 
 # ── Binary parser ────────────────────────────────────────────────────

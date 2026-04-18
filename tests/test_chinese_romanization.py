@@ -19,7 +19,7 @@ class TestPinyinWordGrouping:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        from app.romanize import _make_pinyin_romanizer
+        from loom_core.romanize import _make_pinyin_romanizer
         self.romanize_hans = _make_pinyin_romanizer(variant='zh-Hans')
         self.romanize_hant = _make_pinyin_romanizer(variant='zh-Hant')
 
@@ -65,7 +65,7 @@ class TestPinyinPunctuationStripping:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        from app.romanize import _make_pinyin_romanizer
+        from loom_core.romanize import _make_pinyin_romanizer
         self.romanize = _make_pinyin_romanizer(variant='zh-Hans')
 
     def test_comma_stripped(self):
@@ -110,7 +110,7 @@ class TestPinyinNonCJK:
 
     @pytest.fixture(autouse=True)
     def _setup(self):
-        from app.romanize import _make_pinyin_romanizer
+        from loom_core.romanize import _make_pinyin_romanizer
         self.romanize = _make_pinyin_romanizer(variant='zh-Hans')
 
     def test_latin_passthrough(self):
@@ -139,26 +139,26 @@ class TestGetRomanizerVariant:
     """Verify that get_romanizer passes the correct variant."""
 
     def test_zh_hans_returns_romanizer(self):
-        from app.romanize import get_romanizer
+        from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-Hans')
         assert rom is not None
         result = rom("你好")
         assert "nǐhǎo" in result
 
     def test_zh_hant_returns_romanizer(self):
-        from app.romanize import get_romanizer
+        from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-Hant')
         assert rom is not None
         result = rom("你好")
         assert "nǐhǎo" in result
 
     def test_bare_zh_returns_romanizer(self):
-        from app.romanize import get_romanizer
+        from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh')
         assert rom is not None
 
     def test_zh_tw_returns_romanizer(self):
-        from app.romanize import get_romanizer
+        from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-TW')
         assert rom is not None
 
@@ -171,18 +171,18 @@ class TestCantoneseAnnotationDefault:
     """Verify Cantonese annotation is enabled by default."""
 
     def test_yue_annotation_default_enabled(self):
-        from app.styles import get_lang_config
+        from loom_core.styles import get_lang_config
         config = get_lang_config('yue')
         assert config['annotation_default_enabled'] is True
 
     def test_yue_has_annotation_func(self):
-        from app.styles import get_lang_config
+        from loom_core.styles import get_lang_config
         config = get_lang_config('yue')
         assert config['annotation_func'] is not None
 
     def test_thai_annotation_still_disabled(self):
         """Thai should still have annotation off by default."""
-        from app.styles import get_lang_config
+        from loom_core.styles import get_lang_config
         config = get_lang_config('th')
         assert config['annotation_default_enabled'] is False
 
@@ -195,7 +195,7 @@ class TestChineseAnnotationSpans:
     """Verify per-character annotation spans for all three Chinese variants."""
 
     def test_simplified_pinyin_annotation(self):
-        from app.romanize import get_annotation_func
+        from loom_core.romanize import get_annotation_func
         func = get_annotation_func('zh-Hans')
         assert func is not None
         spans = func("你好")
@@ -205,7 +205,7 @@ class TestChineseAnnotationSpans:
         assert spans[1][1] is not None  # 好 → hǎo
 
     def test_traditional_zhuyin_annotation(self):
-        from app.romanize import get_annotation_func
+        from loom_core.romanize import get_annotation_func
         func = get_annotation_func('zh-Hant')
         assert func is not None
         spans = func("你好")
@@ -215,7 +215,7 @@ class TestChineseAnnotationSpans:
         assert spans[1][1] is not None
 
     def test_cantonese_jyutping_annotation(self):
-        from app.romanize import get_annotation_func
+        from loom_core.romanize import get_annotation_func
         func = get_annotation_func('yue')
         assert func is not None
         spans = func("你好")
@@ -225,7 +225,7 @@ class TestChineseAnnotationSpans:
 
     def test_punctuation_no_reading(self):
         """Punctuation characters should have reading=None."""
-        from app.romanize import get_annotation_func
+        from loom_core.romanize import get_annotation_func
         func = get_annotation_func('zh-Hans')
         spans = func("你，好")
         # 你, ，, 好 → 3 spans
@@ -241,39 +241,39 @@ class TestCJKPunctuationHelpers:
     """Test the _is_cjk_punct and _is_cjk_punct_segment helpers."""
 
     def test_fullwidth_comma(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("，") is True
 
     def test_fullwidth_period(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("。") is True
 
     def test_ideographic_comma(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("、") is True
 
     def test_corner_brackets(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("「") is True
         assert _is_cjk_punct("」") is True
 
     def test_fullwidth_exclamation(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("！") is True
 
     def test_regular_ascii_not_cjk_punct(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("a") is False
         assert _is_cjk_punct("1") is False
 
     def test_cjk_char_not_punct(self):
-        from app.romanize import _is_cjk_punct
+        from loom_core.romanize import _is_cjk_punct
         assert _is_cjk_punct("你") is False
 
     def test_segment_all_punct(self):
-        from app.romanize import _is_cjk_punct_segment
+        from loom_core.romanize import _is_cjk_punct_segment
         assert _is_cjk_punct_segment("，。") is True
 
     def test_segment_mixed_not_all_punct(self):
-        from app.romanize import _is_cjk_punct_segment
+        from loom_core.romanize import _is_cjk_punct_segment
         assert _is_cjk_punct_segment("你好") is False

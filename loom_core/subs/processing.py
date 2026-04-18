@@ -4,14 +4,13 @@ import logging
 import os
 import re
 import subprocess
-import streamlit as st
 import pysubs2
 import tempfile
 
 logger = logging.getLogger(__name__)
-from .styles import get_lang_config
-from .romanize import build_annotation_html, _strip_inline_furigana, _strip_reverse_furigana
-from .sub_utils import load_subs, shift_events
+from ..styles import get_lang_config
+from ..romanize import build_annotation_html, _strip_inline_furigana, _strip_reverse_furigana
+from .utils import load_subs, shift_events
 
 # Matches ASS vector-path drawing commands (\p1, \p2, etc.)
 # Events containing these are graphical shapes, never subtitle text.
@@ -1156,8 +1155,8 @@ def generate_ass_file(native_file, target_file, styles, target_lang_code,
 
         return ass_path
 
-    except Exception as e:
-        st.error(f"An error occurred during generation: {e}")
+    except Exception:
+        logger.exception("ASS generation failed")
         return None
 
 
@@ -1269,7 +1268,7 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
     str | None
         Path to the generated .sup file, or None on error.
     """
-    from .rasterize import PGSFrameEvent, rasterize_pgs_to_file
+    from ..rasterize.pgs import PGSFrameEvent, rasterize_pgs_to_file
 
     try:
         native_subs = shift_events(_load_subs(native_file), native_offset_ms)
@@ -1435,19 +1434,12 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
             _avail_mb = _psutil.virtual_memory().available / (1024 ** 2)
         except Exception:
             _rss_mb = _avail_mb = -1
-        _cached_ssa_count = 0
-        try:
-            for _k in st.session_state:
-                if str(_k).startswith("_cached_ssa_"):
-                    _cached_ssa_count += 1
-        except Exception:
-            pass
         _lang_cfg_source = "passed-in" if lang_config is not None else "re-derived"
         print(
             f"[PGS PRE-RENDER] {_pgs_num_frames} frames, "
             f"canvas={out_res[0]}x{out_res[1]}, scale={_scale}, "
             f"RSS={_rss_mb:.0f}MB, avail={_avail_mb:.0f}MB, "
-            f"cached_SSAFiles={_cached_ssa_count}, lang_config={_lang_cfg_source}"
+            f"lang_config={_lang_cfg_source}"
         )
 
         _t_start = _time.monotonic()
@@ -1479,8 +1471,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
 
         return sup_path
 
-    except Exception as e:
-        st.error(f"An error occurred during PGS generation: {e}")
+    except Exception:
+        logger.exception("PGS generation failed")
         return None
 
 

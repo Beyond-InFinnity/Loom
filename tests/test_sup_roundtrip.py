@@ -13,12 +13,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from PIL import Image
 import numpy as np
-from app.sup_writer import (
+from loom_core.rasterize.sup_writer import (
     DisplaySet, write_sup, SupWriter, _encode_rle, _encode_rle_python,
     _rgb_to_ycbcr, _quantize_image, split_regions, _build_show_segments,
     _ALPHA_CLAMP_THRESHOLD,
 )
-from app.ocr import _parse_sup, _decode_rle, _ycbcr_to_rgb
+from loom_core.video.ocr import _parse_sup, _decode_rle, _ycbcr_to_rgb
 
 
 def test_rle_roundtrip_simple():
@@ -524,7 +524,7 @@ def test_no_anchor_when_events_start_at_zero():
 
 def test_sup_writer_streaming_roundtrip():
     """SupWriter produces identical output to write_sup() for the same input."""
-    from app.sup_writer import SupWriter
+    from loom_core.rasterize.sup_writer import SupWriter
 
     display_sets = []
     for i in range(5):
@@ -570,7 +570,7 @@ def test_sup_writer_streaming_roundtrip():
 
 def test_sup_writer_context_manager():
     """SupWriter works as a context manager."""
-    from app.sup_writer import SupWriter
+    from loom_core.rasterize.sup_writer import SupWriter
 
     img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
     ds = DisplaySet(start_ms=1000, end_ms=3000, image=img, x=0, y=0,
@@ -596,7 +596,7 @@ def test_sup_writer_context_manager():
 def test_sup_writer_anchor_late_start():
     """SupWriter emits PTS=0 anchor when first event starts after 0ms."""
     import struct as s
-    from app.sup_writer import SupWriter
+    from loom_core.rasterize.sup_writer import SupWriter
 
     img = Image.new('RGBA', (40, 20), (200, 100, 50, 255))
     ds = DisplaySet(start_ms=10000, end_ms=12000, image=img, x=100, y=500,
@@ -640,7 +640,7 @@ def test_sup_writer_anchor_late_start():
 
 def test_sup_writer_image_released_after_flush():
     """SupWriter sets ds.image = None after flushing to disk."""
-    from app.sup_writer import SupWriter
+    from loom_core.rasterize.sup_writer import SupWriter
 
     ds1 = DisplaySet(
         start_ms=1000, end_ms=3000,

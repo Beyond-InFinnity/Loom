@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import psutil
 
-from app.rasterize import PGSFrameEvent, rasterize_pgs_to_file
+from loom_core.rasterize.pgs import PGSFrameEvent, rasterize_pgs_to_file
 import pysubs2
 
 

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pysubs2
 
-from app.sub_utils import detect_ass_channels, extract_ass_channel
+from loom_core.subs.utils import detect_ass_channels, extract_ass_channel
 
 
 def _write_multi_channel_ass(path, channels, script_info=None):

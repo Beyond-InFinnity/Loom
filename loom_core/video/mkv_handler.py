@@ -1,7 +1,7 @@
 import ffmpeg
 import os
 import subprocess
-from app import language
+from .. import language
 
 
 def _probe(file_path):

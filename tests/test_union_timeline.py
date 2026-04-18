@@ -1,7 +1,7 @@
 """Tests for _build_pgs_timeline() union timeline builder and concurrent event merging."""
 
 import pytest
-from app.processing import _build_pgs_timeline, _is_music_only, _merge_concurrent_target_events
+from loom_core.subs.processing import _build_pgs_timeline, _is_music_only, _merge_concurrent_target_events
 
 
 # ---------------------------------------------------------------------------

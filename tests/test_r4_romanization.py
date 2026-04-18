@@ -92,7 +92,7 @@ def _make_styles():
 
 def test_korean_romanizer():
     """Korean romanizer produces Revised Romanization output."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('ko')
     assert romanize is not None, "get_romanizer('ko') returned None"
@@ -111,7 +111,7 @@ def test_korean_romanizer():
 
 def test_korean_annotation():
     """Korean should have per-syllable annotation (one span per Hangul block)."""
-    from app.romanize import get_annotation_func
+    from loom_core.romanize import get_annotation_func
 
     ann = get_annotation_func('ko')
     assert ann is not None, "Korean should have annotation_func"
@@ -141,7 +141,7 @@ def test_korean_annotation():
 
 def test_korean_lang_config():
     """get_lang_config('ko') returns correct Korean config."""
-    from app.styles import get_lang_config
+    from loom_core.styles import get_lang_config
 
     cfg = get_lang_config('ko')
     assert cfg['romanize_func'] is not None, "Korean romanize_func is None"
@@ -161,7 +161,7 @@ def test_korean_lang_config():
 
 def test_cyrillic_russian_romanizer():
     """Russian Cyrillic transliteration produces Latin output."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('ru')
     assert romanize is not None, "get_romanizer('ru') returned None"
@@ -175,7 +175,7 @@ def test_cyrillic_russian_romanizer():
 
 def test_cyrillic_ukrainian_romanizer():
     """Ukrainian Cyrillic transliteration uses correct mapping."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('uk')
     assert romanize is not None, "get_romanizer('uk') returned None"
@@ -191,7 +191,7 @@ def test_cyrillic_ukrainian_romanizer():
 
 def test_cyrillic_serbian_romanizer():
     """Serbian Cyrillic transliteration works."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('sr')
     assert romanize is not None, "get_romanizer('sr') returned None"
@@ -204,7 +204,7 @@ def test_cyrillic_serbian_romanizer():
 
 def test_cyrillic_annotation():
     """Cyrillic languages should have per-word annotation (transliteration)."""
-    from app.romanize import get_annotation_func
+    from loom_core.romanize import get_annotation_func
 
     ann = get_annotation_func('ru')
     assert ann is not None, "Russian should have annotation_func"
@@ -226,7 +226,7 @@ def test_cyrillic_annotation():
 
 def test_cyrillic_lang_configs():
     """get_lang_config() returns correct configs for Cyrillic languages."""
-    from app.styles import get_lang_config
+    from loom_core.styles import get_lang_config
 
     for code in ('ru', 'uk', 'be', 'sr', 'bg', 'mk'):
         cfg = get_lang_config(code)
@@ -245,7 +245,7 @@ def test_cyrillic_lang_configs():
 
 def test_thai_romanizer():
     """Thai RTGS romanization produces ASCII Latin output."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('th', phonetic_system='rtgs')
     assert romanize is not None, "get_romanizer('th', 'rtgs') returned None"
@@ -260,7 +260,7 @@ def test_thai_romanizer():
 
 def test_thai_paiboon_romanizer():
     """Thai Paiboon+ romanization produces output with tone diacritics."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
     import unicodedata
 
     romanize = get_romanizer('th', phonetic_system='paiboon')
@@ -282,7 +282,7 @@ def test_thai_paiboon_romanizer():
 
 def test_thai_paiboon_annotation():
     """Thai Paiboon+ annotation produces spans with tone diacritics."""
-    from app.romanize import get_annotation_func
+    from loom_core.romanize import get_annotation_func
     import unicodedata
 
     ann = get_annotation_func('th', system='paiboon')
@@ -307,7 +307,7 @@ def test_thai_paiboon_annotation():
 
 def test_thai_ipa_romanizer():
     """Thai IPA romanizer produces non-empty output."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('th', phonetic_system='ipa')
     assert romanize is not None, "get_romanizer('th', 'ipa') returned None"
@@ -320,7 +320,7 @@ def test_thai_ipa_romanizer():
 
 def test_thai_annotation():
     """Thai default should have per-token annotation (word-segmented romanization)."""
-    from app.romanize import get_annotation_func
+    from loom_core.romanize import get_annotation_func
 
     ann = get_annotation_func('th')
     assert ann is not None, "Thai should have annotation_func"
@@ -336,7 +336,7 @@ def test_thai_annotation():
 
 def test_thai_lang_config():
     """get_lang_config('th') returns correct Thai config (default Paiboon+)."""
-    from app.styles import get_lang_config
+    from loom_core.styles import get_lang_config
 
     cfg = get_lang_config('th')
     assert cfg['romanize_func'] is not None, "Thai romanize_func is None"
@@ -358,7 +358,7 @@ def test_thai_lang_config():
 
 def test_thai_phonetic_system_routing():
     """Different phonetic_system values route to different romanizers."""
-    from app.styles import get_lang_config
+    from loom_core.styles import get_lang_config
 
     cfg_paiboon = get_lang_config('th', phonetic_system='paiboon')
     cfg_rtgs = get_lang_config('th', phonetic_system='rtgs')
@@ -394,7 +394,7 @@ def test_thai_phonetic_system_routing():
 
 def test_thai_word_boundaries():
     """Thai word boundary function inserts thin spaces between tokens."""
-    from app.romanize import _apply_thai_word_boundaries
+    from loom_core.romanize import _apply_thai_word_boundaries
 
     result = _apply_thai_word_boundaries('สวัสดีครับ')
     assert result, "Word boundary function returned empty"
@@ -416,7 +416,7 @@ def test_thai_word_boundaries():
 
 def test_cyrillic_script_detection():
     """Cyrillic text is detected as 'Cyrillic' script by _dominant_script()."""
-    from app.language import _dominant_script
+    from loom_core.language import _dominant_script
 
     assert _dominant_script('Привет мир как дела') == 'Cyrillic'
     assert _dominant_script('Привіт світ як справи') == 'Cyrillic'
@@ -425,7 +425,7 @@ def test_cyrillic_script_detection():
 
 def test_ukrainian_disambiguation():
     """Ukrainian unique chars (і/ї/є/ґ) trigger 'uk' override."""
-    from app.language import _detect_by_script_chars
+    from loom_core.language import _detect_by_script_chars
 
     # Ukrainian text with unique chars
     assert _detect_by_script_chars('Привіт, як ваші справи?') == 'uk'
@@ -440,7 +440,7 @@ def test_ukrainian_disambiguation():
 
 def test_belarusian_disambiguation():
     """Belarusian unique char (ў) triggers 'be' override."""
-    from app.language import _detect_by_script_chars
+    from loom_core.language import _detect_by_script_chars
 
     assert _detect_by_script_chars('Прывітанне, як ваў маеце?') == 'be'
 
@@ -452,7 +452,7 @@ def test_belarusian_disambiguation():
 
 def test_thai_script_detection():
     """Thai text is detected as 'Thai' script by _dominant_script()."""
-    from app.language import _dominant_script
+    from loom_core.language import _dominant_script
 
     assert _dominant_script('สวัสดีครับ ผมชื่อ') == 'Thai'
     print("  [PASS] Thai script detection")
@@ -464,7 +464,7 @@ def test_thai_script_detection():
 
 def test_generate_ass_korean():
     """generate_ass_file() produces Romanized layer for Korean."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -514,7 +514,7 @@ def test_generate_ass_korean():
 
 def test_generate_ass_russian():
     """generate_ass_file() produces Romanized layer for Russian."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -552,7 +552,7 @@ def test_generate_ass_russian():
 
 def test_generate_ass_thai():
     """generate_ass_file() produces Romanized layer for Thai with word boundaries."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -601,7 +601,7 @@ def test_generate_ass_thai():
 
 def test_render_mode_ruby():
     """build_annotation_html() ruby mode produces <ruby> markup."""
-    from app.romanize import build_annotation_html
+    from loom_core.romanize import build_annotation_html
 
     spans = [('안녕', 'annyeong'), (' ', None), ('세계', 'segye')]
     html = build_annotation_html(spans, mode='ruby')
@@ -613,7 +613,7 @@ def test_render_mode_ruby():
 
 def test_render_mode_interlinear():
     """build_annotation_html() interlinear mode produces inline-block HTML."""
-    from app.romanize import build_annotation_html
+    from loom_core.romanize import build_annotation_html
 
     spans = [('Привет', 'Privet'), (' ', None), ('мир', 'mir')]
     html = build_annotation_html(spans, mode='interlinear')
@@ -627,7 +627,7 @@ def test_render_mode_interlinear():
 
 def test_render_mode_inline():
     """build_annotation_html() inline mode produces parenthetical output."""
-    from app.romanize import build_annotation_html
+    from loom_core.romanize import build_annotation_html
 
     spans = [('สวัสดี', 'sawatdi'), (' ', None), ('ครับ', 'khrap')]
     html = build_annotation_html(spans, mode='inline')
@@ -641,7 +641,7 @@ def test_render_mode_inline():
 
 def test_render_mode_default_is_ruby():
     """build_annotation_html() defaults to ruby when mode not specified."""
-    from app.romanize import build_annotation_html
+    from loom_core.romanize import build_annotation_html
 
     spans = [('test', 'reading')]
     html_default = build_annotation_html(spans)
@@ -656,7 +656,7 @@ def test_render_mode_default_is_ruby():
 
 def test_ass_annotation_guard_korean():
     """Korean with Annotation enabled should NOT produce \\pos() events in .ass."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -700,7 +700,7 @@ def test_ass_annotation_guard_korean():
 
 def test_cjk_supports_ass_annotation():
     """CJK languages should support .ass annotation."""
-    from app.styles import get_lang_config
+    from loom_core.styles import get_lang_config
 
     for code in ('ja', 'zh', 'zh-Hant', 'yue'):
         cfg = get_lang_config(code)
@@ -713,7 +713,7 @@ def test_cjk_supports_ass_annotation():
 
 def test_thai_paiboon_mixed_content():
     """Paiboon+ romanizer handles mixed Thai/numbers/punctuation without crashing."""
-    from app.romanize import get_romanizer, get_annotation_func
+    from loom_core.romanize import get_romanizer, get_annotation_func
 
     romanize = get_romanizer('th', phonetic_system='paiboon')
     assert romanize is not None
@@ -743,7 +743,7 @@ def test_thai_paiboon_mixed_content():
 
 def test_thai_consonant_clusters():
     """thai2rom engine preserves consonant clusters (Bug 1 fix)."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     for system in ('paiboon', 'rtgs'):
         romanize = get_romanizer('th', phonetic_system=system)
@@ -761,7 +761,7 @@ def test_thai_consonant_clusters():
 
 def test_thai_sara_am_normalization():
     """Decomposed sara am (U+0E4D+U+0E32) produces same output as composed (U+0E33)."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     romanize = get_romanizer('th', phonetic_system='paiboon')
 
@@ -786,7 +786,7 @@ def test_thai_sara_am_normalization():
 
 def test_thai_special_cases():
     """ก็ particle gets correct Paiboon+ romanization via special-case lookup."""
-    from app.romanize import get_romanizer, get_annotation_func
+    from loom_core.romanize import get_romanizer, get_annotation_func
 
     romanize = get_romanizer('th', phonetic_system='paiboon')
     result = romanize('ก็')
@@ -806,7 +806,7 @@ def test_thai_special_cases():
 
 def test_thai_oyu():
     """อยู่ is romanized with 'y' (not bare 'u')."""
-    from app.romanize import get_romanizer
+    from loom_core.romanize import get_romanizer
 
     for system in ('paiboon', 'rtgs'):
         romanize = get_romanizer('th', phonetic_system=system)

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pysubs2
 
-from app.language import (
+from loom_core.language import (
     detect_language,
     detect_language_from_text,
     detect_languages_by_style,

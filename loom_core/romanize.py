@@ -1083,7 +1083,7 @@ def _make_korean_romanizer():
 
     Uses app.korean_rr (standalone MIT implementation).
     """
-    from app.korean_rr import romanize as _kr_romanize
+    from .korean_rr import romanize as _kr_romanize
 
     def romanize(text: str) -> str:
         if not text:
@@ -1112,7 +1112,7 @@ def _make_korean_annotation_func():
     romanization *line* (block text from ``_make_korean_romanizer``)
     uses full-word romanization and captures those rules correctly.
     """
-    from app.korean_rr import romanize_syllable
+    from .korean_rr import romanize_syllable
 
     def _is_hangul_syllable(c: str) -> bool:
         return '\uAC00' <= c <= '\uD7AF'

@@ -3,8 +3,8 @@ import base64
 import os
 import re
 import pysubs2
-from .romanize import build_annotation_html
-from .sub_utils import load_subs, shift_events
+from ..romanize import build_annotation_html
+from .utils import load_subs, shift_events
 
 # Fixed reference height — must match _PLAY_RES_Y in processing.py.
 _REF_H = 1080

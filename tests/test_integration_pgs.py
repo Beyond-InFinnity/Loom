@@ -14,7 +14,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pysubs2
-from app.processing import build_output_filename
+from loom_core.subs.processing import build_output_filename
 
 
 def _write_srt(path, entries):
@@ -104,7 +104,7 @@ def _make_test_srts(tmpdir):
 
 def test_generate_ass_all_four_layers():
     """generate_ass_file() always produces all 4 layers including Annotation."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     errors = []
@@ -151,7 +151,7 @@ def test_generate_ass_all_four_layers():
 
 def test_generate_ass_without_annotation():
     """When annotation is disabled, .ass has 3 layers (no Annotation)."""
-    import app.processing as proc
+    import loom_core.subs.processing as proc
     import streamlit as st
     _orig_error = st.error
     st.error = lambda msg: None
@@ -183,13 +183,13 @@ def test_generate_ass_without_annotation():
 
 def test_generate_pgs_full_frame():
     """generate_pgs_file() produces a .sup with display sets (requires Playwright)."""
-    from app.rasterize import is_playwright_available
+    from loom_core.rasterize.pgs import is_playwright_available
     if not is_playwright_available():
         print("  [SKIP] Playwright not installed — skipping PGS test")
         return
 
-    import app.processing as proc
-    from app.ocr import _parse_sup
+    import loom_core.subs.processing as proc
+    from loom_core.video.ocr import _parse_sup
     import streamlit as st
     _orig_error = st.error
     errors = []

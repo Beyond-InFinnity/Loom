@@ -11,11 +11,11 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pysubs2
-from app.rasterize import (
+from loom_core.rasterize.pgs import (
     PGSFrameEvent, rasterize_pgs_frames, is_playwright_available,
 )
-from app.sup_writer import write_sup
-from app.ocr import _parse_sup
+from loom_core.rasterize.sup_writer import write_sup
+from loom_core.video.ocr import _parse_sup
 
 
 def _make_styles():

@@ -1,9 +1,10 @@
-# app/sub_utils.py
 """Shared subtitle-loading utilities.
 
 Provides a caching wrapper around pysubs2.load() that stores parsed SSAFile
-objects in a dict (typically st.session_state), keyed by file path + mtime.
-This avoids redundant disk I/O and parsing across Streamlit reruns.
+objects in a caller-supplied dict, keyed by file path + mtime. Pass an
+explicit dict (e.g. ``st.session_state`` from the Streamlit shell, a
+per-request dict from the API layer) to enable caching; pass ``None`` to
+skip the cache and load fresh.
 
 The cached SSAFile objects must be treated as **read-only** by all consumers.
 Any code that needs to mutate events or styles must work on copies.
@@ -28,9 +29,8 @@ def load_subs_cached(path, cache=None):
     path : str
         Path to a subtitle file (.ass, .ssa, .srt).
     cache : dict-like | None
-        Cache store (typically ``st.session_state``).  When None, falls back
-        to ``st.session_state`` via lazy import.  Pass an explicit dict in
-        non-Streamlit contexts (tests, benchmarks).
+        Cache store keyed by ``f"_cached_ssa_{path}"``.  Pass ``None`` to
+        skip caching and load fresh on every call.
 
     Returns
     -------
@@ -38,8 +38,7 @@ def load_subs_cached(path, cache=None):
         Parsed subtitle file.  **Do not mutate** — work on copies if needed.
     """
     if cache is None:
-        import streamlit as st
-        cache = st.session_state
+        return pysubs2.load(path)
 
     mtime = os.path.getmtime(path)
     cache_key = f"_cached_ssa_{path}"

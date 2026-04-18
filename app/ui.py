@@ -209,7 +209,7 @@ def render_hybrid_selector(label, options, key, temp_dir=None):
                             st.error("Temporary directory not initialized.")
                         else:
                             with st.spinner("Scanning external video..."):
-                                from app.mkv_handler import (
+                                from loom_core.video.mkv_handler import (
                                     get_video_metadata,
                                     scan_and_extract_tracks,
                                 )

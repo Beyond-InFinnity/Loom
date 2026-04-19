@@ -4,26 +4,43 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-04-18):** R1–R4 complete + R6a complete + R6b-presets complete + timing offsets + auto-alignment. Pipeline fully working end-to-end: video file scan (MKV/MP4/AVI/MOV/WebM/TS/M2TS) → track extraction (+ audio metadata) → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration (Thai: 3 phonetic systems) → composite preview → `.ass` generation (3 or 4 layers, CJK-only annotation toggle, Thai word boundaries) → PGS full-frame rasterization (separate pipeline, all languages with per-token annotation via pluggable render modes, karaoke layer dedup, memory-bounded streaming, union timeline for multi-track sync, epoch-based incremental updates, concurrent event merging, canvas-aware region splitting) → remux with descriptive track metadata + default audio selection. Output always `.mkv` regardless of input container. Manual timing offsets per track + auto-alignment from reference file (cross-correlation algorithm).
+**Current state (2026-04-19):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3a** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) plus a working Tauri desktop shell that spawns the Python sidecar and renders a `/health` probe. Engine pipeline is unchanged: video file scan (any container) → track extraction → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration → composite preview → `.ass` generation → PGS full-frame rasterization → remux. Output always `.mkv`.
 
-**Monorepo restructure in progress.** Step 1 done (`monorepo-restructure` branch): pure engine carved out of `app/` into `loom_core/` package with no Streamlit imports; Pydantic wire contracts in `loom_core/models.py`; Streamlit shell now consumes `loom_core` and stays usable as the dev/debug client during the rewrite. Plan: (2) wrap `loom_core` in FastAPI; (3) Tauri desktop with Python sidecar; (4) Next.js web on Vercel; (5) WXT browser extension. Web/desktop/extension share `@loom/ui` React package + `@loom/api-client` generated from FastAPI's OpenAPI schema. Solo-maintainer scope, sequential build order — don't ship all three frontends at once.
+**Active focus:** Step 3b — frontend parity with Streamlit (file picker, video scan UI, style controls, preview pane, generation buttons + job polling, mux flow). Pace: one section per session. R5 (Indic + RTL) paused until restructure ships.
 
-**Active focus:** Step 2 of monorepo restructure — FastAPI service over `loom_core`. R5 (Indic + RTL) is paused until the new architecture is in place.
+**Known broken / dead code:** None tracked.
 
-**Known broken / dead code:** None currently tracked. (`benchmark_memory.py` removed in step 1 — depended on a never-existed `app.memory_manager` module.)
-
-**Test suite:** 237 tests across 11 files, all passing in ~19s.
+**Test suite:** 237 tests across 11 files, all passing in ~19s. Engine tests cover `loom_core` only — no tests for `loom_api` yet (smoke-tested via cURL workflows during 2a–2c).
 
 ---
 
 ## Project Structure
 
 ```
-loom_app.py                # Main Streamlit entry point (kept as dev/debug client during the FastAPI/Tauri rewrite)
+loom_app.py                # Streamlit entry point — kept as a dev/debug client through step 3b. Deletes when web app ships (step 4).
 app/
   state.py                 # Streamlit session state (Streamlit-only, stays here)
   ui.py                    # Streamlit widgets, OCR buttons, native file picker (zenity/kdialog/tkinter fallback)
-loom_core/                 # Pure engine — no Streamlit imports. Consumed by loom_app.py today, by FastAPI in step 2.
+loom_api/                  # FastAPI service over loom_core. Hosted as Tauri sidecar (step 3) and production web service (step 4).
+  main.py                  # FastAPI app + CORS middleware (allow_origins=["*"] for dev — tighten before prod)
+  storage.py               # Storage Protocol + LocalFileStorage (in-process UUID→path map). S3FileStorage drops in at step 4.
+  jobs.py                  # JobManager — in-process {id: JobStatus} dict + asyncio.Tasks. Swap for arq+Redis if web scaling demands it.
+  deps.py                  # FastAPI dependency providers (get_storage, get_jobs)
+  routes/
+    health.py              # GET / and GET /health
+    files.py               # POST /files (multipart upload) + GET /files/{id} (download)
+    language.py            # GET /language/config/{code} → wire-safe LanguageMetadata
+    generate.py            # POST /generate/ass (sync) + POST /generate/pgs (async → JobAccepted)
+    jobs.py                # GET /jobs/{id} → JobStatus
+    video.py               # POST /video/scan → VideoMetadata + TrackInfo[]
+    subs.py                # POST /subs/detect-language + POST /subs/detect-styles
+    align.py               # POST /align → AlignResponse
+    preview.py             # POST /preview → composite HTML + raw text fields
+apps/
+  desktop/                 # Tauri 2 + Vite + React (TypeScript) — desktop shell. Step 3a foundation; step 3b builds out the UI.
+    src-tauri/             # Rust shell. lib.rs spawns uvicorn loom_api.main:app as a child process; kills it on window close.
+    src/                   # React frontend. App.tsx currently a /health probe; step 3b replaces with full UI.
+loom_core/                 # Pure engine — no Streamlit imports. Consumed by loom_app.py + loom_api.
   __init__.py
   models.py                # Pydantic wire contracts: StyleConfig, TrackInfo, LanguageMetadata, Generate*Request, JobStatus, etc.
   language.py              # Language detection + Cantonese discriminator + script analysis
@@ -56,6 +73,32 @@ tests/
 requirements.txt
 CLAUDE.md
 ```
+
+---
+
+## Monorepo Restructure Roadmap
+
+| Step | Status | Scope |
+|------|--------|-------|
+| 1 | ✅ | Carve `loom_core/` from `app/`. Pydantic wire contracts in `loom_core/models.py`. Streamlit keeps working as a dev client. |
+| 2a | ✅ | Minimum FastAPI: `/health`, `/files`, `/language/config`, `/generate/ass`. |
+| 2b-styles | ✅ | Audit + rewrite `StyleConfig` to mirror engine's actual dict shape. Hex colors + `*_enabled` toggles, `to_engine_dict()` adapter handles `pysubs2.Color` + `*_none` inversion. |
+| 2b-coverage | ✅ | Sync endpoints: `/video/scan`, `/subs/detect-language`, `/subs/detect-styles`, `/align`, `/preview`. |
+| 2c-jobs | ✅ | In-process `JobManager` + `/generate/pgs` (async) + `/jobs/{id}`. `Storage` Protocol + `LocalFileStorage`. `opt_in_training` baked into request models. CORS middleware. |
+| 3a | ✅ | Tauri shell + Python sidecar IPC. `apps/desktop/` scaffolded; Rust spawns uvicorn, React probes `/health`. |
+| 3b | 🔲 Active | Frontend parity with Streamlit. Pace: one section per session — file picker → scan UI → style controls → preview → generation + jobs → mux. |
+| 3c | 🔲 | Bundling for distribution. PyInstaller / `uv` / PyOxidizer decision deferred until 3b is solid. Ships installers via GitHub Releases + Tauri auto-updater. |
+| 4 | 🔲 | Next.js web on Vercel. Same Next.js build → either CNAMEd `loom.nerv-analytic.ai` or `apps/web/` workspace. Swap `LocalFileStorage` for `S3FileStorage`. Constrain to subtitle-only + YouTube URL flows (no large video uploads). Extract shared React components into `packages/ui/` once a second consumer exists. |
+| 5 | 🔲 | WXT browser extension. YouTube + Netflix C/K-drama overlays. Reuses `@loom/api-client` (from FastAPI's OpenAPI). Major OCR data source — extension archives `(text, style, language)` tuples behind `opt_in_training` for the synthetic OCR pipeline to consume. |
+| 6 | 🔲 (parallel) | OCR pipeline as separate `loom_ocr/` package. Closed-loop synthetic data → fine-tuned TrOCR. Runs as a batch process, not part of the API. Detailed in `Synthetic Visual Engine — Phase 1` doc; targets Sept 2026 demo for PhD applications. |
+
+**Locked tech decisions for steps 3+:**
+- Frontend: Vite + React (not Next.js) for desktop. Web app at step 4 may migrate to Next.js, with shared components in `packages/ui/`. Don't extract the package until a second consumer exists — premature shared libraries are how API ergonomics go bad.
+- IPC: HTTP on localhost (not Tauri commands). Frontend stays deployment-agnostic — same code talks to localhost sidecar or `https://api.loom.nerv-analytic.ai`. One env var flips the base URL.
+- Storage: `Storage` Protocol now, `LocalFileStorage` only impl until step 4. `S3FileStorage` drops in without route changes.
+- Job runner: in-process dict + `asyncio.Task`. Migrate to arq+Redis only if/when web traffic outgrows one uvicorn worker. Tauri sidecar will never need persistence (process dies with the app).
+- Python bundling: defer until step 3c. Dev mode uses the developer's existing Python (env vars `LOOM_UVICORN`, `LOOM_PROJECT_ROOT`, `LOOM_SIDECAR_PORT` override defaults).
+- OCR data ingestion: `opt_in_training: bool = False` baked into request models from step 2c. No archival code yet — actual ingestion wires up at step 5 when the extension produces real data flow. Privacy-hedge in place from day one.
 
 ---
 

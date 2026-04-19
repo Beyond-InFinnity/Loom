@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..deps import get_storage
-from ..storage import FileStorage
+from ..storage import Storage
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -19,7 +19,7 @@ class UploadResponse(BaseModel):
 @router.post("", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> UploadResponse:
     suffix = Path(file.filename).suffix if file.filename else ""
     content = await file.read()
@@ -30,7 +30,7 @@ async def upload_file(
 @router.get("/{file_id}")
 def download_file(
     file_id: str,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> FileResponse:
     try:
         path = storage.path(file_id)

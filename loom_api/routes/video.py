@@ -8,7 +8,7 @@ from loom_core.models import TrackInfo, VideoMetadata
 from loom_core.video.mkv_handler import get_video_metadata, scan_and_extract_tracks
 
 from ..deps import get_storage
-from ..storage import FileStorage
+from ..storage import Storage
 
 router = APIRouter(prefix="/video", tags=["video"])
 
@@ -25,7 +25,7 @@ class ScanResponse(BaseModel):
 @router.post("/scan", response_model=ScanResponse)
 def scan_video(
     req: ScanRequest,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> ScanResponse:
     """Scan an uploaded video for subtitle tracks + metadata.
 

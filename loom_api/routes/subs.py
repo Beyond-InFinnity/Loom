@@ -8,7 +8,7 @@ from loom_core.models import StyleInfo
 from loom_core.subs.processing import detect_ass_styles
 
 from ..deps import get_storage
-from ..storage import FileStorage
+from ..storage import Storage
 
 router = APIRouter(prefix="/subs", tags=["subs"])
 
@@ -29,7 +29,7 @@ class DetectStylesResponse(BaseModel):
 @router.post("/detect-language", response_model=DetectLanguageResponse)
 def detect_subtitle_language(
     req: FileIdRequest,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> DetectLanguageResponse:
     try:
         path = storage.path(req.file_id)
@@ -42,7 +42,7 @@ def detect_subtitle_language(
 @router.post("/detect-styles", response_model=DetectStylesResponse)
 def detect_subtitle_styles(
     req: FileIdRequest,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> DetectStylesResponse:
     """Returns the named-style breakdown for an ASS/SSA file with multiple
     styles. SRT files and single-style ASS files return ``styles=None`` —

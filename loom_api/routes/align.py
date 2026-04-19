@@ -5,7 +5,7 @@ from loom_core.models import AlignResponse
 from loom_core.subs.utils import compute_subtitle_offset, load_subs_cached
 
 from ..deps import get_storage
-from ..storage import FileStorage
+from ..storage import Storage
 
 router = APIRouter(tags=["align"])
 
@@ -25,7 +25,7 @@ class AlignRequest(BaseModel):
 @router.post("/align", response_model=AlignResponse)
 def compute_align(
     req: AlignRequest,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> AlignResponse:
     try:
         ref_path = storage.path(req.reference_file_id)

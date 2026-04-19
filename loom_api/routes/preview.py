@@ -8,7 +8,7 @@ from loom_core.styles import get_lang_config
 from loom_core.subs.preview import generate_unified_preview, get_lines_at_timestamp
 
 from ..deps import get_storage
-from ..storage import FileStorage
+from ..storage import Storage
 
 router = APIRouter(tags=["preview"])
 
@@ -34,7 +34,7 @@ class PreviewResponse(BaseModel):
 @router.post("/preview", response_model=PreviewResponse)
 def render_preview(
     req: PreviewRequest,
-    storage: FileStorage = Depends(get_storage),
+    storage: Storage = Depends(get_storage),
 ) -> PreviewResponse:
     """Render the composite preview HTML at a single timestamp.
 

@@ -358,7 +358,7 @@ class JobStatus(BaseModel):
     state: JobState
     progress: float = Field(0.0, ge=0.0, le=1.0)
     phase: Optional[str] = None
-    result_path: Optional[str] = None
+    result_file_id: Optional[str] = None
     error: Optional[str] = None
 
 

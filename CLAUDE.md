@@ -4,9 +4,9 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-04-19):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3b-section-2** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) + Tauri desktop shell + file picker (registers absolute paths via `POST /files/by-path`) + video scan UI that calls `POST /video/scan`, displays metadata + subtitle track list, and assigns selectable tracks to top/bottom slots via dropdown (PGS/VobSub greyed out with "needs OCR" hint). Engine pipeline is unchanged: video file scan (any container) → track extraction → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration → composite preview → `.ass` generation → PGS full-frame rasterization → remux. Output always `.mkv`.
+**Current state (2026-04-19):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3b-section-3 substep 1** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) + Tauri desktop shell + file picker + video scan UI + style controls foundation: dual-view editor (`[ By layer · By property ]` toggle persisted to localStorage) covering enable / text color+opacity / font / size / bold / italic across all 4 layers, plus language-scoped color preset selector with 4-swatch strip. New backend routes `GET /styles/fonts` and `GET /styles/presets?lang=` expose `FONT_LIST`/`CJK_FONT_LIST` and the 28-preset catalogue. Engine pipeline is unchanged.
 
-**Active focus:** Step 3b sections 3–6 — style controls (next), then preview pane, generation/jobs, mux. Pace: one section per session. R5 (Indic + RTL) paused until restructure ships.
+**Active focus:** Step 3b section 3 substeps 2–3 (effects: outline/shadow/glow; then stack position + Romanized JP long-vowel-mode + Annotation phonetic-system carry-through), then sections 4–6 (preview, generation/jobs, mux). Both views ship at each substep — no scope cuts to fit a session. R5 (Indic + RTL) paused until restructure ships.
 
 **Known broken / dead code:** None tracked.
 
@@ -36,10 +36,11 @@ loom_api/                  # FastAPI service over loom_core. Hosted as Tauri sid
     subs.py                # POST /subs/detect-language + POST /subs/detect-styles
     align.py               # POST /align → AlignResponse
     preview.py             # POST /preview → composite HTML + raw text fields
+    styles.py              # GET /styles/fonts + GET /styles/presets?lang= → wire-safe FONT_LIST/CJK_FONT_LIST + preset catalogue
 apps/
   desktop/                 # Tauri 2 + Vite + React (TypeScript) — desktop shell. Step 3a foundation; step 3b builds out the UI.
     src-tauri/             # Rust shell. lib.rs spawns uvicorn loom_api.main:app as a child process; kills it on window close.
-    src/                   # React frontend. App.tsx currently a /health probe; step 3b replaces with full UI.
+    src/                   # React frontend. App.tsx orchestrates file slots + scan; styles.ts holds StyleConfig wire types + defaults + preset apply; StyleSection.tsx renders the dual-view style editor (LayerView + PropertyView).
 loom_core/                 # Pure engine — no Streamlit imports. Consumed by loom_app.py + loom_api.
   __init__.py
   models.py                # Pydantic wire contracts: StyleConfig, TrackInfo, LanguageMetadata, Generate*Request, JobStatus, etc.
@@ -88,7 +89,10 @@ CLAUDE.md
 | 3a | ✅ | Tauri shell + Python sidecar IPC. `apps/desktop/` scaffolded; Rust spawns uvicorn, React probes `/health`. |
 | 3b-1 | ✅ | File picker + `POST /files/by-path` fast path (no byte transfer). `tauri-plugin-dialog`, `apps/desktop/src/api.ts`, 3-slot UI (video / top / bottom). |
 | 3b-2 | ✅ | Video scan + track selector. `scanVideo()` in `api.ts`; "Scan video" button on video card → `POST /video/scan` → results panel (metadata + subtitle tracks). Per-row dropdown assigns selectable tracks to Top/Bottom; PGS/VobSub greyed out with codec label. `FileSlot.path`/`size` made optional for track-derived slots. |
-| 3b | 🔲 Active | Frontend parity: sections 3–6 remaining. 3) style controls. 4) preview pane. 5) generation + job polling. 6) mux flow. One section per session. |
+| 3b-3-1 | ✅ | Style controls **foundation**, dual-view. New `StyleSection.tsx` with `[ By layer · By property ]` segmented toggle persisted to localStorage. **LayerView**: stacked cards per layer with summary row (enable, color swatch, font, size) + expand-in-place editor. **PropertyView**: layers as columns, properties as rows. Both views cover enable / text color+opacity / font / size / bold / italic across all 4 layers. Color preset selector (28 presets, language-scoped via `slots.target?.lang_code`) with 4-swatch strip. Backend: `routes/styles.py` exposes `GET /styles/fonts` (FONT_LIST + CJK_FONT_LIST) and `GET /styles/presets?lang=` (preset catalogue). Frontend: `styles.ts` mirrors `loom_core/models.py` `StyleConfig` + `LayerStyle` defaults; `applyPreset()` ports `get_preset_styles()` (color-only merge, never touches font/size/effects). `FileSlot` gained optional `lang_code`. |
+| 3b-3-2 | 🔲 | Style controls **effects** in both views: outline (toggle + thickness + color + opacity), shadow (toggle + distance), glow (toggle + radius + color), all 4 layers. |
+| 3b-3-3 | 🔲 | Style controls **stack + extras** in both views: Top Stack Position (vertical_offset, annotation_gap, romanized_gap), Romanized JP `long_vowel_mode`, Annotation `phonetic_system` carry-through. |
+| 3b | 🔲 Active | Frontend parity: section 3 substep 1 done; substeps 2–3 + sections 4–6 remaining. 4) preview pane. 5) generation + job polling. 6) mux flow. |
 | 3c | 🔲 | Bundling for distribution. PyInstaller / `uv` / PyOxidizer decision deferred until 3b is solid. Ships installers via GitHub Releases + Tauri auto-updater. |
 | 4 | 🔲 | Next.js web on Vercel. Same Next.js build → either CNAMEd `loom.nerv-analytic.ai` or `apps/web/` workspace. Swap `LocalFileStorage` for `S3FileStorage`. Constrain to subtitle-only + YouTube URL flows (no large video uploads). Extract shared React components into `packages/ui/` once a second consumer exists. |
 | 5 | 🔲 | WXT browser extension. YouTube + Netflix C/K-drama overlays. Reuses `@loom/api-client` (from FastAPI's OpenAPI). Major OCR data source — extension archives `(text, style, language)` tuples behind `opt_in_training` for the synthetic OCR pipeline to consume. |

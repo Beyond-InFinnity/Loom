@@ -7,6 +7,7 @@ OpenAPI schema is at /openapi.json; interactive docs at /docs.
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import align, files, generate, health, jobs, language, preview, subs, video
 
@@ -14,6 +15,19 @@ app = FastAPI(
     title="Loom API",
     description="Subtitle generation engine over loom_core.",
     version="0.1.0",
+)
+
+# Allow cross-origin requests from the Tauri webview (loaded from
+# http://localhost:1420 in dev) and from browser extensions / web pages
+# during step 4+. ``allow_origins=["*"]`` is fine until we ship — tighten
+# to a known list (loom.nerv-analytic.ai, tauri://localhost,
+# extension://...) before any production deploy.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health.router)

@@ -10,6 +10,8 @@ import {
   registerFileByPath,
   scanVideo,
 } from "./api";
+import { defaultStyleConfig, StyleConfig } from "./styles";
+import { StyleSection } from "./StyleSection";
 import "./App.css";
 
 type SlotKey = "video" | "target" | "native";
@@ -87,6 +89,7 @@ function App() {
   const [errors, setErrors] = useState<SlotErrors>({});
   const [busy, setBusy] = useState<SlotKey | null>(null);
   const [scan, setScan] = useState<ScanState>({ kind: "idle" });
+  const [styles, setStyles] = useState<StyleConfig>(() => defaultStyleConfig());
 
   useEffect(() => {
     let cancelled = false;
@@ -182,9 +185,17 @@ function App() {
       if (current === "top" && role !== "top") delete next.target;
       if (current === "bottom" && role !== "bottom") delete next.native;
       if (role === "top") {
-        next.target = { id: track.file_id!, name: track.label };
+        next.target = {
+          id: track.file_id!,
+          name: track.label,
+          lang_code: track.lang_code ?? undefined,
+        };
       } else if (role === "bottom") {
-        next.native = { id: track.file_id!, name: track.label };
+        next.native = {
+          id: track.file_id!,
+          name: track.label,
+          lang_code: track.lang_code ?? undefined,
+        };
       }
       return next;
     });
@@ -384,6 +395,12 @@ function App() {
           )}
         </section>
       )}
+
+      <StyleSection
+        styles={styles}
+        setStyles={setStyles}
+        targetLang={slots.target?.lang_code ?? ""}
+      />
 
       <footer
         style={{

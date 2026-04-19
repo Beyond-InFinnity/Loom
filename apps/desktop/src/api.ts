@@ -11,6 +11,7 @@ export type FileSlot = {
   name: string;
   size?: number;
   path?: string;
+  lang_code?: string;
 };
 
 export type HealthInfo = {

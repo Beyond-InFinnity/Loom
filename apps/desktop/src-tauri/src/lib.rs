@@ -40,6 +40,7 @@ fn kill_sidecar(state: &SidecarHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(SidecarHandle(Mutex::new(None)))
         .setup(|app| {
             let child = spawn_sidecar()?;

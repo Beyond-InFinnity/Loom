@@ -4,9 +4,9 @@
 
 > Update this section at the end of every session.
 
-**Current state (2026-04-19):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3b-section-1** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) + Tauri desktop shell + working file picker UI that registers absolute paths with the sidecar via `POST /files/by-path` (no byte transfer). Engine pipeline is unchanged: video file scan (any container) → track extraction → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration → composite preview → `.ass` generation → PGS full-frame rasterization → remux. Output always `.mkv`.
+**Current state (2026-04-19):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3b-section-2** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) + Tauri desktop shell + file picker (registers absolute paths via `POST /files/by-path`) + video scan UI that calls `POST /video/scan`, displays metadata + subtitle track list, and assigns selectable tracks to top/bottom slots via dropdown (PGS/VobSub greyed out with "needs OCR" hint). Engine pipeline is unchanged: video file scan (any container) → track extraction → language detection (CJK + Cyrillic + Thai + Latin-script metadata preference) → style configuration → composite preview → `.ass` generation → PGS full-frame rasterization → remux. Output always `.mkv`.
 
-**Active focus:** Step 3b sections 2–6 — video scan + track selector (next), then style controls, preview pane, generation/jobs, mux. Pace: one section per session. R5 (Indic + RTL) paused until restructure ships.
+**Active focus:** Step 3b sections 3–6 — style controls (next), then preview pane, generation/jobs, mux. Pace: one section per session. R5 (Indic + RTL) paused until restructure ships.
 
 **Known broken / dead code:** None tracked.
 
@@ -87,7 +87,8 @@ CLAUDE.md
 | 2c-jobs | ✅ | In-process `JobManager` + `/generate/pgs` (async) + `/jobs/{id}`. `Storage` Protocol + `LocalFileStorage`. `opt_in_training` baked into request models. CORS middleware. |
 | 3a | ✅ | Tauri shell + Python sidecar IPC. `apps/desktop/` scaffolded; Rust spawns uvicorn, React probes `/health`. |
 | 3b-1 | ✅ | File picker + `POST /files/by-path` fast path (no byte transfer). `tauri-plugin-dialog`, `apps/desktop/src/api.ts`, 3-slot UI (video / top / bottom). |
-| 3b | 🔲 Active | Frontend parity: sections 2–6 remaining. 2) video scan + track selector. 3) style controls. 4) preview pane. 5) generation + job polling. 6) mux flow. One section per session. |
+| 3b-2 | ✅ | Video scan + track selector. `scanVideo()` in `api.ts`; "Scan video" button on video card → `POST /video/scan` → results panel (metadata + subtitle tracks). Per-row dropdown assigns selectable tracks to Top/Bottom; PGS/VobSub greyed out with codec label. `FileSlot.path`/`size` made optional for track-derived slots. |
+| 3b | 🔲 Active | Frontend parity: sections 3–6 remaining. 3) style controls. 4) preview pane. 5) generation + job polling. 6) mux flow. One section per session. |
 | 3c | 🔲 | Bundling for distribution. PyInstaller / `uv` / PyOxidizer decision deferred until 3b is solid. Ships installers via GitHub Releases + Tauri auto-updater. |
 | 4 | 🔲 | Next.js web on Vercel. Same Next.js build → either CNAMEd `loom.nerv-analytic.ai` or `apps/web/` workspace. Swap `LocalFileStorage` for `S3FileStorage`. Constrain to subtitle-only + YouTube URL flows (no large video uploads). Extract shared React components into `packages/ui/` once a second consumer exists. |
 | 5 | 🔲 | WXT browser extension. YouTube + Netflix C/K-drama overlays. Reuses `@loom/api-client` (from FastAPI's OpenAPI). Major OCR data source — extension archives `(text, style, language)` tuples behind `opt_in_training` for the synthetic OCR pipeline to consume. |

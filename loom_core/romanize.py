@@ -1290,6 +1290,60 @@ def _make_cyrillic_annotation_func(primary: str):
     return get_spans
 
 
+# ---------------------------------------------------------------------------
+# R5-2: Indic scripts (Devanagari, Bengali, Tamil, Telugu, Gujarati, Gurmukhi)
+# ---------------------------------------------------------------------------
+#
+# Block-level romanization via aksharamukha.  Aksharamukha is preferred over
+# indic-transliteration/sanscript because sanscript gives phonologically
+# distorted output for Tamil ("vaṇakkam" → "vaṇaghghaṃ") — it treats the
+# Tamil script as a subset of Sanskrit phonology and maps conflated
+# consonant sounds to their voiced-aspirate Sanskrit equivalents. Aksharamukha
+# produces the conventional transliteration that learners recognize.
+#
+# IAST is the default target: diacritic-rich (ā, ī, ṇ, ś, ṃ) but
+# immediately readable.  ISO 15919 is a supported alternative scholarly
+# scheme; we could expose it as a phonetic_system override later.
+#
+# The Devanagari danda (।) and double danda (॥) — sentence and verse
+# terminators — are converted automatically by aksharamukha to "." and "..".
+
+# BCP-47 primary subtag → aksharamukha source-script name.
+# Each Indic script maps 1:1 to one BCP-47 language in R5-2's scope;
+# multi-language scripts (Devanagari for Sanskrit/Marathi/Nepali) are
+# deferred — when added, they'll share this romanizer factory.
+_INDIC_SCRIPTS = {
+    "hi": "Devanagari",   # Hindi
+    "bn": "Bengali",      # Bengali / Bangla
+    "ta": "Tamil",
+    "te": "Telugu",
+    "gu": "Gujarati",
+    "pa": "Gurmukhi",     # Punjabi
+}
+
+
+def _make_indic_romanizer(primary: str):
+    """Return an Indic-script → IAST block romanizer.
+
+    Uses aksharamukha.transliterate.process() under the hood.  The
+    script-name argument is looked up in _INDIC_SCRIPTS.  The tail runs
+    through _polish_romaji(capitalize=True) so sentence-initial letters
+    are uppercased and fullwidth punctuation (rare in these scripts) is
+    normalized.
+    """
+    from aksharamukha import transliterate as _akt  # lazy import
+    source_script = _INDIC_SCRIPTS[primary]
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _strip_ass(text)
+        out = _akt.process(source_script, "IAST", clean)
+        return _polish_romaji(out or '', capitalize=True)
+
+    return romanize
+
+
 def _thai_tokenize(text: str) -> list:
     """Hybrid Thai tokenizer: word boundaries + syllable split for compounds.
 
@@ -1877,6 +1931,10 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
             return _make_thai_ipa_romanizer()
         return _make_thai_romanizer()  # RTGS default
 
-    # Chunk R5 — Indic scripts, Arabic/Persian/Urdu ───────────────── TODO
+    # Chunk R5-2 — Indic scripts (aksharamukha → IAST) ────────────── ✅
+    if primary in _INDIC_SCRIPTS:
+        return _make_indic_romanizer(primary)
+
+    # Chunk R5-4 — Arabic/Persian/Urdu ─────────────────────────────── TODO
 
     return None

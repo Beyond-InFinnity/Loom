@@ -233,6 +233,8 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
         return "Transliteration"
     if primary == "th":
         return "Romanization"
+    if primary in ("hi", "bn", "ta", "te", "gu", "pa"):
+        return "Transliteration"
     return "Annotation"
 
 

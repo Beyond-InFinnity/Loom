@@ -6,9 +6,9 @@
 
 **Current state (2026-04-20):** R1–R4 + R6a + R6b-presets + timing offsets + auto-alignment complete in the original Streamlit pipeline. The monorepo restructure has reached **step 3b complete (full feature parity with Streamlit)** on the `monorepo-restructure` branch — full backend (`loom_core` engine + `loom_api` FastAPI service) + Tauri desktop shell covering the full pipeline: file picker → video scan → dual-view style editor → timing offsets + auto-align → live preview → generate .ass/.sup → mux into MKV. Preview posts to `/preview` (debounced ~200ms, stale-response guard) with annotation spans, Japanese `spans_to_romaji` + `long_vowel_mode`, and cached video screenshot background. `GenerateSection.tsx` hits `POST /generate/ass` (sync) and `POST /generate/pgs` (async → job poll 500ms); save dialog default built via `POST /generate/suggest-filename` (delegates to `build_output_filename`); saves results via `@tauri-apps/plugin-dialog.save()` + `@tauri-apps/plugin-fs.writeFile()`. `MuxSection.tsx` hits `POST /mux` (async job) which runs `merge_subs_to_mkv` via `asyncio.to_thread`; the sidecar writes ffmpeg's output directly to the user-picked `output_path` so multi-GB remux doesn't round-trip through HTTP. Track titles built server-side via `_build_track_title` from `{target_name} + {native_name} [{annotation} / {romanization}] [PGS] (Loom)`. `TimingOffsetsSection.tsx` exposes manual offsets (Bottom/Top, 0.01s step) with Link toggle + delta-based linked adjustment, plus a collapsible Auto-align-from-reference block (file picker → optional video scan + track select → Compare-to / Apply-to layer pickers → `POST /align` → signed-offset result → Apply). Offsets thread through `/preview`, `/generate/ass`, `/generate/pgs` as `native_offset_ms`/`target_offset_ms`.
 
-**Active focus:** Step 3c (bundling for distribution) is now the sole remaining track before 3b is fully in the rear-view. PyInstaller / `uv` / PyOxidizer decision still open. R5 (Indic + RTL) paused until restructure ships.
+**Active focus:** Step 3c (bundling for distribution) is the next track; R5 work continues in parallel while a bundling-strategy research prompt is out for deeper investigation. PyInstaller / `uv` / PyOxidizer / aksharamukha-lxml-size decision still open.
 
-**Recent fixes (2026-04-20):** (1) Zhuyin rendering — apply annotation font to ruby + inter-character layout. (2) Thai IPA — swap `romanize(engine='ipa')` for `transliterate(engine='thaig2p')`. (3) `POST /generate/suggest-filename` + `AudioTrackInfo` in `/video/scan` + MuxSection "Default audio" selector (74e91fa). (4) Multi-layer ASS karaoke pickup fix via `loom_api/style_mapping.py::auto_style_mapping()` wired into `/preview`, `/generate/ass`, `/generate/pgs`.
+**Recent (2026-04-20):** (1) R5-1 katakana-as-furigana — `INLINE_FURIGANA_RE` widened to `[ぁ-んァ-ヶー]+` so tier-1 author glosses like 重力(グラビティ) / 本気(マジ) / 宇宙(スペース) flow through `_kana_to_romaji` correctly and preserve katakana in the annotation layer (author's semantic choice for loanword/slang readings). (2) Universal romanization polish — `_polish_romaji(text, *, capitalize)` at the tail of every factory: fullwidth CJK → Latin punctuation, strip space before close-punct, opt-in sentence-initial caps for source-case-less scripts (ja/zh/yue/ko/Indic). Fixes long-standing "space before 。" and all-lowercase romaji; pinyin's CJK-punct-drop bug (sentence boundaries silently lost) also fixed. (3) R5-2 Indic block romanization — Hindi/Bengali/Tamil/Telugu/Gujarati/Punjabi via `aksharamukha` (preferred over sanscript because the latter produces phonologically distorted Tamil). (4) Zhuyin rendering fix, Thai IPA engine swap, `/generate/suggest-filename` + audio-default selector in mux advanced (all earlier in day).
 
 **Known broken / dead code:** None tracked.
 
@@ -213,7 +213,11 @@ CLAUDE.md
 - `annotation_default_enabled: False` (block romanization sufficient for most learners).
 - **Engine note:** `royin` engine deprecated — mangles consonant clusters. All RTGS/Paiboon+ paths use `thai2rom`.
 
-**Language detection flow:** `_dominant_script()` → script-specific path. CJK: `_refine_cjk_detection()`. Cyrillic: `_detect_by_script_chars()` unique-char pre-detection → langdetect fallback. Thai: `_dominant_script()→'Thai'`. Latin: metadata preference via `_normalize_metadata_lang()` over langdetect (fixes Romance language misidentification).
+**Indic scripts (R5-2):** `_make_indic_romanizer(primary)` via `aksharamukha.transliterate.process(script, 'IAST', text)`. Six languages via `_INDIC_SCRIPTS = {hi: Devanagari, bn: Bengali, ta: Tamil, te: Telugu, gu: Gujarati, pa: Gurmukhi}`. Block-level only — no per-akshara annotation yet (deferred to R5-3). Aksharamukha preferred over `indic-transliteration`/sanscript because sanscript produces phonologically distorted Tamil ("vaṇakkam" → "vaṇaghghaṃ") by treating Tamil as a subset of Sanskrit phonology. Aksharamukha also auto-converts the Devanagari danda (।) and double danda (॥) to ASCII periods. Output flows through `_polish_romaji(capitalize=True)` — sentence-initial caps, no space before punct. `has_phonetic_layer=True`, `supports_ass_annotation=False` (alphabetic script, not CJK glyph-width-math), `annotation_system_name="Transliteration"`, `annotation_func=None` until R5-3 ships per-akshara.
+
+**Universal romanization polish:** `_polish_romaji(text, *, capitalize=True)` runs at the tail of every romanizer factory. Three passes: (1) Fullwidth CJK punctuation → ASCII via `_CJK_TO_LATIN_PUNCT` translate table (。→. ，→, ？→? ！→! ; : ( ) [ ] « » 、 ・→space); (2) strip `\s+` before closing punctuation (`.,!?;:)]"}`); (3) when `capitalize=True`, uppercase line-start + first alpha char after any `.!?`. Capitalize enabled for ja/zh/yue/ko/Indic (source script has no case); disabled for Cyrillic (cyrtranslit preserves source case — respecting it distinguishes continuation lines from sentence starts) and Thai all three systems (no caps convention). Idempotent.
+
+**Language detection flow:** `_dominant_script()` → script-specific path. CJK: `_refine_cjk_detection()`. Cyrillic: `_detect_by_script_chars()` unique-char pre-detection → langdetect fallback. Thai: `_dominant_script()→'Thai'`. Indic: `_dominant_script()` returns `'Devanagari'|'Bengali'|'Tamil'|'Telugu'|'Gujarati'|'Gurmukhi'` → mapped 1:1 to `hi|bn|ta|te|gu|pa` via `_INDIC_SCRIPT_TO_CODE`. Latin: metadata preference via `_normalize_metadata_lang()` over langdetect (fixes Romance language misidentification).
 
 ---
 
@@ -250,15 +254,16 @@ Default font sizes (1080-scale): Bottom=48, Top=52, Romanized=30, Annotation=22.
 | R3: Japanese (Hepburn + furigana + resolved-kana + long vowel modes) | ✅ |
 | R4: Korean + Cyrillic + Thai (block + per-token annotation) | ✅ |
 | R6a: Color pickers + style controls | ✅ |
-| R5: Indic scripts + RTL (experimental) | 🔲 Next |
+| R5-1: Katakana-as-furigana (author glosses) | ✅ |
+| R5-2: Indic block romanization (6 langs via aksharamukha) | ✅ |
+| R5-3: Hindi/Devanagari per-akshara annotation | 🔲 Next in R5 track |
+| R5-4: Arabic/Persian/Urdu RTL + abjad (experimental) | 🔲 |
 | R6b-presets: Color preset system | ✅ |
 | R6b-fonts: Font validation | 🔲 |
 
-**R5 details:**
-- `indic-transliteration` for Hindi, Bengali, Tamil, Telugu, Gujarati, Punjabi
-- Hindi/Devanagari: per-akshara annotation via `get_annotation_func()`
-- Arabic/Persian/Urdu: opt-in/experimental, RTL + abjad, block only
-- Katakana furigana e.g. `重力(グラビティ)` (deferred from R3-hotfix)
+**R5 remaining details:**
+- R5-3: per-akshara spans for Devanagari (consonant + attached vowel matra boundary detection). Annotation rendering is already language-agnostic (`build_annotation_html`) so only the span producer is new. Depends on R5-2's romanizer.
+- R5-4: Arabic/Persian/Urdu block romanization — opt-in/experimental. Requires RTL-aware rendering in both `.ass` (`\frx`/right-align) and PGS (`direction: rtl`). Highest risk of the R5 sub-chunks.
 
 ---
 

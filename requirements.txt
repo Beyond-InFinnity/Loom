@@ -19,3 +19,4 @@ Pillow
 playwright
 cyrtranslit
 pythainlp
+aksharamukha

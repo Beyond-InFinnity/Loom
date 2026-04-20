@@ -94,15 +94,20 @@ def _dominant_script(text):
     """
     Analyze Unicode script blocks to determine the dominant writing system.
     Returns one of: 'CJK', 'Hangul', 'Hiragana_Katakana', 'Cyrillic',
-    'Thai', 'Latin', or None if no single script dominates.
+    'Thai', 'Devanagari', 'Bengali', 'Tamil', 'Telugu', 'Gujarati',
+    'Gurmukhi', 'Latin', or None if no single script dominates.
 
     This is used as a pre-check before statistical language detection,
     because langdetect is unreliable at distinguishing CJK scripts
     (it frequently misidentifies Traditional Chinese as Korean) and
-    Cyrillic scripts (it confuses Russian, Ukrainian, Belarusian).
+    Cyrillic scripts (it confuses Russian, Ukrainian, Belarusian).  The
+    Indic scripts each map 1:1 to one BCP-47 primary subtag in our R5
+    scope, so returning the script name is sufficient for reconciliation.
     """
     counts = {"CJK": 0, "Hangul": 0, "Kana": 0, "Cyrillic": 0,
-              "Thai": 0, "Latin": 0, "Other": 0}
+              "Thai": 0, "Devanagari": 0, "Bengali": 0, "Tamil": 0,
+              "Telugu": 0, "Gujarati": 0, "Gurmukhi": 0,
+              "Latin": 0, "Other": 0}
 
     for char in text:
         if char.isspace():
@@ -118,6 +123,18 @@ def _dominant_script(text):
             counts["Cyrillic"] += 1
         elif "THAI" in name:
             counts["Thai"] += 1
+        elif "DEVANAGARI" in name:
+            counts["Devanagari"] += 1
+        elif "BENGALI" in name:
+            counts["Bengali"] += 1
+        elif "TAMIL" in name:
+            counts["Tamil"] += 1
+        elif "TELUGU" in name:
+            counts["Telugu"] += 1
+        elif "GUJARATI" in name:
+            counts["Gujarati"] += 1
+        elif "GURMUKHI" in name:
+            counts["Gurmukhi"] += 1
         elif "LATIN" in name:
             counts["Latin"] += 1
         else:
@@ -329,6 +346,14 @@ def detect_language_from_text(text_sample, metadata_lang=None, track_title=None)
 
         if script == "Thai":
             return "th"
+
+        # R5-2 Indic scripts — each maps 1:1 to a BCP-47 primary subtag.
+        _INDIC_SCRIPT_TO_CODE = {
+            "Devanagari": "hi", "Bengali": "bn", "Tamil": "ta",
+            "Telugu": "te", "Gujarati": "gu", "Gurmukhi": "pa",
+        }
+        if script in _INDIC_SCRIPT_TO_CODE:
+            return _INDIC_SCRIPT_TO_CODE[script]
 
         if metadata_lang:
             meta_code = _normalize_metadata_lang(metadata_lang)

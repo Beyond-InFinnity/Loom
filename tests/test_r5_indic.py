@@ -1,0 +1,286 @@
+"""R5-2 tests: Indic scripts — Hindi, Bengali, Tamil, Telugu, Gujarati,
+Punjabi. Block-level IAST romanization via aksharamukha.
+
+Covers:
+  - Per-language romanizer produces readable IAST
+  - Devanagari danda (।) and double danda (॥) converted to ASCII periods
+  - Sentence-initial capitalization via _polish_romaji
+  - Mixed-script passthrough (Latin interleaved with Indic)
+  - ASS override tags stripped before transliteration
+  - Empty / non-Indic input handling
+  - _dominant_script detects each script correctly
+  - detect_language_from_text resolves to correct BCP-47 code
+  - get_lang_config returns correct fields for each language
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+# Sample phrases + their expected IAST (substring match — case-insensitive
+# so _polish_romaji's sentence-initial caps don't require test coupling).
+_INDIC_SAMPLES = {
+    "hi": ("नमस्ते दुनिया",  "namaste duniyā"),
+    "bn": ("নমস্কার বিশ্ব",   "namaskāra biśba"),
+    "ta": ("வணக்கம் உலகம்",  "vaṇakkam ulakam"),
+    "te": ("నమస్కారం",        "namaskāra"),
+    "gu": ("નમસ્તે વિશ્વ",    "namaste viśva"),
+    "pa": ("ਸਤ ਸ੍ਰੀ ਅਕਾਲ",    "sata srī akāla"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Per-language block romanizers
+# ---------------------------------------------------------------------------
+
+class TestIndicRomanizers:
+    def test_all_languages_return_romanizer(self):
+        from loom_core.romanize import get_romanizer
+        for lang in _INDIC_SAMPLES:
+            r = get_romanizer(lang)
+            assert r is not None, f"get_romanizer({lang!r}) returned None"
+
+    def test_hindi_iast_output(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r(_INDIC_SAMPLES['hi'][0])
+        assert _INDIC_SAMPLES['hi'][1] in out.lower()
+
+    def test_bengali_iast_output(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('bn')
+        out = r(_INDIC_SAMPLES['bn'][0])
+        assert _INDIC_SAMPLES['bn'][1] in out.lower()
+
+    def test_tamil_iast_output(self):
+        """Aksharamukha-specific: Tamil IAST must produce 'vaṇakkam',
+        not sanscript's phonologically distorted 'vaṇaghghaṃ'."""
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('ta')
+        out = r(_INDIC_SAMPLES['ta'][0])
+        assert _INDIC_SAMPLES['ta'][1] in out.lower()
+        # Regression guard: sanscript's bad output pattern must not surface.
+        assert 'ghgh' not in out.lower()
+
+    def test_telugu_iast_output(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('te')
+        out = r(_INDIC_SAMPLES['te'][0])
+        assert _INDIC_SAMPLES['te'][1] in out.lower()
+
+    def test_gujarati_iast_output(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('gu')
+        out = r(_INDIC_SAMPLES['gu'][0])
+        assert _INDIC_SAMPLES['gu'][1] in out.lower()
+
+    def test_punjabi_iast_output(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('pa')
+        out = r(_INDIC_SAMPLES['pa'][0])
+        assert _INDIC_SAMPLES['pa'][1] in out.lower()
+
+
+class TestIndicDandaConversion:
+    """Devanagari / Bengali / Gurmukhi sentence terminator ।
+    converts to ASCII period via aksharamukha.  The double danda ॥
+    ends a verse — aksharamukha emits two periods which is acceptable."""
+
+    def test_devanagari_danda_becomes_period(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('नमस्ते।')
+        assert '।' not in out
+        assert '.' in out
+
+    def test_bengali_danda_becomes_period(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('bn')
+        out = r('নমস্কার।')
+        assert '।' not in out and '.' in out
+
+    def test_gurmukhi_danda_becomes_period(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('pa')
+        out = r('ਸਤ ਸ੍ਰੀ ਅਕਾਲ।')
+        assert '।' not in out and '.' in out
+
+
+class TestIndicPolishIntegration:
+    """Sentence-initial caps + no space before punct — inherited from the
+    universal _polish_romaji pass."""
+
+    def test_hindi_sentence_initial_capitalized(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('नमस्ते दुनिया')
+        first_alpha = next(c for c in out if c.isalpha())
+        assert first_alpha.isupper()
+
+    def test_hindi_post_period_capitalized(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('नमस्ते। आप कैसे हैं?')
+        idx = out.find('.')
+        tail = out[idx + 1:].lstrip()
+        assert tail and tail[0].isupper(), (
+            f"Post-danda must capitalize: {out!r}"
+        )
+
+    def test_tamil_not_weirdly_spaced_punct(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('ta')
+        out = r('வணக்கம் உலகம்.')
+        assert ' .' not in out
+
+
+class TestIndicEdgeCases:
+    def test_empty_input(self):
+        from loom_core.romanize import get_romanizer
+        for lang in _INDIC_SAMPLES:
+            r = get_romanizer(lang)
+            assert r('') == ''
+
+    def test_mixed_latin_indic(self):
+        """Latin segments pass through; Indic segments romanize."""
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('Hello नमस्ते world')
+        assert 'Hello' in out
+        assert 'namaste' in out.lower()
+        assert 'world' in out
+
+    def test_ass_tags_stripped(self):
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('{\\an8}नमस्ते')
+        assert '{' not in out
+        assert '\\an8' not in out
+        assert 'namaste' in out.lower()
+
+    def test_devanagari_numerals_converted(self):
+        """Aksharamukha converts Devanagari digits (१२३) to ASCII (123)."""
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('hi')
+        out = r('१२३')
+        assert '123' in out
+
+
+# ---------------------------------------------------------------------------
+# Script detection
+# ---------------------------------------------------------------------------
+
+class TestIndicScriptDetection:
+    def test_devanagari_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("नमस्ते दुनिया") == "Devanagari"
+
+    def test_bengali_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("নমস্কার বিশ্ব") == "Bengali"
+
+    def test_tamil_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("வணக்கம் உலகம்") == "Tamil"
+
+    def test_telugu_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("నమస్కారం") == "Telugu"
+
+    def test_gujarati_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("નમસ્તે વિશ્વ") == "Gujarati"
+
+    def test_gurmukhi_script_detected(self):
+        from loom_core.language import _dominant_script
+        assert _dominant_script("ਸਤ ਸ੍ਰੀ ਅਕਾਲ") == "Gurmukhi"
+
+    def test_latin_majority_not_misdetected(self):
+        """Latin with minor Indic content should stay Latin (or None)."""
+        from loom_core.language import _dominant_script
+        assert _dominant_script(
+            "This is an English line with one नम character"
+        ) == "Latin"
+
+
+class TestIndicLanguageDetection:
+    """detect_language_from_text resolves each dominant Indic script to
+    the right BCP-47 primary subtag."""
+
+    def _detect(self, text):
+        from loom_core.language import detect_language_from_text
+        return detect_language_from_text(text)
+
+    def test_hindi(self):
+        assert self._detect("नमस्ते दुनिया। आप कैसे हैं?") == "hi"
+
+    def test_bengali(self):
+        assert self._detect("নমস্কার বিশ্ব। আপনি কেমন আছেন?") == "bn"
+
+    def test_tamil(self):
+        assert self._detect("வணக்கம் உலகம். நீங்கள் எப்படி இருக்கிறீர்கள்?") == "ta"
+
+    def test_telugu(self):
+        assert self._detect("నమస్కారం ప్రపంచం. మీరు ఎలా ఉన్నారు?") == "te"
+
+    def test_gujarati(self):
+        assert self._detect("નમસ્તે વિશ્વ. તમે કેમ છો?") == "gu"
+
+    def test_punjabi(self):
+        assert self._detect("ਸਤ ਸ੍ਰੀ ਅਕਾਲ ਦੁਨੀਆ। ਤੁਸੀਂ ਕਿਵੇਂ ਹੋ?") == "pa"
+
+
+# ---------------------------------------------------------------------------
+# Language config
+# ---------------------------------------------------------------------------
+
+class TestIndicLangConfig:
+    def test_hindi_config(self):
+        from loom_core.styles import get_lang_config
+        cfg = get_lang_config('hi')
+        assert cfg['romanize_func'] is not None
+        assert cfg['has_phonetic_layer'] is True
+        # R5-2 is block-only — no per-akshara annotation yet.
+        assert cfg['annotation_func'] is None
+        assert cfg['romanization_name'] == "IAST"
+        assert cfg['romanization_confidence'] == "moderate"
+        assert cfg['supports_ass_annotation'] is False, (
+            "Indic scripts use alphabetic rendering — PGS-only annotation "
+            "when R5-3 adds per-akshara."
+        )
+        assert cfg['default_font'] == "Noto Sans Devanagari"
+        assert cfg['rtl'] is False
+
+    def test_all_indic_configs_have_romanizer(self):
+        from loom_core.styles import get_lang_config
+        for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
+            cfg = get_lang_config(lang)
+            assert cfg['has_phonetic_layer'], (
+                f"{lang}: expected has_phonetic_layer=True"
+            )
+            assert cfg['romanization_name'] == "IAST"
+            # Block-only for R5-2.
+            assert cfg['annotation_func'] is None
+
+    def test_per_language_default_fonts(self):
+        from loom_core.styles import get_lang_config
+        expected = {
+            'hi': 'Noto Sans Devanagari',
+            'bn': 'Noto Sans Bengali',
+            'ta': 'Noto Sans Tamil',
+            'te': 'Noto Sans Telugu',
+            'gu': 'Noto Sans Gujarati',
+            'pa': 'Noto Sans Gurmukhi',
+        }
+        for lang, font in expected.items():
+            cfg = get_lang_config(lang)
+            assert cfg['default_font'] == font, (
+                f"{lang}: expected {font!r}, got {cfg['default_font']!r}"
+            )
+
+    def test_annotation_system_name_is_transliteration(self):
+        from loom_core.styles import get_lang_config
+        for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
+            cfg = get_lang_config(lang)
+            assert cfg['annotation_system_name'] == "Transliteration"

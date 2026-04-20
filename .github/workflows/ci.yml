@@ -1,10 +1,10 @@
 name: CI
 
-# Phase 1: Ubuntu-only matrix.  Matrix structure is in place so phase 2
-# (add macos-latest) and phase 3 (add windows-latest) are one-line changes.
-# Rationale: prove the pytest invocation + Playwright install + font
-# validator all work in a fresh CI environment before taking on the
-# macOS/Windows platform quirks.
+# Phase 2: Ubuntu + macOS matrix.  Phase 3 will add windows-latest.
+# Phase 1 (Ubuntu-only) passed cleanly; this expansion starts
+# exercising the cross-platform story — Homebrew-installed binaries,
+# macOS fontconfig (a different version than Debian ships), Playwright
+# browser paths under ~/Library/Caches.
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false  # one OS failing shouldn't cancel the others
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest]
         python-version: ['3.10']
     runs-on: ${{ matrix.os }}
 

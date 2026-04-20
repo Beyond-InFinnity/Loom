@@ -1556,6 +1556,140 @@ def _make_devanagari_annotation_func():
     return _make_brahmic_annotation_func("hi")
 
 
+# ---------------------------------------------------------------------------
+# R5-4 phase (a): Modern Hebrew block romanization
+# ---------------------------------------------------------------------------
+#
+# RTL rendering is deferred to phase (b) — this commit ships the
+# romanization layer only.  Hebrew is the R5-4 pilot (over Arabic)
+# because its rendering story is much simpler: no contextual shaping,
+# no cursive joining, well-tested bidi cooperation.
+#
+# Modern Hebrew subtitle text typically omits nikud (vowel diacritics).
+# Without nikud, correct vowels are inferable only from context, which
+# this module does not have — so the output is a *reading aid*, not a
+# phonetic reference.  Documented tradeoffs:
+#
+#   * Begadkefat letters (ב כ פ) default to their soft/spirantized form
+#     (v / kh / f) because Modern Hebrew subtitle text has no dagesh
+#     mark to distinguish hard from soft.  A nikud-aware mode could do
+#     better; punted.
+#   * Vowel letters ו (vav) and י (yod) are treated as consonants when
+#     they appear word-initially or after another vowel-letter, and as
+#     vowels (o / i respectively) after a consonant.  This is the
+#     simplest mater-lectionis rule that gets common words right
+#     (שלום → shalom, עולם → olam, תודה → todah).
+#   * A default "a" is inserted between consecutive consonants, since
+#     "a" is the most common Modern Hebrew vowel in unpointed text.
+#     This is wrong in many cases — "חברים" (chaverim) comes out as
+#     "chavarim" — but produces recognizable output for common words.
+#   * Silent letters (א ʔ, ע ʿ) map to empty string; a linguist would
+#     use ʾ/ʿ but those don't read naturally to anglophone learners.
+#   * Cantillation (te'amim) and nikud (U+0591-U+05C7) are stripped
+#     before transliteration.  Everything outside the Hebrew block
+#     passes through unchanged.
+
+# Hebrew consonantal transliteration table.  Soft/spirantized defaults
+# for begadkefat (ב=v, כ=kh, פ=f); silent letters א and ע map to "".
+# Final-form letters (ם ן ף ץ ך) share the transliteration of their
+# base form (Hebrew's final forms are graphical, not phonemic).
+_HEBREW_CONSONANTS = {
+    "א": "",    "ב": "v",   "ג": "g",   "ד": "d",   "ה": "h",
+    "ז": "z",   "ח": "ch",  "ט": "t",   "כ": "kh",  "ך": "kh",
+    "ל": "l",   "מ": "m",   "ם": "m",   "נ": "n",   "ן": "n",
+    "ס": "s",   "ע": "",    "פ": "f",   "ף": "f",   "צ": "tz",
+    "ץ": "tz",  "ק": "k",   "ר": "r",   "ש": "sh",  "ת": "t",
+}
+
+# Nikud (vowel points U+05B0-U+05BC, U+05C1-U+05C2, U+05C7) + cantillation
+# marks (te'amim U+0591-U+05AF, U+05BD, U+05BF, U+05C0, U+05C3-U+05C6).
+# The range U+0591-U+05C7 covers everything combining in the Hebrew block.
+# Modern subtitles rarely carry these; strip before transliteration.
+_HEBREW_COMBINING_RE = re.compile(r"[\u0591-\u05C7]")
+
+
+def _hebrew_classify_letter(ch: str, prev_kind: str) -> tuple[str, str]:
+    """Return ``(kind, output)`` for a Hebrew letter.
+
+    ``kind`` is ``'cons'`` for consonants (including silent א / ע),
+    ``'vowel'`` for ו / י acting as mater lectionis, or ``'other'`` for
+    a character outside the Hebrew consonant set.
+
+    Mater lectionis rule: ו / י are **consonantal** at word-start and
+    after another vowel-letter (prev_kind != 'cons'), and **vocalic**
+    (o / i) after a consonant.
+    """
+    if ch == "ו":
+        return ("vowel", "o") if prev_kind == "cons" else ("cons", "v")
+    if ch == "י":
+        return ("vowel", "i") if prev_kind == "cons" else ("cons", "y")
+    if ch in _HEBREW_CONSONANTS:
+        return ("cons", _HEBREW_CONSONANTS[ch])
+    return ("other", ch)
+
+
+def _hebrew_romanize_word(letters: str) -> str:
+    """Romanize a contiguous run of Hebrew letters.
+
+    Applies mater lectionis classification, then a second pass that
+    inserts a default 'a' between consecutive consonants (simulating
+    Hebrew's most common unpointed vowel).  Operates on pre-stripped
+    input — callers must remove nikud and split on non-Hebrew chars.
+    """
+    if not letters:
+        return ""
+    tokens: list[tuple[str, str]] = []
+    prev_kind = "start"
+    for ch in letters:
+        kind, val = _hebrew_classify_letter(ch, prev_kind)
+        tokens.append((kind, val))
+        prev_kind = kind
+
+    out: list[str] = []
+    for i, (kind, val) in enumerate(tokens):
+        out.append(val)
+        if kind == "cons":
+            next_kind = tokens[i + 1][0] if i + 1 < len(tokens) else None
+            if next_kind == "cons":
+                out.append("a")
+    return "".join(out)
+
+
+def _make_hebrew_romanizer():
+    """Return a Modern Hebrew block romanizer.
+
+    Segments input into Hebrew-letter runs and non-Hebrew passthrough
+    runs; romanizes each Hebrew run with ``_hebrew_romanize_word``.
+    Output flows through ``_polish_romaji(capitalize=True)`` for
+    sentence-initial caps + punctuation normalization.
+    """
+    def _is_hebrew_letter(ch: str) -> bool:
+        return ch in _HEBREW_CONSONANTS or ch in "וי"
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ""
+        clean = _strip_ass(text)
+        clean = _HEBREW_COMBINING_RE.sub("", clean)
+
+        out: list[str] = []
+        buf = ""
+        for ch in clean:
+            if _is_hebrew_letter(ch):
+                buf += ch
+            else:
+                if buf:
+                    out.append(_hebrew_romanize_word(buf))
+                    buf = ""
+                out.append(ch)
+        if buf:
+            out.append(_hebrew_romanize_word(buf))
+
+        return _polish_romaji("".join(out), capitalize=True)
+
+    return romanize
+
+
 def _thai_tokenize(text: str) -> list:
     """Hybrid Thai tokenizer: word boundaries + syllable split for compounds.
 
@@ -2152,6 +2286,11 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     if primary in _INDIC_SCRIPTS:
         return _make_indic_romanizer(primary)
 
-    # Chunk R5-4 — Arabic/Persian/Urdu ─────────────────────────────── TODO
+    # Chunk R5-4 phase (a) — Modern Hebrew block romanization ──────── ✅
+    if primary == "he":
+        return _make_hebrew_romanizer()
+
+    # Chunk R5-4 phase (b) — RTL rendering for he/ar/fa/ur ──────────── TODO
+    # Chunk R5-4 remaining — Arabic/Persian/Urdu block romanization ── TODO
 
     return None

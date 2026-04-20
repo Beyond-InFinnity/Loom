@@ -82,6 +82,7 @@ _ROMANIZATION_META = {
     "te": ("IAST",                          "moderate"),
     "gu": ("IAST",                          "moderate"),
     "pa": ("IAST",                          "moderate"),
+    "he": ("Hebrew transliteration",        "moderate"),
     "ar": ("Romanization (experimental)",   "low"),
     "fa": ("Romanization (experimental)",   "low"),
     "ur": ("Romanization (experimental)",   "low"),
@@ -234,6 +235,8 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
     if primary == "th":
         return "Romanization"
     if primary in ("hi", "bn", "ta", "te", "gu", "pa"):
+        return "Transliteration"
+    if primary == "he":
         return "Transliteration"
     return "Annotation"
 

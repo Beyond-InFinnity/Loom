@@ -107,6 +107,7 @@ def _dominant_script(text):
     counts = {"CJK": 0, "Hangul": 0, "Kana": 0, "Cyrillic": 0,
               "Thai": 0, "Devanagari": 0, "Bengali": 0, "Tamil": 0,
               "Telugu": 0, "Gujarati": 0, "Gurmukhi": 0,
+              "Hebrew": 0,
               "Latin": 0, "Other": 0}
 
     for char in text:
@@ -135,6 +136,8 @@ def _dominant_script(text):
             counts["Gujarati"] += 1
         elif "GURMUKHI" in name:
             counts["Gurmukhi"] += 1
+        elif "HEBREW" in name:
+            counts["Hebrew"] += 1
         elif "LATIN" in name:
             counts["Latin"] += 1
         else:
@@ -354,6 +357,12 @@ def detect_language_from_text(text_sample, metadata_lang=None, track_title=None)
         }
         if script in _INDIC_SCRIPT_TO_CODE:
             return _INDIC_SCRIPT_TO_CODE[script]
+
+        # R5-4 phase (a): Hebrew (he).  Yiddish disambiguation by unique
+        # digraphs (װ ױ ײ) is deferred — when yi becomes scope we'll
+        # add a script-chars override similar to the Cyrillic path.
+        if script == "Hebrew":
+            return "he"
 
         if metadata_lang:
             meta_code = _normalize_metadata_lang(metadata_lang)

@@ -1,0 +1,99 @@
+name: CI
+
+# Phase 1: Ubuntu-only matrix.  Matrix structure is in place so phase 2
+# (add macos-latest) and phase 3 (add windows-latest) are one-line changes.
+# Rationale: prove the pytest invocation + Playwright install + font
+# validator all work in a fresh CI environment before taking on the
+# macOS/Windows platform quirks.
+
+on:
+  push:
+    branches: [main, monorepo-restructure]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false  # one OS failing shouldn't cancel the others
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.10']
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # ─── Platform-specific binary deps ─────────────────────────────────
+      - name: System deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ffmpeg fontconfig tesseract-ocr \
+            fonts-noto-core fonts-noto-extra \
+            fonts-noto-cjk fonts-noto-cjk-extra
+
+      - name: System deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg tesseract fontconfig
+          brew install --cask font-noto-sans-cjk || true
+
+      - name: System deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y ffmpeg tesseract
+          # Intentionally NOT installing fontconfig — we want fc-match
+          # absent on Windows CI to exercise the "fontconfig unavailable"
+          # graceful-degradation path in loom_core/fonts.py.
+
+      # ─── Python deps ───────────────────────────────────────────────────
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # ─── Playwright + Chromium (cached — ~150MB per platform) ──────────
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      # ─── Run the suite ─────────────────────────────────────────────────
+      - name: pytest
+        run: pytest tests/ -v --tb=short
+
+      # ─── Font-validator observability ──────────────────────────────────
+      # Prints validate_font() output for a handful of languages.  Runs
+      # even on test failure so the CI log always shows cross-platform
+      # font coverage differences at a glance — critical for the R6b /
+      # 3c bundling decision.
+      - name: Font-validator self-check
+        if: always()
+        shell: python
+        run: |
+          from loom_core.fonts import validate_font
+          import json
+          for lang, font in [('ja', 'Noto Sans CJK JP'),
+                             ('ar', 'Noto Naskh Arabic'),
+                             ('he', 'Noto Sans Hebrew'),
+                             ('ta', 'Noto Sans Tamil'),
+                             ('hi', 'Noto Sans Devanagari'),
+                             ('ur', 'Noto Nastaliq Urdu')]:
+              r = validate_font(font, lang_code=lang)
+              print(f"{lang:4s} {font:30s} {json.dumps(r.__dict__, default=str)}")

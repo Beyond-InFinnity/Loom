@@ -141,6 +141,10 @@ def render_preview(
         preview_mode=req.preview_mode,
         annotation_render_mode=annotation_render_mode,
         preserved_html=preserved_html,
+        # Top: lang-config-driven (authoritative for the target lang).
+        # Bottom: unspecified → generate_unified_preview infers from
+        # native_text content via is_rtl_text.
+        top_rtl=bool(lang_cfg.get("rtl", False)),
     )
 
     return PreviewResponse(

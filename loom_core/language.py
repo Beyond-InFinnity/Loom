@@ -90,6 +90,43 @@ def _normalize_metadata_lang(metadata_lang: str) -> str | None:
         return None
 
 
+def is_rtl_text(text: str, threshold: float = 0.4) -> bool:
+    """Return True when *text* is dominantly right-to-left.
+
+    Scans for characters in the main RTL Unicode blocks (Hebrew, Arabic
+    and extensions, Syriac, NKo, Samaritan, and the Hebrew/Arabic
+    presentation forms).  Returns True when those characters exceed
+    *threshold* (default 0.4) of the non-whitespace non-digit character
+    count.
+
+    Used by the renderer to set ``dir="rtl"`` + ``unicode-bidi: isolate``
+    on subtitle layers whose content is primarily RTL.  A content-based
+    check (not a lang-code check) handles the Bottom layer without
+    needing the caller to thread a native-lang tag through every API
+    — the heuristic produces the right answer for any text.
+    """
+    if not text:
+        return False
+    rtl = 0
+    total = 0
+    for ch in text:
+        if ch.isspace() or ch.isdigit():
+            continue
+        total += 1
+        cp = ord(ch)
+        if (0x0590 <= cp <= 0x05FF          # Hebrew + Yiddish digraphs
+                or 0x0600 <= cp <= 0x06FF   # Arabic
+                or 0x0700 <= cp <= 0x074F   # Syriac
+                or 0x0750 <= cp <= 0x077F   # Arabic Supplement
+                or 0x07C0 <= cp <= 0x07FF   # NKo
+                or 0x0800 <= cp <= 0x083F   # Samaritan
+                or 0x08A0 <= cp <= 0x08FF   # Arabic Extended-A
+                or 0xFB1D <= cp <= 0xFDFF   # Hebrew + Arabic Presentation Forms-A
+                or 0xFE70 <= cp <= 0xFEFF): # Arabic Presentation Forms-B
+            rtl += 1
+    return total > 0 and rtl / total > threshold
+
+
 def _dominant_script(text):
     """
     Analyze Unicode script blocks to determine the dominant writing system.

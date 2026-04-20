@@ -351,7 +351,9 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
                              annotation_spans=None,
                              preview_mode="ass",
                              annotation_render_mode="ruby",
-                             preserved_html=""):
+                             preserved_html="",
+                             top_rtl=None,
+                             bottom_rtl=None):
     """Generates a full HTML document for a unified preview of all text tracks.
 
     Returns a complete <!DOCTYPE html> document so that height: 100% cascades
@@ -423,6 +425,16 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
         top_content = target_text
     texts = {"Bottom": native_text, "Top": top_content, "Romanized": pinyin_text}
 
+    # RTL direction per layer — explicit booleans win, otherwise infer from
+    # text content so callers that don't know the lang code still produce
+    # correct bidi.  Romanized is always LTR (Latin-script output).
+    from ..language import is_rtl_text as _is_rtl_text
+    if top_rtl is None:
+        top_rtl = _is_rtl_text(target_text or "")
+    if bottom_rtl is None:
+        bottom_rtl = _is_rtl_text(native_text or "")
+    _layer_dir = {"Bottom": bottom_rtl, "Top": top_rtl, "Romanized": False}
+
     subtitle_overlays_html = []
 
     for name, config in styles.items():
@@ -476,9 +488,16 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
             f"font-style:{'italic' if config['italic'] else 'normal'};"
             f"color:rgba({pc.r},{pc.g},{pc.b},{(255-pc.a)/255.0});"
             f"background-color:rgba({bc.r},{bc.g},{bc.b},{back_alpha});"
-            f"padding:5px 10px;box-sizing:border-box;{text_shadow_css}"
+            f"padding:5px 10px;box-sizing:border-box;"
+            # unicode-bidi: isolate keeps each layer's direction independent —
+            # an RTL Top never flips a mixed-script Bottom into reverse.
+            f"unicode-bidi:isolate;"
+            f"{text_shadow_css}"
         )
-        subtitle_overlays_html.append(f'<div style="{style_str}">{text_content}</div>')
+        dir_attr = ' dir="rtl"' if _layer_dir.get(name) else ''
+        subtitle_overlays_html.append(
+            f'<div{dir_attr} style="{style_str}">{text_content}</div>'
+        )
     overlay_html_string = ''.join(subtitle_overlays_html)
 
     # Compute annotation (ruby <rt>) styling from Annotation config.

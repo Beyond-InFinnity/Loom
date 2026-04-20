@@ -1444,6 +1444,15 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
 
         _t_start = _time.monotonic()
 
+        # RTL plumbing: Top follows target lang config; Bottom is scanned
+        # for RTL content because we don't track a native_lang_code here.
+        # The content check handles any RTL user language (Hebrew native +
+        # Arabic target, etc.) without API changes.
+        from ..language import is_rtl_text as _is_rtl_text
+        top_rtl = bool(lang_cfg.get('rtl', False))
+        bottom_rtl = any(_is_rtl_text(t) for _, _, t in native_events) \
+            if bottom_enabled else False
+
         count = rasterize_pgs_to_file(
             pgs_events,
             styles=styles,
@@ -1454,6 +1463,8 @@ def generate_pgs_file(native_file, target_file, styles, target_lang_code,
             progress_callback=progress_callback,
             annotation_render_mode=ann_render_mode,
             debug_dump_dir=debug_dump_dir,
+            top_rtl=top_rtl,
+            bottom_rtl=bottom_rtl,
         )
 
         _t_end = _time.monotonic()

@@ -233,6 +233,186 @@ class TestHebrewScriptDetection:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# R5-4 phase (b) — RTL rendering plumbing (no full Playwright rasterize here,
+# that's covered by the visual-verification script — this locks in the
+# structural contract of the generated HTML).
+# ---------------------------------------------------------------------------
+
+
+class TestIsRtlText:
+    def test_hebrew_true(self):
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("שלום עולם") is True
+
+    def test_arabic_true(self):
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("مرحبا بالعالم") is True
+
+    def test_english_false(self):
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("Hello world") is False
+
+    def test_mixed_dominant_hebrew(self):
+        """Line is mostly Hebrew with a couple of English loanwords →
+        still RTL at the paragraph level."""
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("אני גר ב Tel Aviv כל חיי") is True
+
+    def test_mixed_dominant_english(self):
+        """A few Hebrew chars inside an English sentence → not dominant."""
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("The word שלום means peace") is False
+
+    def test_empty(self):
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("") is False
+
+    def test_whitespace_and_punct_ignored(self):
+        """Non-letter characters don't affect the dominance calculation."""
+        from loom_core.language import is_rtl_text
+        assert is_rtl_text("   שלום.   ") is True
+
+
+class TestPgsRasterizeRtlPlumbing:
+    """Structural tests of the generated HTML template.  Actual pixel
+    verification happens via the ad-hoc Playwright script — these just
+    lock in that the flag lands in the template."""
+
+    def _styles(self):
+        import pysubs2
+        return {
+            'Bottom':    {'fontname': 'Noto Sans', 'fontsize': 48, 'marginv': 40,
+                          'bold': False, 'italic': False,
+                          'primarycolor': pysubs2.Color(255,255,255,0),
+                          'outlinecolor': pysubs2.Color(0,0,0,0),
+                          'outline': 3.0, 'outline_none': False,
+                          'shadow_none': True, 'glow_none': True},
+            'Top':       {'fontname': 'Noto Sans Hebrew', 'fontsize': 52, 'marginv': 90,
+                          'bold': False, 'italic': False,
+                          'primarycolor': pysubs2.Color(255,255,0,0),
+                          'outlinecolor': pysubs2.Color(0,0,0,0),
+                          'outline': 2.5, 'outline_none': False,
+                          'shadow_none': True, 'glow_none': True},
+            'Romanized': {'fontname': 'Noto Sans', 'fontsize': 30, 'marginv': 10,
+                          'bold': False, 'italic': False,
+                          'primarycolor': pysubs2.Color(200,200,200,0),
+                          'outlinecolor': pysubs2.Color(0,0,0,0),
+                          'outline': 1.5, 'outline_none': False,
+                          'shadow_none': True, 'glow_none': True},
+            'Annotation': {'fontname': 'Noto Sans', 'fontsize': 22,
+                           'bold': False, 'italic': False,
+                           'primarycolor': pysubs2.Color(255,255,255,0),
+                           'outlinecolor': pysubs2.Color(0,0,0,0),
+                           'outline': 1.0, 'outline_none': True,
+                           'shadow_none': True, 'glow_none': True},
+        }
+
+    def test_top_rtl_sets_attr(self):
+        from loom_core.rasterize.pgs import _build_fullframe_html
+        html = _build_fullframe_html(self._styles(), 1920, 1080, 1.0, top_rtl=True)
+        assert 'id="top" class="layer" dir="rtl"' in html
+        assert 'id="bottom" class="layer" dir="rtl"' not in html
+
+    def test_bottom_rtl_sets_attr(self):
+        from loom_core.rasterize.pgs import _build_fullframe_html
+        html = _build_fullframe_html(self._styles(), 1920, 1080, 1.0, bottom_rtl=True)
+        assert 'id="bottom" class="layer" dir="rtl"' in html
+        assert 'id="top" class="layer" dir="rtl"' not in html
+
+    def test_no_rtl_by_default(self):
+        from loom_core.rasterize.pgs import _build_fullframe_html
+        html = _build_fullframe_html(self._styles(), 1920, 1080, 1.0)
+        assert 'dir="rtl"' not in html
+
+    def test_romanized_never_rtl(self):
+        """Romanized is always Latin-script — no exposed flag, never gets
+        dir="rtl", even when both other layers are RTL."""
+        from loom_core.rasterize.pgs import _build_fullframe_html
+        html = _build_fullframe_html(self._styles(), 1920, 1080, 1.0,
+                                      top_rtl=True, bottom_rtl=True)
+        assert 'id="romaji" class="layer" dir="rtl"' not in html
+
+    def test_unicode_bidi_isolate_always_present(self):
+        """Every .layer gets unicode-bidi: isolate regardless of rtl flags
+        — prevents directionality leaking between layers."""
+        from loom_core.rasterize.pgs import _build_fullframe_html
+        html = _build_fullframe_html(self._styles(), 1920, 1080, 1.0)
+        assert 'unicode-bidi: isolate' in html
+
+
+class TestPreviewRtlPlumbing:
+    """generate_unified_preview threads rtl flags into per-layer divs."""
+
+    def _min_styles(self):
+        import pysubs2
+        def _layer(marginv, size):
+            return {
+                'enabled': True, 'fontname': 'Noto Sans',
+                'fontsize': size, 'marginv': marginv,
+                'bold': False, 'italic': False,
+                'primarycolor': pysubs2.Color(255,255,255,0),
+                'outlinecolor': pysubs2.Color(0,0,0,0),
+                'backcolor': pysubs2.Color(0,0,0,255),
+                'outline': 2.0, 'outline_none': False,
+                'shadow_none': True, 'back_none': True, 'glow_none': True,
+            }
+        return {
+            'Bottom':     _layer(40, 48),
+            'Top':        _layer(90, 52),
+            'Romanized':  _layer(10, 30),
+            'Annotation': {**_layer(0, 22), 'enabled': False},
+            'vertical_offset': 0, 'romanized_gap': 0, 'annotation_gap': 2,
+        }
+
+    def test_explicit_top_rtl_wins_over_content(self):
+        """When a caller passes top_rtl=True explicitly, the output
+        reflects that even if the text looks LTR."""
+        from loom_core.subs.preview import generate_unified_preview
+        html = generate_unified_preview(
+            styles=self._min_styles(),
+            native_text="Hello",
+            target_text="ENGLISH",  # no RTL chars
+            pinyin_text="",
+            top_rtl=True,
+        )
+        # There's a div for Top with dir="rtl" somewhere in the overlay
+        # HTML — substring check is sufficient.
+        assert 'dir="rtl"' in html
+
+    def test_inferred_from_hebrew_content(self):
+        """No explicit flag → content heuristic picks up Hebrew."""
+        from loom_core.subs.preview import generate_unified_preview
+        html = generate_unified_preview(
+            styles=self._min_styles(),
+            native_text="Hello",
+            target_text="שלום עולם",
+            pinyin_text="Shalom olam",
+        )
+        assert 'dir="rtl"' in html
+
+    def test_no_rtl_for_all_ltr(self):
+        from loom_core.subs.preview import generate_unified_preview
+        html = generate_unified_preview(
+            styles=self._min_styles(),
+            native_text="Hello",
+            target_text="Bonjour",
+            pinyin_text="",
+        )
+        assert 'dir="rtl"' not in html
+
+    def test_unicode_bidi_isolate_on_every_overlay(self):
+        from loom_core.subs.preview import generate_unified_preview
+        html = generate_unified_preview(
+            styles=self._min_styles(),
+            native_text="a",
+            target_text="b",
+            pinyin_text="c",
+        )
+        # At least 3 occurrences — one per enabled layer (Bottom/Top/Romanized).
+        assert html.count('unicode-bidi:isolate') >= 3
+
+
 class TestHebrewLangConfig:
     def test_hebrew_config(self):
         from loom_core.styles import get_lang_config

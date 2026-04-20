@@ -168,7 +168,9 @@ def _color_css(config: dict) -> str:
 
 def _build_fullframe_html(styles: dict, canvas_width: int,
                           canvas_height: int, scale: float,
-                          annotation_render_mode: str = 'ruby') -> str:
+                          annotation_render_mode: str = 'ruby',
+                          top_rtl: bool = False,
+                          bottom_rtl: bool = False) -> str:
     """Build the full-frame HTML page template for PGS rasterization.
 
     Creates a viewport-sized container with 3 absolutely-positioned divs
@@ -176,6 +178,16 @@ def _build_fullframe_html(styles: dict, canvas_width: int,
     Annotation ruby/interlinear/inline is rendered inline with the Top div's HTML.
 
     The divs start with empty innerHTML -- updated per-event via JS.
+
+    Parameters
+    ----------
+    top_rtl, bottom_rtl : bool
+        When True, the corresponding div gets ``dir="rtl"`` so Chromium's
+        bidi algorithm renders the injected text right-to-left.  The
+        ``unicode-bidi: isolate`` property on every ``.layer`` keeps each
+        layer's direction independent — an English Bottom won't flip when
+        the Top is Hebrew.  Romanized is always LTR (its output is
+        Latin-script) so no flag is exposed for it.
     """
     v_offset = styles.get('vertical_offset', 0)
     rom_gap = styles.get('romanized_gap', 0)
@@ -241,6 +253,11 @@ def _build_fullframe_html(styles: dict, canvas_width: int,
     zhuyin_css = "#top ruby { ruby-position: inter-character; }" if is_zhuyin else ""
     rt_translate = "" if is_zhuyin else f"transform: translateY(-{ann_gap * scale:.1f}px);"
 
+    # RTL attributes — set only on the layers whose target language is RTL.
+    # Chromium's bidi algorithm handles mixed content inside an RTL div.
+    top_dir_attr = ' dir="rtl"' if top_rtl else ''
+    bottom_dir_attr = ' dir="rtl"' if bottom_rtl else ''
+
     return f'''<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -258,6 +275,10 @@ html, body {{ background: transparent; overflow: hidden;
     white-space: pre-wrap;
     padding: 0 10px;
     box-sizing: border-box;
+    /* Per-layer bidi isolation — an RTL Top doesn't flip the Bottom, and
+       a mixed-script run inside one layer doesn't leak direction into
+       the others. */
+    unicode-bidi: isolate;
 }}
 #bottom {{ {bottom_css} }}
 #top {{ {top_css} }}
@@ -294,8 +315,8 @@ html, body {{ background: transparent; overflow: hidden;
 }}
 </style></head>
 <body><div class="frame">
-  <div id="bottom" class="layer"></div>
-  <div id="top" class="layer"></div>
+  <div id="bottom" class="layer"{bottom_dir_attr}></div>
+  <div id="top" class="layer"{top_dir_attr}></div>
   <div id="romaji" class="layer"></div>
   <div id="preserved" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div>
 </div></body></html>'''
@@ -309,6 +330,8 @@ def rasterize_pgs_frames(
     scale: float = 1.0,
     progress_callback=None,
     annotation_render_mode: str = 'ruby',
+    top_rtl: bool = False,
+    bottom_rtl: bool = False,
 ) -> list[DisplaySet]:
     """Render full-frame subtitle composites to transparent PNGs.
 
@@ -373,7 +396,8 @@ def rasterize_pgs_frames(
     )
 
     page_html = _build_fullframe_html(styles, render_width, render_height, render_scale,
-                                       annotation_render_mode=annotation_render_mode)
+                                       annotation_render_mode=annotation_render_mode,
+                                       top_rtl=top_rtl, bottom_rtl=bottom_rtl)
 
     total = len(events)
     results = [None] * total
@@ -577,6 +601,8 @@ def rasterize_pgs_to_file(
     num_workers: int = 1,
     debug_dump_dir: str | None = None,
     debug_dump_frames: int = 20,
+    top_rtl: bool = False,
+    bottom_rtl: bool = False,
 ) -> int:
     """Render PGS frames and write to .sup file incrementally.
 
@@ -662,7 +688,8 @@ def rasterize_pgs_to_file(
     _wall_start = _time.monotonic()
 
     page_html = _build_fullframe_html(styles, render_width, render_height, render_scale,
-                                       annotation_render_mode=annotation_render_mode)
+                                       annotation_render_mode=annotation_render_mode,
+                                       top_rtl=top_rtl, bottom_rtl=bottom_rtl)
 
     # ── Debug dump setup ──────────────────────────────────────────────
     # Also check env var as fallback: PGS_DEBUG_DUMP=/path/to/dir

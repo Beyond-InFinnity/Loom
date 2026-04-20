@@ -60,6 +60,7 @@ Priority order for the hiragana reading of each kanji token:
   3. MeCab morpheme reading — generated fallback for unannotated kanji tokens.
 """
 
+import functools
 import re
 
 # Matches ASS override tag blocks: {...}
@@ -1281,20 +1282,54 @@ def _paiboon_remap_vowels(rom: str) -> str:
     return rom
 
 
-def _detect_thai_ipa_engine() -> str:
-    """Detect the best available IPA-like engine in pythainlp.
+def _compact_thaig2p(raw: str) -> str:
+    """Compact pythainlp's ``thaig2p`` transliterate output.
 
-    Tries ``'ipa'`` first, then ``'thai2rom'`` (neural, phonetic).
-    Falls back to ``'royin'`` if neither is available.
+    ``thaig2p`` emits phonemes space-separated and syllables dot-separated
+    with IPA tone contour marks, e.g.::
+
+        's a ˧ . w a t̚ ˨˩ . d iː ˧'
+
+    We want a compact, readable form::
+
+        'sa˧.wat̚˨˩.diː˧'
+
+    Loanwords may produce empty tone slots (``'t͡ɕ ɔː  . d ɔː ˧'``) — those
+    just drop out cleanly since we strip whitespace per syllable and
+    filter empty segments.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
-    for engine in ('ipa', 'thai2rom'):
-        try:
-            if _thai_romanize('\u0e01', engine=engine):
-                return engine
-        except Exception:
-            continue
-    return 'royin'
+    if not raw:
+        return raw
+    syllables = [''.join(s.split()) for s in raw.split('.')]
+    return '.'.join(s for s in syllables if s)
+
+
+# Probed lazily on first use and cached — both functions below read it
+# via the lru_cache. ``thaig2p`` is pythainlp's real Thai→IPA engine
+# (neural g2p with tone contours). It needs a one-time ~12MB corpus
+# download on first use; if that fails or the engine is otherwise
+# unavailable we fall back to ``thai2rom`` (RTGS-ish, no tones — still
+# a legible transliteration).
+@functools.lru_cache(maxsize=1)
+def _detect_thai_ipa_engine() -> tuple[str, str]:
+    """Return ``(function_name, engine_name)``: either
+    ``('transliterate', 'thaig2p')`` for real IPA, or
+    ``('romanize', 'thai2rom')`` as a degraded-but-legible fallback.
+
+    The previous implementation probed ``romanize(engine='ipa')`` which
+    accepts the name but silently falls back to the broken ``royin``
+    engine — it mangles consonant clusters (ครับ → ``'khnap'`` instead of
+    ``'kʰrap̚˦˥'``). This is why Thai IPA output was worthless before.
+    """
+    try:
+        from pythainlp.transliterate import transliterate as _translit
+        # Triggers the one-time corpus download on fresh installs.
+        out = _translit('\u0e01', engine='thaig2p')
+        if out and out.strip():
+            return ('transliterate', 'thaig2p')
+    except Exception:
+        pass
+    return ('romanize', 'thai2rom')
 
 
 def _make_thai_romanizer():
@@ -1453,15 +1488,28 @@ def _make_thai_paiboon_annotation_func():
     return get_spans
 
 
+def _thai_ipa_call(token: str) -> str:
+    """Transliterate a single Thai token to compact IPA, using the
+    detected best-available engine. Empty/whitespace tokens return ''.
+    """
+    func_name, engine = _detect_thai_ipa_engine()
+    if func_name == 'transliterate':
+        from pythainlp.transliterate import transliterate as _translit
+        raw = _translit(token, engine=engine)
+        return _compact_thaig2p(raw) if raw else ''
+    # Fallback: thai2rom via romanize — loses tones but consonants right.
+    from pythainlp.transliterate import romanize as _thai_romanize
+    return _thai_romanize(token, engine=engine) or ''
+
+
 def _make_thai_ipa_romanizer():
     """Return a Thai IPA romanizer.
 
-    Attempts pythainlp ``'ipa'`` engine; falls back to ``'thai2rom'``
-    (neural, phonetic) or ``'royin'`` if neither is available.
+    Uses pythainlp's ``thaig2p`` (neural grapheme-to-phoneme) engine via
+    ``transliterate()`` — emits real IPA with tone contour marks
+    (˥˦˧˨˩). Falls back to ``thai2rom`` (RTGS-ish, no tones) when
+    ``thaig2p`` is unavailable.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
-    _engine = _detect_thai_ipa_engine()
-
     def romanize(text: str) -> str:
         if not text:
             return ''
@@ -1470,7 +1518,9 @@ def _make_thai_ipa_romanizer():
         parts = []
         for token in tokens:
             if _has_thai(token):
-                parts.append(_thai_romanize(token, engine=_engine))
+                ipa = _thai_ipa_call(token)
+                if ipa:
+                    parts.append(ipa)
             elif token.strip():
                 parts.append(token)
         return ' '.join(p for p in parts if p.strip())
@@ -1480,9 +1530,6 @@ def _make_thai_ipa_romanizer():
 
 def _make_thai_ipa_annotation_func():
     """Return a Thai IPA per-token annotation span producer."""
-    from pythainlp.transliterate import romanize as _thai_romanize
-    _engine = _detect_thai_ipa_engine()
-
     def get_spans(text: str) -> list:
         if not text:
             return []
@@ -1493,8 +1540,8 @@ def _make_thai_ipa_annotation_func():
             if not token.strip():
                 spans.append((token, None))
             elif _has_thai(token):
-                rom = _thai_romanize(token, engine=_engine)
-                spans.append((token, rom if rom else None))
+                ipa = _thai_ipa_call(token)
+                spans.append((token, ipa if ipa else None))
             else:
                 spans.append((token, None))
         return spans

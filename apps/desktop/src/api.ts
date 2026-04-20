@@ -40,9 +40,18 @@ export type TrackInfo = {
   track_title: string | null;
 };
 
+export type AudioTrackInfo = {
+  audio_index: number;
+  codec: string | null;
+  channels: number | null;
+  lang_code: string | null;
+  title: string | null;
+};
+
 export type ScanResponse = {
   metadata: VideoMetadata;
   tracks: TrackInfo[];
+  audio_tracks: AudioTrackInfo[];
 };
 
 export async function probeHealth(): Promise<HealthInfo> {
@@ -211,6 +220,33 @@ export async function generatePgs(req: GeneratePgsRequest): Promise<JobAccepted>
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`/generate/pgs → HTTP ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
+
+export type SuggestFilenameRequest = {
+  ext: string;
+  video_file_id?: string;
+  native_lang_code?: string;
+  target_lang_code?: string;
+  phonetic_system?: string;
+  include_annotations?: boolean;
+  include_romanization?: boolean;
+};
+
+export type SuggestFilenameResponse = { filename: string };
+
+export async function suggestFilename(
+  req: SuggestFilenameRequest,
+): Promise<SuggestFilenameResponse> {
+  const res = await fetch(`${API_BASE}/generate/suggest-filename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`/generate/suggest-filename → HTTP ${res.status}: ${detail}`);
   }
   return res.json();
 }

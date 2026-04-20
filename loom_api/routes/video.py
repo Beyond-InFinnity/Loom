@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from loom_core.models import TrackInfo, VideoMetadata
+from loom_core.models import AudioTrackInfo, TrackInfo, VideoMetadata
 from loom_core.video.mkv_handler import get_video_metadata, scan_and_extract_tracks
 
 from ..deps import get_storage
@@ -20,6 +20,7 @@ class ScanRequest(BaseModel):
 class ScanResponse(BaseModel):
     metadata: VideoMetadata
     tracks: List[TrackInfo]
+    audio_tracks: List[AudioTrackInfo] = []
 
 
 @router.post("/scan", response_model=ScanResponse)
@@ -50,6 +51,25 @@ def scan_video(
 
     raw_tracks = scan_and_extract_tracks(str(video_path), str(storage._base), probe_data=probe_data)
 
+    # Extract audio streams for the mux-UI's default-audio selector.
+    # audio_index is the 0-based index among audio streams (what ffmpeg's
+    # -disposition:a:N expects), not the global stream index.
+    audio_tracks: List[AudioTrackInfo] = []
+    for s in (probe_data or {}).get("streams", []):
+        if s.get("codec_type") != "audio":
+            continue
+        tags = s.get("tags", {}) or {}
+        channels = s.get("channels")
+        audio_tracks.append(
+            AudioTrackInfo(
+                audio_index=len(audio_tracks),
+                codec=s.get("codec_name"),
+                channels=int(channels) if channels not in (None, "?") else None,
+                lang_code=tags.get("language"),
+                title=tags.get("title"),
+            )
+        )
+
     tracks: List[TrackInfo] = []
     for t in raw_tracks:
         file_id = None
@@ -70,4 +90,4 @@ def scan_video(
             )
         )
 
-    return ScanResponse(metadata=metadata, tracks=tracks)
+    return ScanResponse(metadata=metadata, tracks=tracks, audio_tracks=audio_tracks)

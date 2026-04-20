@@ -8,6 +8,7 @@ import {
   getJob,
   JobStatus,
   Resolution,
+  suggestFilename,
   TimingOffsets,
 } from "./api";
 import { StyleConfig } from "./styles";
@@ -58,6 +59,8 @@ type Props = {
   nativeFileId: string;
   targetFileId: string;
   targetLang: string;
+  nativeLang?: string;
+  videoFileId?: string;
   styles: StyleConfig;
   offsets?: TimingOffsets;
   sourceResolution?: Resolution;
@@ -65,7 +68,8 @@ type Props = {
 };
 
 export function GenerateSection({
-  nativeFileId, targetFileId, targetLang, styles, offsets, sourceResolution, onResult,
+  nativeFileId, targetFileId, targetLang, nativeLang, videoFileId,
+  styles, offsets, sourceResolution, onResult,
 }: Props) {
   const [format, setFormat] = useState<Format>("ass");
   const [includeAnnotations, setIncludeAnnotations] = useState(false);
@@ -182,9 +186,29 @@ export function GenerateSection({
     await Promise.all(tasks);
   }
 
+  async function buildDefaultName(ext: string): Promise<string> {
+    try {
+      const r = await suggestFilename({
+        ext,
+        video_file_id: videoFileId,
+        native_lang_code: nativeLang,
+        target_lang_code: targetLang,
+        phonetic_system: styles.annotation.phonetic_system ?? undefined,
+        include_annotations:
+          ext === "ass" ? includeAnnotations : styles.annotation.enabled,
+        include_romanization: styles.romanized.enabled,
+      });
+      return r.filename;
+    } catch {
+      // Non-fatal: fall back to a plain name so the Save dialog still opens.
+      return `subtitles.${ext}`;
+    }
+  }
+
   async function saveBytes(
-    fileId: string, defaultName: string, extLabel: string, ext: string,
+    fileId: string, ext: string, extLabel: string,
   ): Promise<string | null> {
+    const defaultName = await buildDefaultName(ext);
     const path = await save({
       defaultPath: defaultName,
       filters: [{ name: extLabel, extensions: [ext] }],
@@ -259,13 +283,13 @@ export function GenerateSection({
       {(format === "ass" || format === "both") && (
         <AssRow
           state={assState}
-          onSave={(id) => saveBytes(id, "subtitles.ass", "ASS subtitles", "ass")}
+          onSave={(id) => saveBytes(id, "ass", "ASS subtitles")}
         />
       )}
       {(format === "pgs" || format === "both") && (
         <PgsRow
           state={pgsState}
-          onSave={(id) => saveBytes(id, "subtitles.sup", "PGS subtitles", "sup")}
+          onSave={(id) => saveBytes(id, "sup", "PGS subtitles")}
         />
       )}
     </section>

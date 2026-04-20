@@ -521,6 +521,8 @@ function App() {
           nativeFileId={slots.native.id}
           targetFileId={slots.target.id}
           targetLang={slots.target.lang_code ?? ""}
+          nativeLang={slots.native.lang_code}
+          videoFileId={slots.video?.id}
           styles={styles}
           offsets={timingOffsets}
           sourceResolution={
@@ -542,6 +544,7 @@ function App() {
           nativeLang={slots.native?.lang_code}
           phoneticSystem={styles.annotation.phonetic_system ?? undefined}
           annotationEnabled={styles.annotation.enabled}
+          audioTracks={scan.kind === "ok" ? scan.data.audio_tracks : undefined}
         />
       )}
 

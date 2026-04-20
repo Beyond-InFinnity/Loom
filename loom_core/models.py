@@ -238,6 +238,22 @@ class TrackInfo(BaseModel):
     track_title: Optional[str] = None
 
 
+class AudioTrackInfo(BaseModel):
+    """One audio track from the scanned video, surfaced for the mux UI's
+    "default audio" selector.
+
+    ``audio_index`` is the 0-based index *among audio streams only* —
+    this is what ffmpeg's ``-disposition:a:N`` expects, and what
+    ``mkv_handler.merge_subs_to_mkv(default_audio_index=...)`` consumes.
+    """
+
+    audio_index: int
+    codec: Optional[str] = None
+    channels: Optional[int] = None
+    lang_code: Optional[str] = None
+    title: Optional[str] = None
+
+
 class VideoMetadata(BaseModel):
     title: Optional[str] = None
     year: Optional[int] = None

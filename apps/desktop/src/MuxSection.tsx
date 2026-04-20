@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { getJob, JobStatus, muxVideo } from "./api";
+import { AudioTrackInfo, getJob, JobStatus, muxVideo } from "./api";
 
 type MuxState =
   | { kind: "idle" }
@@ -17,6 +17,7 @@ type Props = {
   nativeLang?: string;
   phoneticSystem?: string;
   annotationEnabled: boolean;
+  audioTracks?: AudioTrackInfo[];
 };
 
 const POLL_INTERVAL_MS = 500;
@@ -26,17 +27,45 @@ function defaultOutputName(videoName: string): string {
   return `${base}_stitched.mkv`;
 }
 
+// Auto-pick the audio track whose language primary-subtag matches the
+// target (foreign) language. Falls back to "no change" when nothing
+// matches or the tracks list is empty. Undefined return ≡ leave the
+// source MKV's audio disposition untouched.
+function autoSelectAudioIndex(
+  tracks: AudioTrackInfo[] | undefined,
+  targetLang: string | undefined,
+): number | undefined {
+  if (!tracks || !tracks.length || !targetLang) return undefined;
+  const primary = (lc: string | null | undefined) =>
+    (lc || "").toLowerCase().split("-")[0].split("_")[0];
+  const tgt = primary(targetLang);
+  if (!tgt) return undefined;
+  for (const t of tracks) {
+    if (primary(t.lang_code) === tgt) return t.audio_index;
+  }
+  return undefined;
+}
+
 export function MuxSection({
   videoFileId, videoName, assFileId, pgsFileId, targetLang, nativeLang,
-  phoneticSystem, annotationEnabled,
+  phoneticSystem, annotationEnabled, audioTracks,
 }: Props) {
   const [includeAss, setIncludeAss] = useState<boolean>(!!assFileId);
   const [includePgs, setIncludePgs] = useState<boolean>(!!pgsFileId);
   const [keepSubs, setKeepSubs] = useState(true);
   const [keepAttachments, setKeepAttachments] = useState(true);
+  const [defaultAudio, setDefaultAudio] = useState<number | undefined>(() =>
+    autoSelectAudioIndex(audioTracks, targetLang),
+  );
   const [outputPath, setOutputPath] = useState<string>("");
   const [state, setState] = useState<MuxState>({ kind: "idle" });
   const pollTimer = useRef<number | null>(null);
+
+  // Re-run auto-select whenever the audio track list or target language
+  // changes (e.g. scanned a new video, or swapped the Top slot).
+  useEffect(() => {
+    setDefaultAudio(autoSelectAudioIndex(audioTracks, targetLang));
+  }, [audioTracks, targetLang]);
 
   useEffect(() => {
     return () => {
@@ -105,6 +134,7 @@ export function MuxSection({
         annotation_enabled: annotationEnabled,
         keep_existing_subs: keepSubs,
         keep_attachments: keepAttachments,
+        default_audio_index: defaultAudio,
       });
       pollMux(accepted.id);
     } catch (err) {
@@ -167,6 +197,8 @@ export function MuxSection({
         <AdvancedOptions
           keepSubs={keepSubs} setKeepSubs={setKeepSubs}
           keepAttachments={keepAttachments} setKeepAttachments={setKeepAttachments}
+          audioTracks={audioTracks}
+          defaultAudio={defaultAudio} setDefaultAudio={setDefaultAudio}
         />
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -204,9 +236,13 @@ export function MuxSection({
 
 function AdvancedOptions({
   keepSubs, setKeepSubs, keepAttachments, setKeepAttachments,
+  audioTracks, defaultAudio, setDefaultAudio,
 }: {
   keepSubs: boolean; setKeepSubs: (b: boolean) => void;
   keepAttachments: boolean; setKeepAttachments: (b: boolean) => void;
+  audioTracks?: AudioTrackInfo[];
+  defaultAudio: number | undefined;
+  setDefaultAudio: (n: number | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -239,10 +275,42 @@ function AdvancedOptions({
             />
             Keep font attachments
           </label>
+          {audioTracks && audioTracks.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.85em" }}>
+              <span style={{ opacity: 0.7 }}>Default audio</span>
+              <select
+                value={defaultAudio ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDefaultAudio(v === "" ? undefined : Number(v));
+                }}
+                style={{ padding: "2px 6px", fontSize: "0.85em" }}
+                title="Set the default audio track in the muxed output. 'No change' keeps the source MKV's disposition."
+              >
+                <option value="">No change (keep source default)</option>
+                {audioTracks.map((t) => (
+                  <option key={t.audio_index} value={t.audio_index}>
+                    {audioTrackLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function audioTrackLabel(t: AudioTrackInfo): string {
+  const lang = t.lang_code ? t.lang_code : "unknown";
+  const parts: string[] = [`Track ${t.audio_index + 1}: ${lang}`];
+  if (t.title) parts.push(`— ${t.title}`);
+  const tags: string[] = [];
+  if (t.codec) tags.push(t.codec);
+  if (t.channels) tags.push(`${t.channels}ch`);
+  if (tags.length) parts.push(`[${tags.join(", ")}]`);
+  return parts.join(" ");
 }
 
 function StatusRow({ state }: { state: MuxState }) {

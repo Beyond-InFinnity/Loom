@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from loom_core.models import JobAccepted, JobStatus, Resolution, StyleConfig, TimingOffsets
-from loom_core.subs.processing import generate_ass_file, generate_pgs_file
+from loom_core.styles import get_lang_config
+from loom_core.subs.processing import build_output_filename, generate_ass_file, generate_pgs_file
+from loom_core.video.mkv_handler import get_video_metadata
 
 from ..deps import get_jobs, get_storage
 from ..jobs import JobManager
@@ -148,3 +150,69 @@ async def generate_pgs(
         status.result_file_id = storage.register_path(Path(result_path))
 
     return jobs.submit("pgs", worker)
+
+
+class SuggestFilenameRequest(BaseModel):
+    """Request a sanitized, metadata-aware default filename for a Save
+    dialog. All inputs are optional — missing fields just get skipped.
+
+    Mirrors the Streamlit flow (loom_app.py:1252): pulls media title +
+    year from the video (when a ``video_file_id`` is supplied) and folds
+    in the native/target language codes plus annotation / romanization
+    system names.
+    """
+
+    ext: str
+    video_file_id: Optional[str] = None
+    native_lang_code: Optional[str] = None
+    target_lang_code: Optional[str] = None
+    phonetic_system: Optional[str] = None
+    include_annotations: bool = False
+    include_romanization: bool = True
+
+
+class SuggestFilenameResponse(BaseModel):
+    filename: str
+
+
+@router.post("/suggest-filename", response_model=SuggestFilenameResponse)
+def suggest_filename(
+    req: SuggestFilenameRequest,
+    storage: Storage = Depends(get_storage),
+) -> SuggestFilenameResponse:
+    media_title: Optional[str] = None
+    year: Optional[str] = None
+    if req.video_file_id:
+        try:
+            video_path = storage.path(req.video_file_id)
+        except KeyError:
+            video_path = None
+        if video_path:
+            meta, _ = get_video_metadata(str(video_path))
+            media_title = meta.get("title")
+            yr = meta.get("year")
+            year = str(yr) if yr else None
+
+    annotation_system = None
+    romanization_system = None
+    if req.target_lang_code:
+        cfg = get_lang_config(req.target_lang_code, phonetic_system=req.phonetic_system)
+        if req.include_annotations and cfg.get("annotation_func"):
+            name = cfg.get("annotation_system_name", "")
+            if name:
+                annotation_system = name.lower()
+        if req.include_romanization and cfg.get("romanize_func"):
+            rom = cfg.get("romanization_name", "")
+            if rom and rom.upper() != "N/A":
+                romanization_system = rom.lower()
+
+    filename = build_output_filename(
+        media_title=media_title,
+        year=year,
+        native_lang=req.native_lang_code,
+        target_lang=req.target_lang_code,
+        annotation_system=annotation_system,
+        romanization_system=romanization_system,
+        ext=req.ext.lstrip("."),
+    )
+    return SuggestFilenameResponse(filename=filename)

@@ -20,3 +20,14 @@ playwright
 cyrtranslit
 pythainlp
 aksharamukha
+korean-romanizer
+fonttools
+# Thai transliteration transitive deps (lazy-imported by pythainlp):
+#   - python-crfsuite: han_solo CRF-based word segmentation used by
+#     syllable_tokenize for Thai compound splitting.
+#   - torch: thai2rom neural engine used by RTGS + Paiboon+ + IPA.
+# Both were in the dev conda env but not pinned here; CI surfaced the
+# drift.  torch is ~800MB on Linux — 3c bundling analysis needs to
+# decide whether to ship it or find a non-neural Thai alternative.
+python-crfsuite
+torch

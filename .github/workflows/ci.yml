@@ -85,6 +85,8 @@ jobs:
       # 3c bundling decision.
       - name: Font-validator self-check
         if: always()
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         shell: python
         run: |
           from loom_core.fonts import validate_font

@@ -1819,71 +1819,76 @@ def _arabic_is_letter(ch: str, table: dict) -> bool:
                       _ARABIC_HAMZA_ALIF_BELOW, _ARABIC_ALIF_MADDA))
 
 
-def _arabic_romanize_word(letters: str, phonetic_system: str) -> str:
-    """Romanize a contiguous run of Arabic letters.
+def _arabic_script_romanize_word(letters: str, *, table: dict,
+                                 long_vowels: dict, hamza: str,
+                                 default_short: str = "a",
+                                 waw_cons: str = "w",
+                                 ya_cons: str = "y",
+                                 enable_sun_letter: bool = True) -> str:
+    """Romanize a contiguous run of Arabic-script letters.
+
+    Shared walker used by both Arabic (`_make_arabic_romanizer`) and
+    Persian (`_make_persian_romanizer`).  Parameters let Persian override
+    language-specific quirks:
+
+      * ``default_short``: unwritten short vowel (Arabic 'a', Persian 'e').
+      * ``waw_cons`` / ``ya_cons``: consonantal values for و / ی (Arabic
+        'w'/'y', Persian 'v'/'y').
+      * ``enable_sun_letter``: Persian uses the Arabic definite article
+        only in Arabic loanwords, but the assimilation is still useful
+        for those loans, so both languages default to True.
 
     Applies the definite-article ال / sun-letter assimilation at
     word-start, then walks letter-by-letter with the mater-lectionis
-    rule for wāw/yāʾ and a default-'a' between consecutive consonants.
+    rule for wāw/yāʾ and a default short vowel between consecutive
+    consonants.
     """
     if not letters:
         return ""
 
-    table = _ARABIC_TABLES.get(phonetic_system, _ARABIC_TABLES["learner"])
-    long_vowels = _ARABIC_LONG_VOWELS[phonetic_system]
-    hamza = _ARABIC_HAMZA[phonetic_system]
-
     # --- Definite article ال handling -----------------------------------
-    # Unified with the token walker so the default-'a' heuristic applies
-    # across the article boundary (e.g. الشمس emits tokens 'a' + cons
-    # 'sh-sh' + cons 'm' + cons 's', and the post-pass inserts 'a' between
-    # each consecutive pair → "ash-shamas").
+    # Unified with the token walker so the default-short-vowel heuristic
+    # applies across the article boundary (e.g. الشمس emits tokens 'a'
+    # + cons 'sh-sh' + cons 'm' + cons 's', and the post-pass inserts
+    # 'a' between each consecutive pair → "ash-shamas").
     tokens: list[tuple[str, str]] = []
     prev_kind: str = "start"
     body_start = 0
 
-    if len(letters) >= 3 and letters[0] == _ARABIC_ALIF and letters[1] == _ARABIC_LAM:
+    if (enable_sun_letter
+            and len(letters) >= 3
+            and letters[0] == _ARABIC_ALIF
+            and letters[1] == _ARABIC_LAM):
         next_letter = letters[2]
         if next_letter in _ARABIC_SUN_LETTERS:
-            # Sun-letter assimilation: drop the lām, double the sun letter
-            # (الشمس → ash-shams).  Emit 'a' as a vowel and the doubled
-            # sun letter as a single cons token; skip past both ا ل and
-            # the sun letter itself — it's already been emitted.
+            # Sun-letter assimilation: drop the lām, double the sun
+            # letter (الشمس → ash-shams).
             sun_out = table.get(next_letter, next_letter)
             tokens.append(("vowel", "a"))
             tokens.append(("cons", sun_out + "-" + sun_out))
             prev_kind = "cons"
             body_start = 3
         else:
-            # Moon letter: al- stays.  Emit as a single vowel token so the
-            # next consonant does NOT get an 'a' inserted before it (the
-            # lām of the article carries sukun, not a short vowel).
+            # Moon letter: al- stays.  Emit as a single vowel token so
+            # the next consonant does NOT get an short vowel inserted
+            # before it (the lām of the article carries sukun).
             tokens.append(("vowel", "al-"))
             prev_kind = "vowel"
             body_start = 2
 
     # --- Main walker ----------------------------------------------------
-    # Classify each letter into:
-    #   'cons'   — a consonant (emit table value)
-    #   'hamza'  — standalone hamza or hamza-carrier (emit hamza value)
-    #   'long'   — a long-vowel letter (alif, waw-mater, ya-mater)
-    #   'vowel'  — a short-vowel seat (hamza-alif carriers)
-    #   'other'  — passthrough
     for i, ch in enumerate(letters[body_start:]):
         if ch in (_ARABIC_HAMZA_ALIF_ABOVE, _ARABIC_HAMZA_ALIF_BELOW):
-            # Word-start hamza-alif carries an initial short vowel.
             default_v = "i" if ch == _ARABIC_HAMZA_ALIF_BELOW else "a"
             tokens.append(("vowel", hamza + default_v))
             prev_kind = "vowel"
             continue
         if ch == _ARABIC_ALIF_MADDA:
-            # ʾā — hamza + long ā.
             tokens.append(("long", hamza + long_vowels["a"]))
             prev_kind = "long"
             continue
         if ch == _ARABIC_ALIF:
             if prev_kind == "start":
-                # Word-start bare alif — carrier for "a" initial vowel.
                 tokens.append(("vowel", "a"))
                 prev_kind = "vowel"
             else:
@@ -1895,35 +1900,28 @@ def _arabic_romanize_word(letters: str, phonetic_system: str) -> str:
             prev_kind = "long"
             continue
         if ch == _ARABIC_WAW:
-            if prev_kind in ("cons", "start"):
-                # Consonantal at start or directly after a consonant when
-                # we haven't emitted a vowel yet.  But if prev is 'cons'
-                # and the previous consonant was emitted, treat as long ū
-                # — that's the mater role.  Word-start keeps w.
-                if prev_kind == "start":
-                    tokens.append(("cons", "w"))
-                    prev_kind = "cons"
-                else:
-                    tokens.append(("long", long_vowels["u"]))
-                    prev_kind = "long"
+            if prev_kind == "start":
+                tokens.append(("cons", waw_cons))
+                prev_kind = "cons"
+            elif prev_kind == "cons":
+                tokens.append(("long", long_vowels["u"]))
+                prev_kind = "long"
             else:
-                tokens.append(("cons", "w"))
+                tokens.append(("cons", waw_cons))
                 prev_kind = "cons"
             continue
         if ch == _ARABIC_YA:
-            if prev_kind in ("cons", "start"):
-                if prev_kind == "start":
-                    tokens.append(("cons", "y"))
-                    prev_kind = "cons"
-                else:
-                    tokens.append(("long", long_vowels["i"]))
-                    prev_kind = "long"
+            if prev_kind == "start":
+                tokens.append(("cons", ya_cons))
+                prev_kind = "cons"
+            elif prev_kind == "cons":
+                tokens.append(("long", long_vowels["i"]))
+                prev_kind = "long"
             else:
-                tokens.append(("cons", "y"))
+                tokens.append(("cons", ya_cons))
                 prev_kind = "cons"
             continue
         if ch == _ARABIC_TA_MARBUTA:
-            # Pause-form "a".  Only valid at word-end; mid-word is rare.
             tokens.append(("vowel", "a"))
             prev_kind = "vowel"
             continue
@@ -1931,18 +1929,17 @@ def _arabic_romanize_word(letters: str, phonetic_system: str) -> str:
             tokens.append(("cons", table[ch]))
             prev_kind = "cons"
             continue
-        # Passthrough for anything else (shouldn't happen — caller filters).
         tokens.append(("other", ch))
         prev_kind = "other"
 
-    # --- Second pass: insert default 'a' between consecutive consonants -
+    # --- Second pass: insert default short vowel between consecutive cons
     out: list[str] = []
     for i, (kind, val) in enumerate(tokens):
         out.append(val)
         if kind == "cons":
             next_kind = tokens[i + 1][0] if i + 1 < len(tokens) else None
             if next_kind == "cons":
-                out.append("a")
+                out.append(default_short)
 
     return "".join(out)
 
@@ -1951,12 +1948,14 @@ def _make_arabic_romanizer(phonetic_system: str = "learner"):
     """Return an Arabic block romanizer for the given phonetic system.
 
     Segments input into Arabic-letter runs and non-Arabic passthrough
-    runs; romanizes each Arabic run with ``_arabic_romanize_word``.
-    Output flows through ``_polish_romaji(capitalize=True)``.
+    runs; romanizes each Arabic run via the shared walker.  Output
+    flows through ``_polish_romaji(capitalize=True)``.
     """
     if phonetic_system not in _ARABIC_TABLES:
         phonetic_system = "learner"
     table = _ARABIC_TABLES[phonetic_system]
+    long_vowels = _ARABIC_LONG_VOWELS[phonetic_system]
+    hamza = _ARABIC_HAMZA[phonetic_system]
 
     def _is_arabic_letter(ch: str) -> bool:
         return _arabic_is_letter(ch, table)
@@ -1974,11 +1973,179 @@ def _make_arabic_romanizer(phonetic_system: str = "learner"):
                 buf += ch
             else:
                 if buf:
-                    out.append(_arabic_romanize_word(buf, phonetic_system))
+                    out.append(_arabic_script_romanize_word(
+                        buf, table=table, long_vowels=long_vowels,
+                        hamza=hamza, default_short="a",
+                        waw_cons="w", ya_cons="y"))
                     buf = ""
                 out.append(ch)
         if buf:
-            out.append(_arabic_romanize_word(buf, phonetic_system))
+            out.append(_arabic_script_romanize_word(
+                buf, table=table, long_vowels=long_vowels,
+                hamza=hamza, default_short="a",
+                waw_cons="w", ya_cons="y"))
+
+        return _polish_romaji("".join(out), capitalize=True)
+
+    return romanize
+
+
+# ---------------------------------------------------------------------------
+# R5-4 remaining: Persian (fa) block romanization
+# ---------------------------------------------------------------------------
+#
+# Persian uses the Arabic script extended with 4 letters (پ چ ژ گ) and
+# two codepoint variants (Persian yeh ی U+06CC, Persian keheh ک U+06A9)
+# that the Arabic tables don't carry.  Beyond the letter set, the key
+# differences from Arabic are:
+#
+#   * Phonology collapses the Arabic emphatic series.  Persian speakers
+#     pronounce ص and س identically (both /s/); ح and ه are both /h/;
+#     ث is /s/ not /θ/; ذ is /z/; ط is /t/; ظ is /z/; ض is /z/.
+#     In "learner" mode we reflect actual Persian pronunciation and
+#     drop the emphatic marks.  In "dmg" (Deutsche Morgenländische
+#     Gesellschaft — the scholarly standard) we preserve the marks so
+#     Arabic etymology remains visible.
+#   * و is typically /v/ or /u/ or /o/ — consonantal /v/ at word-start
+#     or after a vowel, /u/~/o/ when serving as mater.  We emit 'v' at
+#     start and "ū" after a consonant (long-ū mater).
+#   * Persian has no grammatical definite article (ال is present only
+#     in Arabic loanwords), but sun-letter assimilation is still applied
+#     for those loans to keep output legible.
+#   * The default unwritten short vowel in Persian is /e/ more often
+#     than /a/, but a statistical preference doesn't outweigh the
+#     consistency win of keeping 'a' the default across both Arabic and
+#     Persian.  Known-wrong cases are locked in tests; a future
+#     dictionary pass can flip them.
+#
+# Persian's unvocalized-text problem is the same as Arabic's and Hebrew's
+# — short vowels, ezāfe (-e / -ye genitive construct), and diphthongs
+# must be guessed without tashkil.  Output quality is "recognizable for
+# common words"; real-content troubleshooting deferred to step 5.
+
+# Persian-specific extra letters beyond the Arabic set.
+_PERSIAN_EXTRA_LEARNER = {
+    "پ": "p",
+    "چ": "ch",
+    "ژ": "zh",
+    "گ": "g",
+}
+
+_PERSIAN_EXTRA_DMG = {
+    "پ": "p",
+    "چ": "č",
+    "ژ": "ž",
+    "گ": "g",
+}
+
+# Persian collapses the Arabic emphatic series in actual pronunciation.
+# learner mode reflects this; dmg preserves the scholarly marks.
+_PERSIAN_COLLAPSE_LEARNER = {
+    "ث": "s",   "ح": "h",   "ذ": "z",   "ص": "s",   "ض": "z",
+    "ط": "t",   "ظ": "z",   "ع": "",    "ق": "q",   "غ": "gh",
+    # ء stays as ʾ for syllable-break hinting (same as Arabic learner);
+    # seated hamza-over-wāw / hamza-over-yāʾ emit bare ʾ too.
+    "ء": "ʾ",   "ؤ": "ʾ",   "ئ": "ʾ",
+}
+
+# Persian "learner" consonant table: Arabic learner base with Persian
+# collapses + 4 Persian-extra letters.  Also add Persian codepoint
+# variants for yeh/kaf/heh so both Unicode sequences work.
+_PERSIAN_CONSONANTS_LEARNER = {
+    **_ARABIC_CONSONANTS_LEARNER,
+    **_PERSIAN_COLLAPSE_LEARNER,
+    **_PERSIAN_EXTRA_LEARNER,
+    # Persian keheh ک (U+06A9) — same sound as Arabic kāf ك.
+    "ک": "k",
+    # Persian he variants U+06C0, U+06C1 — same as ه.
+    "ہ": "h",   "ۀ": "h",
+}
+
+# Persian "dmg" consonant table: Arabic DIN base with Persian-extra letters.
+_PERSIAN_CONSONANTS_DMG = {
+    **_ARABIC_CONSONANTS_DIN,
+    **_PERSIAN_EXTRA_DMG,
+    "ک": "k",
+    "ہ": "h",   "ۀ": "h",
+}
+
+_PERSIAN_TABLES = {
+    "learner": _PERSIAN_CONSONANTS_LEARNER,
+    "dmg":     _PERSIAN_CONSONANTS_DMG,
+}
+
+_PERSIAN_LONG_VOWELS = {
+    "learner": {"a": "ā", "i": "ī", "u": "ū"},
+    "dmg":     {"a": "ā", "i": "ī", "u": "ū"},
+}
+
+_PERSIAN_HAMZA = {"learner": "ʾ", "dmg": "ʾ"}
+
+# Persian-specific codepoints that must be recognized as letters (so the
+# romanizer doesn't split words on them).  Arabic yeh ي and Persian yeh ی
+# are visually similar but have different Unicode points; subtitle files
+# in the wild mix them freely.
+_PERSIAN_LETTER_EXTRAS = frozenset("پچژگکیہۀ")
+
+
+def _persian_is_letter(ch: str, table: dict) -> bool:
+    if _arabic_is_letter(ch, table):
+        return True
+    return ch in _PERSIAN_LETTER_EXTRAS
+
+
+# Map Persian yeh (U+06CC) → Arabic yeh (U+064A) before the walker so the
+# `ch == _ARABIC_YA` branch handles both forms uniformly.  Same for
+# Persian alif maksura variant.
+_PERSIAN_NORMALIZE = str.maketrans({
+    "ی": _ARABIC_YA,       # Persian yeh → Arabic yeh (for mater rule)
+    "ک": "ک",              # leave Persian keheh in place (table has it)
+})
+
+
+def _make_persian_romanizer(phonetic_system: str = "learner"):
+    """Return a Persian block romanizer for the given phonetic system.
+
+    Reuses the Arabic shared walker (`_arabic_script_romanize_word`)
+    with Persian-specific tables, consonantal /v/ for و, and the same
+    default short-vowel 'a' as Arabic.  Persian yeh (U+06CC) is
+    normalized to Arabic yeh (U+064A) before the walker so the mater
+    rule handles both forms uniformly.
+    """
+    if phonetic_system not in _PERSIAN_TABLES:
+        phonetic_system = "learner"
+    table = _PERSIAN_TABLES[phonetic_system]
+    long_vowels = _PERSIAN_LONG_VOWELS[phonetic_system]
+    hamza = _PERSIAN_HAMZA[phonetic_system]
+
+    def _is_letter(ch: str) -> bool:
+        return _persian_is_letter(ch, table)
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ""
+        clean = _strip_ass(text)
+        clean = _ARABIC_COMBINING_RE.sub("", clean)
+        clean = clean.translate(_PERSIAN_NORMALIZE)
+
+        out: list[str] = []
+        buf = ""
+        for ch in clean:
+            if _is_letter(ch):
+                buf += ch
+            else:
+                if buf:
+                    out.append(_arabic_script_romanize_word(
+                        buf, table=table, long_vowels=long_vowels,
+                        hamza=hamza, default_short="a",
+                        waw_cons="v", ya_cons="y"))
+                    buf = ""
+                out.append(ch)
+        if buf:
+            out.append(_arabic_script_romanize_word(
+                buf, table=table, long_vowels=long_vowels,
+                hamza=hamza, default_short="a",
+                waw_cons="v", ya_cons="y"))
 
         return _polish_romaji("".join(out), capitalize=True)
 
@@ -2590,5 +2757,11 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     # digraphs); "din" for full DIN 31635; "loose" for ASCII-only.
     if primary == "ar":
         return _make_arabic_romanizer(phonetic_system=phonetic_system or "learner")
+
+    # Chunk R5-4 remaining — Persian (fa) block romanization ───────── ✅
+    # "learner" default collapses Arabic emphatics to Persian phonology;
+    # "dmg" preserves scholarly marks + uses č / ž for چ ژ.
+    if primary == "fa":
+        return _make_persian_romanizer(phonetic_system=phonetic_system or "learner")
 
     return None

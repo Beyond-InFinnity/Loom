@@ -63,10 +63,12 @@ export type StyleConfig = {
 };
 
 // Layer defaults — keep in sync with loom_core/models.py LayerStyle subclasses.
+// Fonts here are Latin-fallbacks; App.tsx overrides Top/Annotation per
+// target-language via GET /language/config/{code} once a track is loaded.
 function baseLayer(): LayerStyle {
   return {
     enabled: true,
-    fontname: "Arial",
+    fontname: "Noto Sans",
     fontsize: 48,
     bold: false,
     italic: false,
@@ -92,18 +94,30 @@ function baseLayer(): LayerStyle {
 }
 
 export function defaultStyleConfig(): StyleConfig {
+  // Top-stack layers (top / romanized / annotation) use alignment=8 so
+  // marginv is measured from the top of the frame; the engine + preview
+  // rely on this to stack romanized ≤ annotation ≤ top.
   return {
-    bottom: { ...baseLayer(), fontsize: 48, outline: 3.0, marginv: 30 },
-    top: { ...baseLayer(), fontsize: 52, outline: 2.5, marginv: 100 },
+    bottom: {
+      ...baseLayer(),
+      fontname: "Georgia",
+      fontsize: 48, outline: 3.0, alignment: 2, marginv: 40,
+    },
+    top: {
+      ...baseLayer(),
+      fontsize: 52, outline: 2.5, alignment: 8, marginv: 90,
+    },
     romanized: {
       ...baseLayer(),
-      fontsize: 30, outline: 1.5, marginv: 160,
+      fontname: "Times New Roman",
+      italic: true,
+      fontsize: 30, outline: 1.5, alignment: 8, marginv: 10,
       long_vowel_mode: "macrons",
     },
     annotation: {
       ...baseLayer(),
       enabled: false,
-      fontsize: 22, outline: 1.0, marginv: 0,
+      fontsize: 22, outline: 1.0, alignment: 8, marginv: 10,
       phonetic_system: null,
     },
     vertical_offset: 0,
@@ -111,6 +125,19 @@ export function defaultStyleConfig(): StyleConfig {
     romanized_gap: 0,
   };
 }
+
+// Known factory-default font names — used by the lang-aware override in
+// App.tsx to avoid stomping on fonts the user has manually picked. If the
+// current fontname is in this set, the field is treated as "untouched".
+export const FACTORY_DEFAULT_FONTS: ReadonlySet<string> = new Set([
+  "Noto Sans", "Georgia", "Times New Roman", "Arial",
+  "Noto Sans CJK JP", "Noto Sans CJK SC", "Noto Sans CJK KR",
+  "Noto Sans CJK TC", "Noto Sans CJK HK",
+  "Noto Sans Thai", "Noto Naskh Arabic", "Noto Sans Hebrew",
+  "Noto Nastaliq Urdu", "Noto Sans Devanagari", "Noto Sans Bengali",
+  "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati",
+  "Noto Sans Gurmukhi", "Be Vietnam Pro", "Amiri",
+]);
 
 // ── Font + preset wire types ──────────────────────────────────────────
 
@@ -146,6 +173,54 @@ export type PresetCatalog = {
   groups: PresetGroup[];
   presets: Preset[];
 };
+
+// ── Language-scoped extras ────────────────────────────────────────────
+// Mirrors loom_core/styles.py::_chinese_variant and the option lists in
+// loom_app.py (phonetic + long vowel selectors).
+
+export function primaryLang(code: string | undefined | null): string {
+  return (code || "").toLowerCase().split("-")[0].split("_")[0];
+}
+
+export function isJapanese(code: string | undefined | null): boolean {
+  return primaryLang(code) === "ja";
+}
+
+export type PhoneticOption = { value: PhoneticSystem; label: string };
+
+// Cantonese → Jyutping-only; zh-Hant → Zhuyin-first; zh-Hans → Pinyin-first;
+// Thai → Paiboon+/RTGS/IPA. Empty list ⇒ no selector for this language.
+export function phoneticOptions(code: string | undefined | null): PhoneticOption[] {
+  const primary = primaryLang(code);
+  const lc = (code || "").toLowerCase();
+  if (primary === "yue") return [{ value: "jyutping", label: "Jyutping" }];
+  if (primary === "zh") {
+    const hant = lc === "zh-hant" || lc === "zh-tw" || lc === "zh-hk";
+    return hant
+      ? [
+          { value: "zhuyin", label: "Zhuyin" },
+          { value: "pinyin", label: "Pinyin" },
+        ]
+      : [
+          { value: "pinyin", label: "Pinyin" },
+          { value: "zhuyin", label: "Zhuyin" },
+        ];
+  }
+  if (primary === "th") {
+    return [
+      { value: "paiboon", label: "Paiboon+" },
+      { value: "rtgs", label: "RTGS" },
+      { value: "ipa", label: "IPA" },
+    ];
+  }
+  return [];
+}
+
+export const LONG_VOWEL_MODES: { value: LongVowelMode; label: string }[] = [
+  { value: "macrons", label: "Macrons (tōkyō, kōhī)" },
+  { value: "doubled", label: "Doubled (toukyou, koohii)" },
+  { value: "unmarked", label: "Unmarked (tokyo, kohi)" },
+];
 
 export async function fetchFonts(): Promise<FontList> {
   const res = await fetch(`${API_BASE}/styles/fonts`);

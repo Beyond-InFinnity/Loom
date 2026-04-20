@@ -1,17 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   API_BASE,
+  detectSubtitleLanguage,
+  fetchLanguageConfig,
   FileSlot,
   HealthInfo,
   ScanResponse,
+  TimingOffsets,
   TrackInfo,
   probeHealth,
   registerFileByPath,
   scanVideo,
 } from "./api";
-import { defaultStyleConfig, StyleConfig } from "./styles";
+import { defaultStyleConfig, FACTORY_DEFAULT_FONTS, StyleConfig } from "./styles";
 import { StyleSection } from "./StyleSection";
+import { TimingOffsetsSection } from "./TimingOffsetsSection";
+import { PreviewSection } from "./PreviewSection";
+import { GenerateSection } from "./GenerateSection";
+import { MuxSection } from "./MuxSection";
 import "./App.css";
 
 type SlotKey = "video" | "target" | "native";
@@ -90,6 +97,21 @@ function App() {
   const [busy, setBusy] = useState<SlotKey | null>(null);
   const [scan, setScan] = useState<ScanState>({ kind: "idle" });
   const [styles, setStyles] = useState<StyleConfig>(() => defaultStyleConfig());
+  const [timingOffsets, setTimingOffsets] = useState<TimingOffsets>({
+    bottom_ms: 0,
+    top_ms: 0,
+  });
+  const [offsetsLinked, setOffsetsLinked] = useState(false);
+  const [assFileId, setAssFileId] = useState<string | undefined>(undefined);
+  const [pgsFileId, setPgsFileId] = useState<string | undefined>(undefined);
+
+  const handleGenerateResult = useCallback(
+    (r: { assFileId?: string; pgsFileId?: string }) => {
+      setAssFileId(r.assFileId);
+      setPgsFileId(r.pgsFileId);
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +144,49 @@ function App() {
     setScan({ kind: "idle" });
   }, [slots.video?.id]);
 
+  // Apply language-aware defaults whenever the target slot's language
+  // changes. Ports Streamlit's annotation.enabled guard (loom_app.py:852)
+  // and initial font selection (:762) — but only touches fields that still
+  // equal a factory default, so user customizations survive track swaps.
+  const appliedLangRef = useRef<string | null>(null);
+  useEffect(() => {
+    const lang = slots.target?.lang_code ?? "";
+    if (!lang) {
+      appliedLangRef.current = null;
+      return;
+    }
+    if (appliedLangRef.current === lang) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const meta = await fetchLanguageConfig(lang);
+        if (cancelled) return;
+        appliedLangRef.current = lang;
+        setStyles((s) => {
+          const next = structuredClone(s);
+          // annotation.enabled: always re-derive on lang change (matches
+          // Streamlit's guard — off for Thai, on for CJK/Cyrillic by default).
+          next.annotation.enabled = meta.annotation_default_enabled;
+          // Top + Annotation fontnames: only swap if the user hasn't picked
+          // a non-factory font manually.
+          if (FACTORY_DEFAULT_FONTS.has(next.top.fontname)) {
+            next.top.fontname = meta.default_font;
+          }
+          if (FACTORY_DEFAULT_FONTS.has(next.annotation.fontname)) {
+            next.annotation.fontname = meta.default_font;
+          }
+          return next;
+        });
+      } catch {
+        // Non-fatal: leave styles as-is if the lookup fails (e.g. sidecar
+        // restarting). Don't log — noisy on transient network blips.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slots.target?.lang_code]);
+
   async function pickFile(slot: SlotConfig) {
     setErrors((e) => ({ ...e, [slot.key]: undefined }));
     setBusy(slot.key);
@@ -137,6 +202,27 @@ function App() {
       }
       const slotData = await registerFileByPath(picked);
       setSlots((s) => ({ ...s, [slot.key]: slotData }));
+      // Subtitle slots (target/native): run language detection so the
+      // downstream pipeline gets a real target_lang_code. Video slots
+      // skip this — their language comes from per-track metadata via scan.
+      if (slot.key !== "video") {
+        try {
+          const det = await detectSubtitleLanguage(slotData.id);
+          if (det.code) {
+            setSlots((s) => {
+              const existing = s[slot.key];
+              if (!existing || existing.id !== slotData.id) return s;
+              return {
+                ...s,
+                [slot.key]: { ...existing, lang_code: det.code! },
+              };
+            });
+          }
+        } catch {
+          // Non-fatal: the pipeline will run without per-lang wiring, but
+          // the user still gets Bottom/Top text rendering.
+        }
+      }
     } catch (err) {
       setErrors((e) => ({
         ...e,
@@ -401,6 +487,63 @@ function App() {
         setStyles={setStyles}
         targetLang={slots.target?.lang_code ?? ""}
       />
+
+      {slots.native && slots.target && (
+        <TimingOffsetsSection
+          offsets={timingOffsets}
+          setOffsets={setTimingOffsets}
+          linked={offsetsLinked}
+          setLinked={setOffsetsLinked}
+          nativeFileId={slots.native.id}
+          targetFileId={slots.target.id}
+        />
+      )}
+
+      {slots.native && slots.target && (
+        <PreviewSection
+          nativeFileId={slots.native.id}
+          targetFileId={slots.target.id}
+          targetLang={slots.target.lang_code ?? ""}
+          styles={styles}
+          offsets={timingOffsets}
+          videoFileId={slots.video?.id}
+          duration={scan.kind === "ok" ? scan.data.metadata.duration_seconds : undefined}
+          sourceResolution={
+            scan.kind === "ok"
+              ? { width: scan.data.metadata.width, height: scan.data.metadata.height }
+              : undefined
+          }
+        />
+      )}
+
+      {slots.native && slots.target && (
+        <GenerateSection
+          nativeFileId={slots.native.id}
+          targetFileId={slots.target.id}
+          targetLang={slots.target.lang_code ?? ""}
+          styles={styles}
+          offsets={timingOffsets}
+          sourceResolution={
+            scan.kind === "ok"
+              ? { width: scan.data.metadata.width, height: scan.data.metadata.height }
+              : undefined
+          }
+          onResult={handleGenerateResult}
+        />
+      )}
+
+      {slots.video && (assFileId || pgsFileId) && (
+        <MuxSection
+          videoFileId={slots.video.id}
+          videoName={slots.video.name}
+          assFileId={assFileId}
+          pgsFileId={pgsFileId}
+          targetLang={slots.target?.lang_code}
+          nativeLang={slots.native?.lang_code}
+          phoneticSystem={styles.annotation.phonetic_system ?? undefined}
+          annotationEnabled={styles.annotation.enabled}
+        />
+      )}
 
       <footer
         style={{

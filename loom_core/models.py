@@ -62,7 +62,10 @@ class LayerStyle(BaseModel):
 
     enabled: bool = True
 
-    fontname: str = "Arial"
+    # Non-Arial default. The frontend overrides this per-language on track
+    # assignment via GET /language/config/{code}; this baseline is just the
+    # pick when the target language is unknown (Latin fallback).
+    fontname: str = "Noto Sans"
     fontsize: int = Field(48, ge=1)
     bold: bool = False
     italic: bool = False
@@ -117,21 +120,36 @@ class LayerStyle(BaseModel):
 
 
 class BottomLayerStyle(LayerStyle):
+    # Bottom carries the user's native language — almost always Latin or
+    # Cyrillic. Georgia has strong coverage for both and sets a more
+    # deliberate tone than the generic Noto Sans baseline.
+    fontname: str = "Georgia"
     fontsize: int = Field(48, ge=1)
     outline: float = Field(3.0, ge=0)
-    marginv: int = 30
+    alignment: int = Field(2, ge=1, le=9)  # bottom-center
+    marginv: int = 40
 
 
 class TopLayerStyle(LayerStyle):
     fontsize: int = Field(52, ge=1)
     outline: float = Field(2.5, ge=0)
-    marginv: int = 100
+    # Top-stack layers use alignment=8 (top-center) so marginv measures from
+    # the top of the frame; the preview + engine both rely on this to place
+    # Romanized above Annotation above Top.
+    alignment: int = Field(8, ge=1, le=9)
+    marginv: int = 90
 
 
 class RomanizedLayerStyle(LayerStyle):
+    # Romanized output is always Latin-script phonetic data — italic serif
+    # keeps it visually distinct from the Top (foreign) and Annotation
+    # (per-token) layers above it. Matches Streamlit's Romanized default.
+    fontname: str = "Times New Roman"
+    italic: bool = True
     fontsize: int = Field(30, ge=1)
     outline: float = Field(1.5, ge=0)
-    marginv: int = 160
+    alignment: int = Field(8, ge=1, le=9)
+    marginv: int = 10
     long_vowel_mode: LongVowelMode = "macrons"
 
     def to_engine_dict(self) -> dict[str, Any]:
@@ -144,7 +162,8 @@ class AnnotationLayerStyle(LayerStyle):
     enabled: bool = False
     fontsize: int = Field(22, ge=1)
     outline: float = Field(1.0, ge=0)
-    marginv: int = 0
+    alignment: int = Field(8, ge=1, le=9)
+    marginv: int = 10
     phonetic_system: Optional[PhoneticSystem] = None
 
     def to_engine_dict(self) -> dict[str, Any]:

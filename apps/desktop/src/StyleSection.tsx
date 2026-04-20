@@ -4,11 +4,17 @@ import {
   fetchFonts,
   fetchPresets,
   FontList,
+  isJapanese,
   LAYER_KEYS,
   LAYER_LABEL,
   LAYER_WIRE,
   LayerKey,
   LayerStyle,
+  LongVowelMode,
+  LONG_VOWEL_MODES,
+  PhoneticOption,
+  phoneticOptions,
+  PhoneticSystem,
   Preset,
   PresetCatalog,
   StyleConfig,
@@ -87,11 +93,24 @@ export function StyleSection({ styles, setStyles, targetLang }: Props) {
       )}
 
       {fonts && (
-        view === "layer" ? (
-          <LayerView styles={styles} setStyles={setStyles} fonts={fonts} />
-        ) : (
-          <PropertyView styles={styles} setStyles={setStyles} fonts={fonts} />
-        )
+        <>
+          {view === "layer" ? (
+            <LayerView
+              styles={styles}
+              setStyles={setStyles}
+              fonts={fonts}
+              targetLang={targetLang}
+            />
+          ) : (
+            <PropertyView
+              styles={styles}
+              setStyles={setStyles}
+              fonts={fonts}
+              targetLang={targetLang}
+            />
+          )}
+          <StackPositionBlock styles={styles} setStyles={setStyles} />
+        </>
       )}
     </section>
   );
@@ -216,8 +235,15 @@ function patchLayer(
 // ── LayerView (Pattern A — stacked cards) ─────────────────────────────
 
 function LayerView({
-  styles, setStyles, fonts,
-}: { styles: StyleConfig; setStyles: Props["setStyles"]; fonts: FontList }) {
+  styles, setStyles, fonts, targetLang,
+}: {
+  styles: StyleConfig;
+  setStyles: Props["setStyles"];
+  fonts: FontList;
+  targetLang: string;
+}) {
+  const phonOpts = phoneticOptions(targetLang);
+  const jp = isJapanese(targetLang);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {LAYER_KEYS.map((k) => (
@@ -225,8 +251,11 @@ function LayerView({
           key={k}
           layerKey={k}
           layer={styles[k]}
+          styles={styles}
           fonts={fonts}
           setStyles={setStyles}
+          phoneticOpts={phonOpts}
+          japanese={jp}
         />
       ))}
     </div>
@@ -234,15 +263,21 @@ function LayerView({
 }
 
 function LayerCard({
-  layerKey, layer, fonts, setStyles,
+  layerKey, layer, styles, fonts, setStyles, phoneticOpts, japanese,
 }: {
   layerKey: LayerKey;
   layer: LayerStyle;
+  styles: StyleConfig;
   fonts: FontList;
   setStyles: Props["setStyles"];
+  phoneticOpts: PhoneticOption[];
+  japanese: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const opts = fontOptions(layerKey, fonts);
+  const hasLangExtras =
+    (layerKey === "romanized" && japanese) ||
+    (layerKey === "annotation" && phoneticOpts.length > 0);
 
   return (
     <div style={{ border: "1px solid #2c2c2c", borderRadius: 6, background: "#1a1a1a" }}>
@@ -333,136 +368,229 @@ function LayerCard({
           </div>
           <div>
             <FieldLabel>Effects</FieldLabel>
-            <span style={{ fontSize: "0.8em", opacity: 0.4 }}>(coming in 3-2)</span>
+            <EffectsStack
+              layer={layer}
+              onPatch={(p) => patchLayer(setStyles, layerKey, p)}
+            />
           </div>
+          {hasLangExtras && (
+            <div style={{ gridColumn: "1 / -1", borderTop: "1px dashed #2c2c2c", paddingTop: 10 }}>
+              <FieldLabel>Language</FieldLabel>
+              {layerKey === "romanized" && japanese && (
+                <LongVowelControl
+                  mode={styles.romanized.long_vowel_mode}
+                  onChange={(m) =>
+                    setStyles((s) => ({
+                      ...s,
+                      romanized: { ...s.romanized, long_vowel_mode: m },
+                    }))
+                  }
+                />
+              )}
+              {layerKey === "annotation" && phoneticOpts.length > 0 && (
+                <PhoneticControl
+                  value={styles.annotation.phonetic_system ?? null}
+                  options={phoneticOpts}
+                  onChange={(v) =>
+                    setStyles((s) => ({
+                      ...s,
+                      annotation: { ...s.annotation, phonetic_system: v },
+                    }))
+                  }
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ── PropertyView (Pattern B — grouped grid) ──────────────────────────
-
-function PropertyView({
-  styles, setStyles, fonts,
-}: { styles: StyleConfig; setStyles: Props["setStyles"]; fonts: FontList }) {
-  const cols = `120px repeat(${LAYER_KEYS.length}, 1fr)`;
-
+function EffectsStack({
+  layer, onPatch,
+}: { layer: LayerStyle; onPatch: (p: Partial<LayerStyle>) => void }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: cols, gap: 10, alignItems: "center" }}>
-        <span />
-        {LAYER_KEYS.map((k) => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={styles[k].enabled}
-              onChange={(e) => patchLayer(setStyles, k, { enabled: e.target.checked })}
-              style={{ margin: 0 }}
-            />
-            <strong style={{ fontSize: "0.9em", opacity: styles[k].enabled ? 1 : 0.4 }}>
-              {LAYER_LABEL[k]}
-            </strong>
-          </div>
-        ))}
-      </div>
-
-      <PropertyGroup label="Colors" cols={cols}>
-        <PropertyRow label="text" cols={cols}>
-          {LAYER_KEYS.map((k) => (
-            <ColorRow
-              key={k}
-              color={styles[k].primarycolor}
-              opacity={styles[k].primary_opacity}
-              onColor={(c) => patchLayer(setStyles, k, { primarycolor: c })}
-              onOpacity={(o) => patchLayer(setStyles, k, { primary_opacity: o })}
-            />
-          ))}
-        </PropertyRow>
-      </PropertyGroup>
-
-      <PropertyGroup label="Typography" cols={cols}>
-        <PropertyRow label="font" cols={cols}>
-          {LAYER_KEYS.map((k) => {
-            const opts = fontOptions(k, fonts);
-            const layer = styles[k];
-            return (
-              <select
-                key={k}
-                value={layer.fontname}
-                onChange={(e) => patchLayer(setStyles, k, { fontname: e.target.value })}
-                style={{ padding: "3px 6px", fontSize: "0.85em" }}
-              >
-                {opts.includes(layer.fontname) ? null : (
-                  <option value={layer.fontname}>{layer.fontname} (?)</option>
-                )}
-                {opts.map((f) => <option key={f} value={f}>{f}</option>)}
-              </select>
-            );
-          })}
-        </PropertyRow>
-        <PropertyRow label="size" cols={cols}>
-          {LAYER_KEYS.map((k) => (
-            <SizeRow
-              key={k}
-              size={styles[k].fontsize}
-              onChange={(n) => patchLayer(setStyles, k, { fontsize: n })}
-            />
-          ))}
-        </PropertyRow>
-        <PropertyRow label="bold / italic" cols={cols}>
-          {LAYER_KEYS.map((k) => (
-            <div key={k} style={{ display: "flex", gap: 10 }}>
-              <CheckboxLabel
-                checked={styles[k].bold}
-                onChange={(b) => patchLayer(setStyles, k, { bold: b })}
-                label="B"
-              />
-              <CheckboxLabel
-                checked={styles[k].italic}
-                onChange={(b) => patchLayer(setStyles, k, { italic: b })}
-                label="I"
-              />
-            </div>
-          ))}
-        </PropertyRow>
-      </PropertyGroup>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <OutlineControl layer={layer} onPatch={onPatch} />
+      <ShadowControl layer={layer} onPatch={onPatch} />
+      <GlowControl layer={layer} onPatch={onPatch} />
     </div>
   );
 }
 
-function PropertyGroup({
-  label, cols, children,
-}: { label: string; cols: string; children: React.ReactNode }) {
+// ── PropertyView (column-per-layer) ─────────────────────────────────
+// Each layer is its own column with all its controls stacked + left-
+// justified. Column heights vary freely — Romanized gets long-vowel in
+// JP, Annotation gets phonetic in zh/yue/th, others skip that section.
+
+function PropertyView({
+  styles, setStyles, fonts, targetLang,
+}: {
+  styles: StyleConfig;
+  setStyles: Props["setStyles"];
+  fonts: FontList;
+  targetLang: string;
+}) {
+  const phonOpts = phoneticOptions(targetLang);
+  const jp = isJapanese(targetLang);
   return (
-    <div>
-      <div
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${LAYER_KEYS.length}, minmax(0, 1fr))`,
+        gap: 10,
+        alignItems: "start",
+      }}
+    >
+      {LAYER_KEYS.map((k) => (
+        <LayerColumn
+          key={k}
+          layerKey={k}
+          styles={styles}
+          setStyles={setStyles}
+          fonts={fonts}
+          phoneticOpts={phonOpts}
+          japanese={jp}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LayerColumn({
+  layerKey, styles, setStyles, fonts, phoneticOpts, japanese,
+}: {
+  layerKey: LayerKey;
+  styles: StyleConfig;
+  setStyles: Props["setStyles"];
+  fonts: FontList;
+  phoneticOpts: PhoneticOption[];
+  japanese: boolean;
+}) {
+  const layer = styles[layerKey];
+  const opts = fontOptions(layerKey, fonts);
+  const showLang =
+    (layerKey === "romanized" && japanese) ||
+    (layerKey === "annotation" && phoneticOpts.length > 0);
+  const dim = !layer.enabled;
+
+  return (
+    <div
+      style={{
+        border: "1px solid #2c2c2c",
+        borderRadius: 6,
+        background: "#1a1a1a",
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        minWidth: 0,
+      }}
+    >
+      <label
         style={{
-          display: "grid",
-          gridTemplateColumns: cols,
-          padding: "4px 0 6px",
+          display: "flex", alignItems: "center", gap: 8,
           borderBottom: "1px solid #2c2c2c",
-          marginBottom: 6,
+          paddingBottom: 8, cursor: "pointer",
         }}
       >
-        <strong style={{ fontSize: "0.78em", letterSpacing: "0.08em", opacity: 0.6, textTransform: "uppercase" }}>
-          {label}
+        <input
+          type="checkbox"
+          checked={layer.enabled}
+          onChange={(e) => patchLayer(setStyles, layerKey, { enabled: e.target.checked })}
+          style={{ margin: 0 }}
+        />
+        <strong style={{ fontSize: "0.95em", opacity: dim ? 0.4 : 1 }}>
+          {LAYER_LABEL[layerKey]}
         </strong>
-      </div>
+      </label>
+
+      <ColumnSection label="Color">
+        <ColorRow
+          color={layer.primarycolor}
+          opacity={layer.primary_opacity}
+          onColor={(c) => patchLayer(setStyles, layerKey, { primarycolor: c })}
+          onOpacity={(o) => patchLayer(setStyles, layerKey, { primary_opacity: o })}
+        />
+      </ColumnSection>
+
+      <ColumnSection label="Typography">
+        <select
+          value={layer.fontname}
+          onChange={(e) => patchLayer(setStyles, layerKey, { fontname: e.target.value })}
+          style={{ padding: "3px 6px", fontSize: "0.85em", width: "100%" }}
+        >
+          {opts.includes(layer.fontname) ? null : (
+            <option value={layer.fontname}>{layer.fontname} (?)</option>
+          )}
+          {opts.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+        <SizeRow
+          size={layer.fontsize}
+          onChange={(n) => patchLayer(setStyles, layerKey, { fontsize: n })}
+        />
+        <div style={{ display: "flex", gap: 12 }}>
+          <CheckboxLabel
+            checked={layer.bold}
+            onChange={(b) => patchLayer(setStyles, layerKey, { bold: b })}
+            label="Bold"
+          />
+          <CheckboxLabel
+            checked={layer.italic}
+            onChange={(b) => patchLayer(setStyles, layerKey, { italic: b })}
+            label="Italic"
+          />
+        </div>
+      </ColumnSection>
+
+      <ColumnSection label="Effects">
+        <EffectsStack
+          layer={layer}
+          onPatch={(p) => patchLayer(setStyles, layerKey, p)}
+        />
+      </ColumnSection>
+
+      {showLang && (
+        <ColumnSection label="Language">
+          {layerKey === "romanized" && japanese && (
+            <LongVowelControl
+              mode={styles.romanized.long_vowel_mode}
+              onChange={(m) =>
+                setStyles((s) => ({
+                  ...s,
+                  romanized: { ...s.romanized, long_vowel_mode: m },
+                }))
+              }
+            />
+          )}
+          {layerKey === "annotation" && phoneticOpts.length > 0 && (
+            <PhoneticControl
+              value={styles.annotation.phonetic_system ?? null}
+              options={phoneticOpts}
+              onChange={(v) =>
+                setStyles((s) => ({
+                  ...s,
+                  annotation: { ...s.annotation, phonetic_system: v },
+                }))
+              }
+            />
+          )}
+        </ColumnSection>
+      )}
+    </div>
+  );
+}
+
+function ColumnSection({
+  label, children,
+}: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {children}
       </div>
-    </div>
-  );
-}
-
-function PropertyRow({
-  label, cols, children,
-}: { label: string; cols: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: cols, gap: 10, alignItems: "center" }}>
-      <span style={{ fontSize: "0.8em", opacity: 0.55 }}>{label}</span>
-      {children}
     </div>
   );
 }
@@ -483,18 +611,20 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 function ColorRow({
-  color, opacity, onColor, onOpacity,
+  color, opacity, onColor, onOpacity, disabled = false,
 }: {
   color: string;
   opacity: number;
   onColor: (c: string) => void;
   onOpacity: (n: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <input
         type="color"
         value={color}
+        disabled={disabled}
         onChange={(e) => onColor(e.target.value.toUpperCase())}
         style={{ width: 32, height: 24, padding: 0, border: "1px solid #444", background: "transparent" }}
       />
@@ -504,6 +634,7 @@ function ColorRow({
         max={100}
         step={5}
         value={opacity}
+        disabled={disabled}
         onChange={(e) => onOpacity(Number(e.target.value))}
         style={{ flex: 1, minWidth: 60 }}
         title={`${opacity}%`}
@@ -538,6 +669,301 @@ function SizeRow({
           if (!Number.isNaN(n)) onChange(n);
         }}
         style={{ width: 52, padding: "2px 4px", fontSize: "0.85em" }}
+      />
+    </div>
+  );
+}
+
+function OutlineControl({
+  layer, onPatch,
+}: { layer: LayerStyle; onPatch: (p: Partial<LayerStyle>) => void }) {
+  const dim = !layer.outline_enabled;
+  return (
+    <div>
+      <EffectHeader
+        label="Outline"
+        checked={layer.outline_enabled}
+        onChange={(b) => onPatch({ outline_enabled: b })}
+      />
+      <div style={{ opacity: dim ? 0.4 : 1, display: "flex", flexDirection: "column", gap: 4 }}>
+        <FloatRow
+          label="width"
+          value={layer.outline}
+          min={0}
+          max={10}
+          step={0.5}
+          disabled={dim}
+          onChange={(n) => onPatch({ outline: n })}
+        />
+        <ColorRow
+          color={layer.outlinecolor}
+          opacity={layer.outline_opacity}
+          disabled={dim}
+          onColor={(c) => onPatch({ outlinecolor: c })}
+          onOpacity={(o) => onPatch({ outline_opacity: o })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ShadowControl({
+  layer, onPatch,
+}: { layer: LayerStyle; onPatch: (p: Partial<LayerStyle>) => void }) {
+  const dim = !layer.shadow_enabled;
+  return (
+    <div>
+      <EffectHeader
+        label="Shadow"
+        checked={layer.shadow_enabled}
+        onChange={(b) => onPatch({ shadow_enabled: b })}
+      />
+      <div style={{ opacity: dim ? 0.4 : 1 }}>
+        <FloatRow
+          label="distance"
+          value={layer.shadow}
+          min={0}
+          max={10}
+          step={0.5}
+          disabled={dim}
+          onChange={(n) => onPatch({ shadow: n })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GlowControl({
+  layer, onPatch,
+}: { layer: LayerStyle; onPatch: (p: Partial<LayerStyle>) => void }) {
+  const dim = !layer.glow_enabled;
+  return (
+    <div>
+      <EffectHeader
+        label="Glow"
+        checked={layer.glow_enabled}
+        onChange={(b) => onPatch({ glow_enabled: b })}
+      />
+      <div style={{ opacity: dim ? 0.4 : 1, display: "flex", flexDirection: "column", gap: 4 }}>
+        <IntRow
+          label="radius"
+          value={layer.glow_radius}
+          min={0}
+          max={20}
+          disabled={dim}
+          onChange={(n) => onPatch({ glow_radius: n })}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: "0.75em", opacity: 0.55, width: 56 }}>color</span>
+          <input
+            type="color"
+            value={layer.glow_color_hex}
+            disabled={dim}
+            onChange={(e) => onPatch({ glow_color_hex: e.target.value.toUpperCase() })}
+            style={{ width: 32, height: 24, padding: 0, border: "1px solid #444", background: "transparent" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EffectHeader({
+  label, checked, onChange,
+}: { label: string; checked: boolean; onChange: (b: boolean) => void }) {
+  return (
+    <label
+      style={{
+        display: "flex", alignItems: "center", gap: 6,
+        fontSize: "0.82em", marginBottom: 4, cursor: "pointer",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ margin: 0 }}
+      />
+      <strong style={{ opacity: checked ? 1 : 0.5 }}>{label}</strong>
+    </label>
+  );
+}
+
+function FloatRow({
+  label, value, min, max, step, disabled, onChange,
+}: {
+  label: string; value: number; min: number; max: number; step: number;
+  disabled: boolean; onChange: (n: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: "0.75em", opacity: 0.55, width: 56 }}>{label}</span>
+      <input
+        type="range"
+        min={min} max={max} step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 40 }}
+      />
+      <input
+        type="number"
+        min={min} max={max} step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (!Number.isNaN(n)) onChange(n);
+        }}
+        style={{ width: 48, padding: "2px 4px", fontSize: "0.8em" }}
+      />
+    </div>
+  );
+}
+
+function IntRow({
+  label, value, min, max, disabled, onChange,
+}: {
+  label: string; value: number; min: number; max: number;
+  disabled: boolean; onChange: (n: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: "0.75em", opacity: 0.55, width: 56 }}>{label}</span>
+      <input
+        type="range"
+        min={min} max={max} step={1}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 40 }}
+      />
+      <span style={{ fontSize: "0.75em", opacity: 0.6, fontFamily: "monospace", width: 24, textAlign: "right" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function LongVowelControl({
+  mode, onChange,
+}: { mode: LongVowelMode; onChange: (m: LongVowelMode) => void }) {
+  return (
+    <select
+      value={mode}
+      onChange={(e) => onChange(e.target.value as LongVowelMode)}
+      style={{ padding: "3px 6px", fontSize: "0.85em", width: "100%" }}
+    >
+      {LONG_VOWEL_MODES.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function PhoneticControl({
+  value, options, onChange,
+}: {
+  value: PhoneticSystem | null;
+  options: PhoneticOption[];
+  onChange: (v: PhoneticSystem | null) => void;
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => {
+        const v = e.target.value;
+        onChange(v === "" ? null : (v as PhoneticSystem));
+      }}
+      style={{ padding: "3px 6px", fontSize: "0.85em", width: "100%" }}
+    >
+      <option value="">— Default —</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function StackPositionBlock({
+  styles, setStyles,
+}: { styles: StyleConfig; setStyles: Props["setStyles"] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 14, border: "1px solid #2c2c2c", borderRadius: 6, background: "#1a1a1a" }}>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          padding: "8px 12px", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 8,
+        }}
+      >
+        <strong style={{ fontSize: "0.9em" }}>Top Stack Position</strong>
+        <span style={{ opacity: 0.5, fontSize: "0.8em", fontFamily: "monospace" }}>
+          offset {styles.vertical_offset}px · ann {styles.annotation_gap}px · rom {styles.romanized_gap}px
+        </span>
+        <span style={{ marginLeft: "auto", opacity: 0.5, fontSize: "0.8em" }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </div>
+      {open && (
+        <div style={{ padding: "10px 14px 14px", borderTop: "1px solid #2c2c2c", display: "flex", flexDirection: "column", gap: 8 }}>
+          <StackSlider
+            label="Vertical offset"
+            value={styles.vertical_offset}
+            min={-100} max={100}
+            help="Shifts the entire top stack up (positive) or down."
+            onChange={(n) => setStyles((s) => ({ ...s, vertical_offset: n }))}
+          />
+          <StackSlider
+            label="Annotation gap"
+            value={styles.annotation_gap}
+            min={-20} max={40}
+            help="Space between the annotation layer and the target line."
+            onChange={(n) => setStyles((s) => ({ ...s, annotation_gap: n }))}
+          />
+          <StackSlider
+            label="Romanized gap"
+            value={styles.romanized_gap}
+            min={-20} max={40}
+            help="Space between the romanized line and the target line."
+            onChange={(n) => setStyles((s) => ({ ...s, romanized_gap: n }))}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StackSlider({
+  label, value, min, max, help, onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  help?: string;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ width: 130, fontSize: "0.85em" }} title={help}>{label}</span>
+      <input
+        type="range"
+        min={min} max={max} step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1 }}
+      />
+      <input
+        type="number"
+        min={min} max={max} step={1}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (!Number.isNaN(n)) onChange(n);
+        }}
+        style={{ width: 60, padding: "2px 4px", fontSize: "0.85em" }}
       />
     </div>
   );

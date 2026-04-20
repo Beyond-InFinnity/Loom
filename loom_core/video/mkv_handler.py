@@ -293,6 +293,27 @@ def extract_screenshot(mkv_path, timestamp, temp_dir):
         return None
 
 
+def extract_frame(video_path, timestamp, output_path):
+    """Extract one frame at *timestamp* seconds directly to *output_path*.
+
+    Thin sibling of ``extract_screenshot`` that takes a fully-qualified
+    destination path so callers can cache frames by stable filename (e.g.
+    ``{file_id}_{int_ts}.jpg``) instead of being forced into the
+    ``{temp_dir}/screenshot.jpg`` single-slot convention. Returns True on
+    success, False on ffmpeg error.
+    """
+    try:
+        (
+            ffmpeg
+            .input(video_path, ss=timestamp)
+            .output(output_path, vframes=1, q=2, update=1)
+            .run(overwrite_output=True, quiet=True)
+        )
+        return True
+    except ffmpeg.Error:
+        return False
+
+
 def _build_track_title(target_lang_name, native_lang_name,
                        annotation_name=None, romanization_name=None,
                        is_pgs=False):

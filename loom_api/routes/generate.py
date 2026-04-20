@@ -11,6 +11,7 @@ from loom_core.subs.processing import generate_ass_file, generate_pgs_file
 from ..deps import get_jobs, get_storage
 from ..jobs import JobManager
 from ..storage import Storage
+from ..style_mapping import auto_style_mapping
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
@@ -88,6 +89,8 @@ def generate_ass(
         resolution=src_res,
         output_playres=out_res,
         include_annotations=req.include_annotations,
+        native_style_mapping=auto_style_mapping(native_path),
+        target_style_mapping=auto_style_mapping(target_path),
         native_offset_ms=req.offsets.bottom_ms,
         target_offset_ms=req.offsets.top_ms,
     )
@@ -117,6 +120,8 @@ async def generate_pgs(
         else None
     )
     styles_dict = req.styles.to_engine_dict()
+    native_mapping = auto_style_mapping(native_path)
+    target_mapping = auto_style_mapping(target_path)
 
     async def worker(status: JobStatus) -> None:
         def progress(completed: int, total: int) -> None:
@@ -133,6 +138,8 @@ async def generate_pgs(
             resolution=src_res,
             output_resolution=out_res,
             progress_callback=progress,
+            native_style_mapping=native_mapping,
+            target_style_mapping=target_mapping,
             native_offset_ms=req.offsets.bottom_ms,
             target_offset_ms=req.offsets.top_ms,
         )

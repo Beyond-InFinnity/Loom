@@ -2,9 +2,21 @@
 from .romanize import get_romanizer, get_annotation_func, get_japanese_pipeline, _apply_thai_word_boundaries
 
 FONT_LIST = [
-    "Arial", "Arial Black", "Verdana", "Georgia", "Times New Roman",
+    # Latin + Cyrillic (broad script coverage)
+    "Noto Sans", "Georgia", "Times New Roman", "Verdana",
+    "Arial", "Arial Black",
+    # CJK
     "Noto Sans CJK JP", "Noto Sans CJK SC", "Noto Sans CJK KR",
     "Noto Sans CJK TC", "Noto Sans CJK HK",
+    # Non-CJK scripts
+    "Noto Sans Thai",
+    "Noto Naskh Arabic", "Amiri",
+    "Noto Sans Hebrew",
+    "Noto Nastaliq Urdu",
+    "Noto Sans Devanagari", "Noto Sans Bengali",
+    "Noto Sans Tamil", "Noto Sans Telugu",
+    "Noto Sans Gujarati", "Noto Sans Gurmukhi",
+    "Be Vietnam Pro",
 ]
 
 # Fonts with confirmed CJK (kanji/kana/hanzi) glyph coverage.
@@ -15,6 +27,34 @@ CJK_FONT_LIST = [
     "Noto Sans CJK JP", "Noto Sans CJK SC", "Noto Sans CJK KR",
     "Noto Sans CJK TC", "Noto Sans CJK HK",
 ]
+
+# ISO 639-2 (3-letter) and common alias codes → canonical BCP-47.
+# MKV/ffprobe metadata typically uses 3-letter codes; we only key romanization
+# + annotation off 2-letter primaries, so anything not in this map silently
+# falls off the pipeline. Be liberal here.
+_ISO639_ALIAS = {
+    # CJK — note chs/cht preserve script variant
+    "jpn": "ja", "jp": "ja",
+    "kor": "ko", "kr": "ko",
+    "zho": "zh", "chi": "zh", "cmn": "zh",
+    "chs": "zh-Hans", "cht": "zh-Hant",
+    # Cantonese stays as-is (yue is already BCP-47)
+    # Cyrillic
+    "rus": "ru",
+    "ukr": "uk", "ua": "uk",
+    "bel": "be", "by": "be",
+    "srp": "sr", "bul": "bg", "mkd": "mk", "mon": "mn",
+    # Thai
+    "tha": "th",
+    # Indic (R5 — not implemented yet, but normalize for forward-compat)
+    "hin": "hi", "ben": "bn", "tam": "ta", "tel": "te",
+    "guj": "gu", "pan": "pa",
+    # RTL / experimental
+    "ara": "ar", "fas": "fa", "per": "fa", "urd": "ur",
+    "heb": "he", "yid": "yi",
+    # Vietnamese (Latin, so no romanization, but the font default matters)
+    "vie": "vi",
+}
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -50,15 +90,83 @@ _ROMANIZATION_META = {
 # Right-to-left primary subtags
 _RTL_CODES = frozenset({"ar", "fa", "ur", "he", "yi"})
 
-# Per-script default fonts (must be entries in FONT_LIST)
+# Per-script default fonts (must be entries in FONT_LIST).
+# Covers every language with a romanization implementation plus the R5
+# pending ones so the font routing is correct the day the pipelines land.
 _SCRIPT_FONTS = {
+    # CJK
     "ja": "Noto Sans CJK JP",
     "ko": "Noto Sans CJK KR",
+    # Cyrillic — Noto Sans has full Cyrillic coverage and pairs well with
+    # Latin tracks, avoiding a jarring style shift between Bottom/Top.
+    "ru": "Noto Sans", "uk": "Noto Sans", "be": "Noto Sans",
+    "sr": "Noto Sans", "bg": "Noto Sans", "mk": "Noto Sans",
+    "mn": "Noto Sans",
+    # Thai
+    "th": "Noto Sans Thai",
+    # Indic (R5 — not implemented yet)
+    "hi": "Noto Sans Devanagari",
+    "bn": "Noto Sans Bengali",
+    "ta": "Noto Sans Tamil",
+    "te": "Noto Sans Telugu",
+    "gu": "Noto Sans Gujarati",
+    "pa": "Noto Sans Gurmukhi",
+    # RTL / experimental
+    "ar": "Noto Naskh Arabic",
+    "fa": "Noto Naskh Arabic",
+    "ur": "Noto Nastaliq Urdu",
+    "he": "Noto Sans Hebrew",
+    "yi": "Noto Sans Hebrew",
+    # Vietnamese uses Latin w/ diacritics — Be Vietnam Pro is purpose-built.
+    "vi": "Be Vietnam Pro",
 }
+
+# Fallback for Latin-script and unknown languages. Noto Sans renders Latin +
+# Cyrillic + Greek + Vietnamese diacritics cleanly — it's our universal
+# safe default. Arial is intentionally never returned as a default.
+_DEFAULT_FONT = "Noto Sans"
+
+
+def _normalize_lang_code(lang_code):
+    """Normalize ISO 639-2/3 aliases to canonical BCP-47.
+
+    MKV/ffprobe metadata and older subtitle tooling commonly emit 3-letter
+    codes (``"jpn"``, ``"tha"``, ``"chi"``) that ``get_lang_config`` and
+    friends don't recognize — the primary-subtag extraction keys on
+    2-letter BCP-47 codes. Normalizing here is the single fix that makes
+    every downstream helper agree.
+
+    Returns the input unchanged when no alias applies (including for
+    already-canonical codes like ``"ja"`` or ``"zh-Hans"``).
+    """
+    if not lang_code:
+        return lang_code
+    lc = lang_code.lower()
+    mapped = _ISO639_ALIAS.get(lc)
+    if mapped is not None:
+        return mapped
+    # Hyphenated compounds (``jpn-JP``, ``chi-hant``) — normalize the primary
+    # subtag and preserve the rest.
+    if "-" in lc or "_" in lc:
+        sep = "-" if "-" in lc else "_"
+        head, _, tail = lc.partition(sep)
+        head_map = _ISO639_ALIAS.get(head)
+        if head_map is not None:
+            # If the mapped primary already carries script info (e.g. "zh-Hans"),
+            # trust it and drop the tail to avoid "zh-Hans-hant".
+            if "-" in head_map:
+                return head_map
+            return f"{head_map}-{tail}"
+    return lang_code
 
 
 def _font_for_script(lang_code: str) -> str:
-    """Return the best default font for *lang_code* from FONT_LIST."""
+    """Return the best default font for *lang_code* from FONT_LIST.
+
+    Never returns ``"Arial"`` — the goal is a default that renders the
+    target script correctly and looks intentional. Users who want Arial
+    can pick it explicitly from FONT_LIST.
+    """
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary in _SCRIPT_FONTS:
         return _SCRIPT_FONTS[primary]
@@ -72,7 +180,7 @@ def _font_for_script(lang_code: str) -> str:
         if lc == "zh-hk":
             return "Noto Sans CJK HK"
         return "Noto Sans CJK SC"
-    return "Arial"
+    return _DEFAULT_FONT
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +276,10 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     chinese_variant : str | None
         One of "zh-Hans", "zh-Hant", "yue", or None for non-Chinese.
     """
+    # Normalize ISO 639-2 aliases (jpn/kor/tha/chi/cht/...) to BCP-47 once.
+    # Downstream helpers (annotation_system_name, chinese_variant,
+    # font_for_script) all key on the primary 2-letter subtag.
+    lang_code = _normalize_lang_code(lang_code)
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
     # Thai default phonetic system is Paiboon+ (tone diacritics for learners).

@@ -31,6 +31,41 @@ _ALIGN_CSS = {
 }
 
 
+def _ann_font_stack(primary: str | None) -> str:
+    """CSS ``font-family`` stack for annotation ruby/interlinear text.
+
+    Fronts with the user's chosen annotation font, then falls through to
+    the four Noto Sans CJK variants (which between them cover Han, Kana,
+    Hangul, and Bopomofo), then generic ``sans-serif``. Quotes the
+    primary font only — the Noto names are safe unquoted.
+    """
+    fallbacks = "'Noto Sans CJK TC', 'Noto Sans CJK SC', 'Noto Sans CJK JP', 'Noto Sans CJK KR', sans-serif"
+    if not primary:
+        return fallbacks
+    return f"'{primary}', {fallbacks}"
+
+
+def _annotation_is_zhuyin(spans) -> bool:
+    """True when any reading in *spans* contains Bopomofo (U+3100–U+312F).
+
+    Zhuyin alone wants ``ruby-position: inter-character`` — renders the
+    readings vertically to the right of each character (the traditional
+    Taiwanese textbook layout) instead of horizontally above.
+    """
+    if not spans:
+        return False
+    for item in spans:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        reading = item[1]
+        if not reading:
+            continue
+        for ch in str(reading):
+            if '\u3100' <= ch <= '\u312f':
+                return True
+    return False
+
+
 def _load_subs(source):
     """Load subtitles — delegates to shared cached loader."""
     return load_subs(source)
@@ -449,12 +484,20 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     # Compute annotation (ruby <rt>) styling from Annotation config.
     ann_cfg = styles.get('Annotation', {})
     ann_rt_extra_css = ""
+    ann_fontname = None
+    # Zhuyin (Bopomofo) reads vertically to the right of each base
+    # character in the traditional Taiwanese textbook layout — CSS's
+    # ``ruby-position: inter-character`` does exactly that. Detect by
+    # inspecting the span readings so we don't need to thread another
+    # flag through every caller.
+    is_zhuyin = _annotation_is_zhuyin(annotation_spans)
     if isinstance(ann_cfg, dict) and ann_cfg.get('enabled', False):
         ann_pc = ann_cfg.get('primarycolor', pysubs2.Color(255, 255, 255, 0))
         ann_opacity = (255 - ann_pc.a) / 255.0
         ann_color_css = f"rgba({ann_pc.r},{ann_pc.g},{ann_pc.b},{ann_opacity})"
         top_fontsize = styles.get('Top', {}).get('fontsize', 24)
         ann_fontsize_ratio = ann_cfg.get('fontsize', 12) / top_fontsize if top_fontsize else 0.5
+        ann_fontname = ann_cfg.get('fontname')
 
         # Build text-shadow for <rt> elements (outline/shadow/glow)
         ann_shadow_parts = []
@@ -502,12 +545,22 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     background-color: #0e1117;
   }}
   /* Ruby text for annotation preview (furigana/pinyin/zhuyin/jyutping).
-     Font-size ratio and color are driven by the Annotation style config. */
+     Font-family, size-ratio and color are driven by the Annotation
+     style config — the Annotation font must cover the target script
+     (e.g. Bopomofo glyphs for Zhuyin, which generic Latin fonts lack).
+     Fallback chain mirrors the PGS rasterizer: the four CJK Noto variants
+     cover Han + Kana + Hangul + Bopomofo between them, so browsers that
+     don't have the primary font pick up the closest-matching CJK coverage.
+     For Zhuyin specifically, ``ruby-position: inter-character`` renders
+     the rt vertically to the right of each base character — the
+     traditional Taiwanese textbook layout. */
+  {"ruby { ruby-position: inter-character; }" if is_zhuyin else ""}
   ruby rt {{
     font-size: {ann_fontsize_ratio}em;
     text-align: center;
     color: {ann_color_css};
-    transform: translateY(-{ann_gap * _FONT_SCALE:.1f}px);
+    {"" if is_zhuyin else f"transform: translateY(-{ann_gap * _FONT_SCALE:.1f}px);"}
+    font-family: {_ann_font_stack(ann_fontname)};
     {ann_rt_extra_css}
   }}
   /* Interlinear annotation mode: inline-block two-row containers */
@@ -522,6 +575,7 @@ def generate_unified_preview(styles, native_text, target_text, pinyin_text,
     font-size: {ann_fontsize_ratio}em;
     color: {ann_color_css};
     transform: translateY(-{ann_gap * _FONT_SCALE:.1f}px);
+    font-family: {_ann_font_stack(ann_fontname)};
     {ann_rt_extra_css}
   }}
   .ilb-b {{

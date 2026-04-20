@@ -13,7 +13,12 @@ import {
   registerFileByPath,
   scanVideo,
 } from "./api";
-import { defaultStyleConfig, FACTORY_DEFAULT_FONTS, StyleConfig } from "./styles";
+import {
+  defaultStyleConfig,
+  FACTORY_DEFAULT_FONTS,
+  phoneticOptions,
+  StyleConfig,
+} from "./styles";
 import { StyleSection } from "./StyleSection";
 import { TimingOffsetsSection } from "./TimingOffsetsSection";
 import { PreviewSection } from "./PreviewSection";
@@ -174,6 +179,16 @@ function App() {
           }
           if (FACTORY_DEFAULT_FONTS.has(next.annotation.fontname)) {
             next.annotation.fontname = meta.default_font;
+          }
+          // annotation.phonetic_system: default to the first option for
+          // the language (zh-Hant → zhuyin, zh-Hans → pinyin, yue →
+          // jyutping, th → paiboon). Keep the user's pick if it's still
+          // a valid option for the new language, otherwise reset.
+          const opts = phoneticOptions(lang);
+          const current = next.annotation.phonetic_system ?? null;
+          const stillValid = opts.some((o) => o.value === current);
+          if (!stillValid) {
+            next.annotation.phonetic_system = opts.length ? opts[0].value : null;
           }
           return next;
         });

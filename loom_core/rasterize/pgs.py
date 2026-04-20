@@ -226,11 +226,20 @@ def _build_fullframe_html(styles: dict, canvas_width: int,
     # --- Annotation <rt> CSS (inline with Top) ---
     ann_cfg = styles.get('Annotation', {})
     ann_fontsize = ann_cfg.get('fontsize', 22) * scale
-    ann_fontname = ann_cfg.get('fontname', 'Arial')
+    ann_fontname = ann_cfg.get('fontname', 'Noto Sans')
     ann_bold = 'bold' if ann_cfg.get('bold', False) else 'normal'
     ann_italic = 'italic' if ann_cfg.get('italic', False) else 'normal'
     ann_color = _color_css(ann_cfg)
     ann_text_shadow = _build_text_shadow_css(ann_cfg, scale)
+
+    # Zhuyin (Bopomofo) wants ``ruby-position: inter-character`` —
+    # rt renders vertically to the right of each base character, the
+    # traditional Taiwanese textbook layout. Frontend's lang-aware
+    # effect sets ``Annotation.phonetic_system = 'zhuyin'`` for zh-Hant;
+    # fall back to content-probe for resilience.
+    is_zhuyin = (ann_cfg.get('phonetic_system') == 'zhuyin')
+    zhuyin_css = "#top ruby { ruby-position: inter-character; }" if is_zhuyin else ""
+    rt_translate = "" if is_zhuyin else f"transform: translateY(-{ann_gap * scale:.1f}px);"
 
     return f'''<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>
@@ -253,13 +262,14 @@ html, body {{ background: transparent; overflow: hidden;
 #bottom {{ {bottom_css} }}
 #top {{ {top_css} }}
 #romaji {{ {rom_css} }}
+{zhuyin_css}
 #top rt {{
     color: {ann_color};
-    font-family: '{ann_fontname}', 'Noto Sans CJK JP', sans-serif;
+    font-family: '{ann_fontname}', 'Noto Sans CJK TC', 'Noto Sans CJK SC', 'Noto Sans CJK JP', 'Noto Sans CJK KR', sans-serif;
     font-size: {ann_fontsize:.1f}px;
     font-weight: {ann_bold};
     font-style: {ann_italic};
-    transform: translateY(-{ann_gap * scale:.1f}px);
+    {rt_translate}
     {ann_text_shadow}
 }}
 /* Interlinear annotation mode: inline-block two-row containers */
@@ -272,11 +282,11 @@ html, body {{ background: transparent; overflow: hidden;
 #top .ilb-r {{
     display: block;
     color: {ann_color};
-    font-family: '{ann_fontname}', 'Noto Sans CJK JP', sans-serif;
+    font-family: '{ann_fontname}', 'Noto Sans CJK TC', 'Noto Sans CJK SC', 'Noto Sans CJK JP', 'Noto Sans CJK KR', sans-serif;
     font-size: {ann_fontsize:.1f}px;
     font-weight: {ann_bold};
     font-style: {ann_italic};
-    transform: translateY(-{ann_gap * scale:.1f}px);
+    {rt_translate}
     {ann_text_shadow}
 }}
 #top .ilb-b {{

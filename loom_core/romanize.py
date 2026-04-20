@@ -1925,6 +1925,25 @@ def _arabic_script_romanize_word(letters: str, *, table: dict,
             tokens.append(("vowel", "a"))
             prev_kind = "vowel"
             continue
+        if ch == "ھ":
+            # Urdu heh doachashmee (U+06BE) is an aspiration marker: it
+            # combines with the preceding consonant (بھ→bh, ڈھ→ḍh,
+            # ٹھ→ṭh).  Safe no-op for Arabic/Persian — the codepoint
+            # doesn't appear in those languages' text.
+            if tokens and tokens[-1][0] == "cons":
+                _, prev_val = tokens[-1]
+                tokens[-1] = ("cons", prev_val + "h")
+            else:
+                tokens.append(("cons", "h"))
+                prev_kind = "cons"
+            continue
+        if ch == "ے":
+            # Urdu yeh barree (U+06D2) is a tall-yeh variant used for
+            # final /eː/.  Emit as long vowel using the table's 'e' key
+            # if present, else fall back to plain 'e'.
+            tokens.append(("long", long_vowels.get("e", "e")))
+            prev_kind = "long"
+            continue
         if ch in table:
             tokens.append(("cons", table[ch]))
             prev_kind = "cons"
@@ -2126,6 +2145,145 @@ def _make_persian_romanizer(phonetic_system: str = "learner"):
             return ""
         clean = _strip_ass(text)
         clean = _ARABIC_COMBINING_RE.sub("", clean)
+        clean = clean.translate(_PERSIAN_NORMALIZE)
+
+        out: list[str] = []
+        buf = ""
+        for ch in clean:
+            if _is_letter(ch):
+                buf += ch
+            else:
+                if buf:
+                    out.append(_arabic_script_romanize_word(
+                        buf, table=table, long_vowels=long_vowels,
+                        hamza=hamza, default_short="a",
+                        waw_cons="v", ya_cons="y"))
+                    buf = ""
+                out.append(ch)
+        if buf:
+            out.append(_arabic_script_romanize_word(
+                buf, table=table, long_vowels=long_vowels,
+                hamza=hamza, default_short="a",
+                waw_cons="v", ya_cons="y"))
+
+        return _polish_romaji("".join(out), capitalize=True)
+
+    return romanize
+
+
+# ---------------------------------------------------------------------------
+# R5-4 remaining: Urdu (ur) block romanization
+# ---------------------------------------------------------------------------
+#
+# Urdu uses the Arabic script extended with Persian's 4 letters
+# (پ چ ژ گ), the codepoint variants Persian contributes (ی ک),
+# and 5 Urdu-specific additions:
+#
+#   * ٹ (U+0679) Tteh      — retroflex t (ṭ)
+#   * ڈ (U+0688) Ddal      — retroflex d (ḍ)
+#   * ڑ (U+0691) Rreh      — retroflex r (ṛ)
+#   * ں (U+06BA) Noon ghunna — nasalization of preceding vowel
+#   * ے (U+06D2) Yeh barree — final long /eː/
+#
+# Plus the aspiration marker ھ (U+06BE heh doachashmee), which is NOT
+# a standalone consonant — it combines with the preceding consonant
+# to form aspirated pairs (بھ → bh, ٹھ → ṭh, ڑھ → ṛh, etc.).  The
+# shared walker handles ھ by mutating the most recent consonant token;
+# handling is wired unconditionally so Arabic/Persian text with a
+# stray ھ produces reasonable output too.
+#
+# Two phonetic systems per the "Duolingo-to-academic hybrid" sign-off:
+#
+#   * learner (default): Hunterian-lite.  Retroflexes marked with
+#     underdots (ṭ ḍ ṛ); aspirates emit as digraphs (bh dh gh kh ph th
+#     ṭh ḍh ṛh); Arabic emphatic marks collapse to Persian phonology
+#     (ص→s, ح→h, ع→silent); nun ghunnah ں emits as plain "n"; yeh
+#     barree ے emits as "e".
+#   * ala-lc (ALA-LC, library scholarly): preserves Arabic emphatic
+#     marks (ṣ ḍ ṭ ẓ ḥ); nun ghunnah uses combining candrabindu (n̐);
+#     yeh barree uses long ē with macron.  Persian's č / ž / š / ġ
+#     scholarly digraphs also carry over.
+#
+# Known limitations (locked in tests) inherit from the Arabic/Persian
+# no-tashkil situation: short vowels, ezāfe, and ya/waw mater vs.
+# diphthong disambiguation must be guessed.  Aspirate handling is a
+# new failure surface: a ھ that appears after a vowel letter (rare
+# but legal in Urdu) currently emits as a standalone 'h' rather than
+# merging, because there's no preceding consonant token to combine.
+
+# Urdu retroflex set — shared between learner and ala-lc since the
+# transliteration convention (underdot) is stable across both.
+_URDU_RETROFLEXES = {
+    "ٹ": "ṭ",   # U+0679 Tteh
+    "ڈ": "ḍ",   # U+0688 Ddal
+    "ڑ": "ṛ",   # U+0691 Rreh
+}
+
+# Urdu learner table: Persian learner (collapsed emphatics) + retroflexes
+# + nun ghunnah as plain 'n'.
+_URDU_CONSONANTS_LEARNER = {
+    **_PERSIAN_CONSONANTS_LEARNER,
+    **_URDU_RETROFLEXES,
+    "ں": "n",   # U+06BA noon ghunnah → plain n (learner)
+}
+
+# Urdu ala-lc table: Persian dmg base + retroflexes + nun-with-candrabindu.
+# The combining candrabindu (U+0310) attaches to the prior vowel; we
+# emit "n̐" as a two-codepoint sequence so it renders as nasalized n.
+_URDU_CONSONANTS_ALA_LC = {
+    **_PERSIAN_CONSONANTS_DMG,
+    **_URDU_RETROFLEXES,
+    "ں": "n\u0310",
+}
+
+_URDU_TABLES = {
+    "learner": _URDU_CONSONANTS_LEARNER,
+    "ala-lc":  _URDU_CONSONANTS_ALA_LC,
+}
+
+# Long vowel table extended with 'e' for yeh barree.  Learner uses
+# bare 'e'; ala-lc uses 'ē' with macron to mark length.
+_URDU_LONG_VOWELS = {
+    "learner": {"a": "ā", "i": "ī", "u": "ū", "e": "e"},
+    "ala-lc":  {"a": "ā", "i": "ī", "u": "ū", "e": "ē"},
+}
+
+_URDU_HAMZA = {"learner": "ʾ", "ala-lc": "ʾ"}
+
+# Urdu-specific letter set that the classifier must recognize.
+# Includes ھ (heh doachashmee) — the walker special-cases it as an
+# aspiration marker, but the letter classifier must first admit it
+# into the word-buffer so it reaches the walker.
+_URDU_LETTER_EXTRAS = frozenset("ٹڈڑںےھ")
+
+
+def _urdu_is_letter(ch: str, table: dict) -> bool:
+    if _persian_is_letter(ch, table):
+        return True
+    return ch in _URDU_LETTER_EXTRAS
+
+
+def _make_urdu_romanizer(phonetic_system: str = "learner"):
+    """Return an Urdu block romanizer for the given phonetic system.
+
+    Reuses the Arabic/Persian shared walker with Urdu-specific tables.
+    Aspiration marker ھ is handled unconditionally by the walker.
+    """
+    if phonetic_system not in _URDU_TABLES:
+        phonetic_system = "learner"
+    table = _URDU_TABLES[phonetic_system]
+    long_vowels = _URDU_LONG_VOWELS[phonetic_system]
+    hamza = _URDU_HAMZA[phonetic_system]
+
+    def _is_letter(ch: str) -> bool:
+        return _urdu_is_letter(ch, table)
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ""
+        clean = _strip_ass(text)
+        clean = _ARABIC_COMBINING_RE.sub("", clean)
+        # Persian-yeh → Arabic-yeh normalization applies to Urdu too.
         clean = clean.translate(_PERSIAN_NORMALIZE)
 
         out: list[str] = []
@@ -2763,5 +2921,14 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     # "dmg" preserves scholarly marks + uses č / ž for چ ژ.
     if primary == "fa":
         return _make_persian_romanizer(phonetic_system=phonetic_system or "learner")
+
+    # Chunk R5-4 remaining — Urdu (ur) block romanization ──────────── ✅
+    # "learner" default: Hunterian-lite — retroflex underdots ṭ ḍ ṛ,
+    # digraph aspirates (bh dh gh kh ph th ṭh ḍh ṛh), collapsed
+    # emphatics, plain 'n' for nun-ghunnah.
+    # "ala-lc": scholarly — preserves emphatics + uses candrabindu for
+    # nun-ghunnah (n̐) + macron for yeh-barree (ē).
+    if primary == "ur":
+        return _make_urdu_romanizer(phonetic_system=phonetic_system or "learner")
 
     return None

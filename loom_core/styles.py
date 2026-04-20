@@ -85,7 +85,7 @@ _ROMANIZATION_META = {
     "he": ("Hebrew transliteration",        "moderate"),
     "ar": ("Arabic transliteration",        "moderate"),
     "fa": ("Persian transliteration",       "moderate"),
-    "ur": ("Romanization (experimental)",   "low"),
+    "ur": ("Urdu transliteration",          "moderate"),
 }
 
 # Right-to-left primary subtags
@@ -242,6 +242,8 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
         return "Transliteration"
     if primary == "fa":
         return "Transliteration"
+    if primary == "ur":
+        return "Transliteration"
     return "Annotation"
 
 
@@ -322,6 +324,14 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     }
     if primary == 'fa' and phonetic_system in _PERSIAN_PHONETIC_META:
         rom_name, confidence = _PERSIAN_PHONETIC_META[phonetic_system]
+
+    # Override romanization name/confidence for Urdu based on phonetic system.
+    _URDU_PHONETIC_META = {
+        'learner': ('Urdu (Hunterian-lite)',  'moderate'),
+        'ala-lc':  ('ALA-LC (scholarly)',     'moderate'),
+    }
+    if primary == 'ur' and phonetic_system in _URDU_PHONETIC_META:
+        rom_name, confidence = _URDU_PHONETIC_META[phonetic_system]
 
     # For Japanese: create one shared pipeline — single MeCab tagger instance
     # serves both the annotation (resolve_spans) and romaji (spans_to_romaji)

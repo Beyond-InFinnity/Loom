@@ -109,9 +109,11 @@ class TestTier1RomajiPipeline:
 
         romaji = spans_to_romaji(spans)
         # gurabiti / gurabitei — allow either; what matters is that it is
-        # NOT the MeCab default 'jūryoku' / 'juuryoku'.
-        assert "gurabiti" in romaji or "gurabitei" in romaji
-        assert "jūryoku" not in romaji and "juuryoku" not in romaji
+        # NOT the MeCab default 'jūryoku' / 'juuryoku'.  Case-insensitive
+        # because _polish_romaji capitalizes the sentence-initial letter.
+        lower = romaji.lower()
+        assert "gurabiti" in lower or "gurabitei" in lower
+        assert "jūryoku" not in lower and "juuryoku" not in lower
 
     def test_hiragana_author_reading_still_wins(self):
         """Regression guard: hiragana inline still takes tier-1 priority."""

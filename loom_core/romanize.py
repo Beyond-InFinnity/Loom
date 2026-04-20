@@ -468,6 +468,88 @@ def _is_cjk_punct_segment(seg: str) -> bool:
     return all(_is_cjk_punct(c) or c.isspace() for c in seg)
 
 
+# ---------------------------------------------------------------------------
+# Universal romanization polish
+# ---------------------------------------------------------------------------
+#
+# Applied at the tail of every romanization factory.  Romanization output is
+# Latin-script, so fullwidth CJK punctuation visually clashes with it — we
+# convert to ASCII equivalents.  The space-before-punct artifact comes from
+# token-wise space joining (`' '.join(parts)`) in the Chinese / Japanese /
+# Cantonese / Thai pipelines, where a punctuation token gets a leading space
+# from the join just like any other token.  Capitalization is opt-in per
+# language: on for scripts without source case (ja / zh / yue / ko); off for
+# Cyrillic (cyrtranslit preserves source case, which is the correct signal
+# for continuation vs. sentence-start lines) and Thai (no caps convention).
+
+# Fullwidth CJK punctuation → Latin equivalent.  The middle-dot ・ is common
+# in katakana (separates foreign first/last names) and maps to a space rather
+# than a dot, since in Latin-script output the separation is the signal.
+_CJK_TO_LATIN_PUNCT = {
+    '。': '.', '、': ',', '，': ',', '！': '!', '？': '?',
+    '；': ';', '：': ':', '（': '(', '）': ')',
+    '【': '[', '】': ']', '「': '"', '」': '"',
+    '『': '"', '』': '"', '・': ' ',
+}
+_CJK_PUNCT_TRANSLATE = str.maketrans(_CJK_TO_LATIN_PUNCT)
+
+# One or more whitespace characters followed by a closing-side punctuation
+# mark.  Matches the artifact produced by space-joining punctuation tokens
+# in the tokenized pipelines (e.g. "hello ." → "hello.").
+_SPACE_BEFORE_CLOSE_PUNCT_RE = re.compile(r'\s+([,.!?;:)\]}"])')
+
+# Sentence-ending punctuation + whitespace + any non-space character.  Used
+# to uppercase the first alphabetic character of the next sentence.
+_SENTENCE_END_RE = re.compile(r'([.!?])(\s+)(\S)')
+
+
+def _capitalize_first_letter(s: str) -> str:
+    """Uppercase the first alphabetic character in *s* in place.
+
+    Leading whitespace and punctuation are preserved.  Returns *s* unchanged
+    when it contains no cased characters (e.g. pure Thai script, numerals).
+    ``str.upper()`` on a single char handles Unicode (e.g. ``ō`` → ``Ō``).
+    """
+    for i, c in enumerate(s):
+        if c.isalpha():
+            return s[:i] + c.upper() + s[i + 1:]
+    return s
+
+
+def _polish_romaji(text: str, *, capitalize: bool = True) -> str:
+    """Normalize the final string produced by a romanization factory.
+
+    Three passes, each independently safe and idempotent:
+
+    1. Fullwidth CJK punctuation → ASCII equivalents.
+    2. Strip whitespace before closing punctuation (``.,!?;:)]"}``).
+    3. When ``capitalize`` is True, uppercase the first alphabetic character
+       of the line and the first alphabetic character after any sentence
+       terminator (``.!?``).
+
+    Parameters
+    ----------
+    text : str
+        Joined romanization output.  Empty strings pass through unchanged.
+    capitalize : bool
+        True for scripts without source case (ja, zh, yue, ko).  False for
+        Cyrillic (source case is meaningful and preserved by cyrtranslit)
+        and Thai (no caps convention).  IPA output is also capitalize=False
+        since IPA has no sentence-case tradition.
+    """
+    if not text:
+        return text
+    out = text.translate(_CJK_PUNCT_TRANSLATE)
+    out = _SPACE_BEFORE_CLOSE_PUNCT_RE.sub(r'\1', out)
+    if capitalize:
+        out = _capitalize_first_letter(out)
+        out = _SENTENCE_END_RE.sub(
+            lambda m: m.group(1) + m.group(2) + m.group(3).upper(),
+            out,
+        )
+    return out
+
+
 def _make_pinyin_romanizer(variant: str = None):
     """Return a Chinese pinyin romanizer with word-segmented output.
 
@@ -487,8 +569,9 @@ def _make_pinyin_romanizer(variant: str = None):
     ---------
     * ASS override tags and line-break markers are stripped before processing.
     * jieba.cut() provides word boundaries.
-    * CJK punctuation segments are stripped entirely (punctuation is already
-      visible in the Top layer).
+    * CJK punctuation segments pass through so the Romanized layer preserves
+      sentence boundaries; _polish_romaji() converts them to Latin equivalents
+      (。 → ., ， → ,, etc.) at the tail.
     * For each CJK word, pypinyin syllables are joined without spaces within
       the word, then words are joined with spaces.
     * Non-CJK segments (Latin, numerals) pass through unchanged.
@@ -529,8 +612,12 @@ def _make_pinyin_romanizer(variant: str = None):
 
         parts = []
         for word in words:
-            # Skip whitespace-only and CJK punctuation-only segments
-            if not word.strip() or _is_cjk_punct_segment(word):
+            if not word.strip():
+                continue
+            if _is_cjk_punct_segment(word):
+                # Preserve punctuation so the polish pass can carry
+                # sentence boundaries through to Latin equivalents.
+                parts.append(word)
                 continue
             # Check if word contains any CJK characters
             if any(_is_cjk(c) for c in word):
@@ -538,7 +625,7 @@ def _make_pinyin_romanizer(variant: str = None):
                 parts.append(''.join(syllables))
             else:
                 parts.append(word.strip())
-        return ' '.join(p for p in parts if p)
+        return _polish_romaji(' '.join(p for p in parts if p), capitalize=True)
 
     return romanize
 
@@ -835,7 +922,7 @@ def _make_japanese_pipeline():
         # Convert merged kana groups to romaji
         romaji_parts = [_kana_to_romaji(k, long_vowel_mode) for k in merged]
         raw = ' '.join(p for p in romaji_parts if p.strip())
-        return _clean_speaker_labels(raw)
+        return _polish_romaji(_clean_speaker_labels(raw), capitalize=True)
 
     return resolve_spans, spans_to_romaji
 
@@ -1074,7 +1161,7 @@ def _make_jyutping_romanizer():
                 parts.append(jyutping)
             else:
                 parts.append(word)
-        return ' '.join(parts)
+        return _polish_romaji(' '.join(parts), capitalize=True)
 
     return romanize
 
@@ -1103,7 +1190,7 @@ def _make_korean_romanizer():
         if not text:
             return ''
         clean = _strip_ass(text)
-        return _kr_romanize(clean)
+        return _polish_romaji(_kr_romanize(clean), capitalize=True)
 
     return romanize
 
@@ -1160,7 +1247,11 @@ def _make_cyrillic_romanizer(primary: str):
         if not text:
             return ''
         clean = _strip_ass(text)
-        return cyrtranslit.to_latin(clean, cyr_code)
+        # capitalize=False: cyrtranslit preserves source case.  Respecting
+        # the source distinguishes sentence-initial lines from continuation
+        # lines — our sentence-start heuristic cannot.
+        return _polish_romaji(cyrtranslit.to_latin(clean, cyr_code),
+                              capitalize=False)
 
     return romanize
 
@@ -1366,7 +1457,8 @@ def _make_thai_romanizer():
                 parts.append(_thai_romanize(token, engine='thai2rom'))
             elif token.strip():
                 parts.append(token)
-        return ' '.join(p for p in parts if p.strip())
+        return _polish_romaji(' '.join(p for p in parts if p.strip()),
+                              capitalize=False)
 
     return romanize
 
@@ -1445,7 +1537,8 @@ def _make_thai_paiboon_romanizer():
                     parts.append('-'.join(syl_parts))
             elif token.strip():
                 parts.append(token)
-        return ' '.join(p for p in parts if p.strip())
+        return _polish_romaji(' '.join(p for p in parts if p.strip()),
+                              capitalize=False)
 
     return romanize
 
@@ -1536,7 +1629,8 @@ def _make_thai_ipa_romanizer():
                     parts.append(ipa)
             elif token.strip():
                 parts.append(token)
-        return ' '.join(p for p in parts if p.strip())
+        return _polish_romaji(' '.join(p for p in parts if p.strip()),
+                              capitalize=False)
 
     return romanize
 

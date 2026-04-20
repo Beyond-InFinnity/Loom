@@ -2,7 +2,7 @@
 
 Covers:
 - jieba word grouping (Simplified + Traditional)
-- CJK punctuation stripping
+- CJK → Latin punctuation conversion (via universal _polish_romaji pass)
 - Empty input / non-CJK passthrough / mixed content
 - Cantonese annotation default enabled
 - Per-character annotation spans for all three Chinese variants
@@ -27,8 +27,10 @@ class TestPinyinWordGrouping:
         """Multi-character words should be joined without spaces."""
         result = self.romanize_hans("无论什么人都没有资格")
         # jieba should segment into multi-char words; syllables within a word
-        # should be joined (e.g. "wúlùn" not "wú lùn")
-        assert "wúlùn" in result or "wúlún" in result  # 论 can be lùn or lún
+        # should be joined (e.g. "wúlùn" not "wú lùn").  Case-insensitive
+        # match because _polish_romaji capitalizes sentence-initial chars.
+        lower = result.lower()
+        assert "wúlùn" in lower or "wúlún" in lower  # 论 can be lùn or lún
         # Should NOT be fully space-separated per character
         assert result.count(' ') < 8  # 9 chars → max 8 spaces if per-char
 
@@ -36,7 +38,8 @@ class TestPinyinWordGrouping:
         """Traditional text should also be word-grouped via Simplified bridge."""
         result = self.romanize_hant("無論什麼人都沒有資格")
         # Same segmentation quality as Simplified
-        assert "wúlùn" in result or "wúlún" in result
+        lower = result.lower()
+        assert "wúlùn" in lower or "wúlún" in lower
         assert result.count(' ') < 8
 
     def test_simplified_and_traditional_same_pinyin(self):
@@ -60,49 +63,59 @@ class TestPinyinWordGrouping:
         assert result.strip() == ""
 
 
-class TestPinyinPunctuationStripping:
-    """Verify that CJK punctuation is stripped from romanization output."""
+class TestPinyinPunctuationConversion:
+    """Fullwidth CJK punctuation is converted to Latin equivalents by the
+    universal _polish_romaji pass.  Previously it was dropped entirely,
+    which killed sentence boundaries in the Romanized layer."""
 
     @pytest.fixture(autouse=True)
     def _setup(self):
         from loom_core.romanize import _make_pinyin_romanizer
         self.romanize = _make_pinyin_romanizer(variant='zh-Hans')
 
-    def test_comma_stripped(self):
-        """Full-width comma should not appear in output."""
+    def test_comma_converted_to_ascii(self):
         result = self.romanize("你好，世界")
         assert "，" not in result
-        assert "nǐhǎo" in result
-        assert "shìjiè" in result
+        assert "," in result
+        assert "nǐhǎo" in result.lower()
+        assert "shìjiè" in result.lower()
+        # No space before the comma.
+        assert " ," not in result
 
-    def test_period_stripped(self):
+    def test_period_converted_to_ascii(self):
         result = self.romanize("你好。世界")
         assert "。" not in result
+        assert "." in result
+        assert " ." not in result
 
-    def test_exclamation_stripped(self):
+    def test_exclamation_converted_to_ascii(self):
         result = self.romanize("你好！世界")
         assert "！" not in result
+        assert "!" in result
+        assert " !" not in result
 
-    def test_question_mark_stripped(self):
+    def test_question_converted_to_ascii(self):
         result = self.romanize("你好？世界")
         assert "？" not in result
+        assert "?" in result
+        assert " ?" not in result
 
-    def test_brackets_stripped(self):
+    def test_corner_brackets_converted_to_quotes(self):
         result = self.romanize("「你好」世界")
-        assert "「" not in result
-        assert "」" not in result
+        assert "「" not in result and "」" not in result
+        assert '"' in result
 
-    def test_parentheses_stripped(self):
+    def test_fullwidth_parens_converted_to_ascii(self):
         result = self.romanize("（你好）世界")
-        assert "（" not in result
-        assert "）" not in result
+        assert "（" not in result and "）" not in result
+        assert "(" in result and ")" in result
 
-    def test_multiple_punctuation(self):
-        """Multiple punctuation marks should all be stripped."""
+    def test_multiple_punctuation_all_converted(self):
         result = self.romanize("你好，世界！再见。")
-        assert "，" not in result
-        assert "！" not in result
-        assert "。" not in result
+        for ch in ("，", "！", "。"):
+            assert ch not in result
+        for ch in (",", "!", "."):
+            assert ch in result
 
 
 class TestPinyinNonCJK:
@@ -128,7 +141,8 @@ class TestPinyinNonCJK:
         result = self.romanize("{\\an8}你好")
         assert "{" not in result
         assert "\\an8" not in result
-        assert "nǐhǎo" in result
+        # Case-insensitive — _polish_romaji capitalizes sentence-initial.
+        assert "nǐhǎo" in result.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -143,14 +157,14 @@ class TestGetRomanizerVariant:
         rom = get_romanizer('zh-Hans')
         assert rom is not None
         result = rom("你好")
-        assert "nǐhǎo" in result
+        assert "nǐhǎo" in result.lower()
 
     def test_zh_hant_returns_romanizer(self):
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-Hant')
         assert rom is not None
         result = rom("你好")
-        assert "nǐhǎo" in result
+        assert "nǐhǎo" in result.lower()
 
     def test_bare_zh_returns_romanizer(self):
         from loom_core.romanize import get_romanizer

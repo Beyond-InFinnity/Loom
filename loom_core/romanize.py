@@ -88,25 +88,29 @@ _POS_TAG_RE = re.compile(r'\\pos\(')
 _SPEAKER_LABEL_RE = re.compile(r'\s*([（(])\s*(\S+?)\s*([）)])\s*')
 
 # Matches plain-text inline furigana: CJK character(s) immediately followed by
-# a hiragana-only reading in parentheses, e.g. 奴(やつ) or 支配（しはい）.
+# a kana reading in parentheses, e.g. 奴(やつ), 支配（しはい）, or
+# 重力(グラビティ) (katakana gloss for a loanword/slang reading).
 #
 # Safety properties that make the false-positive rate effectively zero:
 #   • Requires at least one CJK unified ideograph ([\u4e00-\u9fff\u3400-\u4dbf])
 #     IMMEDIATELY before the opening paren — no whitespace allowed.  This rules
 #     out speaker labels like （アルミン） which are not glued to a kanji.
-#   • Requires hiragana-only ([ぁ-ん]+) inside the parens — rules out:
-#       - （笑）   laugh marker — kanji, not hiragana
-#       - （注）   editorial note — kanji, not hiragana
-#       - （アルミン） character name — katakana, not hiragana
-#   • Hiragana-only content inside parens that is glued to kanji is a reserved
+#   • Requires kana-only ([ぁ-んァ-ヶー]+) inside the parens — accepts:
+#       - hiragana readings:  奴(やつ), 支配(しはい)
+#       - katakana readings:  重力(グラビティ), 本気(マジ), 宇宙(スペース)
+#       - mixed + chōon:      魔女(まじょー) / 心(ハート) / etc.
+#     Rejects:
+#       - （笑）   laugh marker — kanji, not kana
+#       - （注）   editorial note — kanji, not kana
+#   • Kana-only content inside parens that is glued to kanji is a reserved
 #     typographic pattern in Japanese; it has no other usage in subtitle text.
+#     Authors use katakana specifically to mark loanword / slang / stylized
+#     readings where the kanji's standard reading is overridden — preserved
+#     as katakana in the annotation layer so the author's intent is visible.
 #
-# Known gap: katakana furigana (重力(グラビティ)) won't match — the pattern
-# requires hiragana.  Rare in subtitle content; deferred to R5.
-#
-# Group 1 = kanji compound, Group 2 = hiragana reading.
+# Group 1 = kanji compound, Group 2 = kana reading (hiragana or katakana).
 INLINE_FURIGANA_RE = re.compile(
-    r'([\u4e00-\u9fff\u3400-\u4dbf]+)[（(]([ぁ-ん]+)[）)]'
+    r'([\u4e00-\u9fff\u3400-\u4dbf]+)[（(]([ぁ-んァ-ヶー]+)[）)]'
 )
 
 
@@ -127,12 +131,21 @@ def _strip_inline_furigana(text: str) -> str:
 
 
 def _extract_inline_furigana(text: str) -> dict:
-    """Extract author-annotated kanji→hiragana reading pairs from *text*.
+    """Extract author-annotated kanji→kana reading pairs from *text*.
 
     Returns a dict mapping each kanji compound to its annotated reading::
 
         "奴(やつ)らに支配(しはい)されていた"
         → {"奴": "やつ", "支配": "しはい"}
+
+        "重力(グラビティ)を操る"
+        → {"重力": "グラビティ"}
+
+    Readings may be hiragana (standard furigana) or katakana (loanword /
+    slang / stylized glosses such as 重力(グラビティ) or 本気(マジ)).
+    Katakana readings are preserved as katakana downstream: the romaji
+    pipeline handles both kana via _kana_to_romaji, and the annotation
+    layer keeps the author's typographic choice visible to the reader.
 
     This is the R3b data source for the furigana layer.  Author-annotated
     readings are the highest-confidence source — the author knew the correct

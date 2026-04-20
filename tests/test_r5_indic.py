@@ -252,19 +252,16 @@ class TestIndicLangConfig:
         assert cfg['default_font'] == "Noto Sans Devanagari"
         assert cfg['rtl'] is False
 
-    def test_hindi_has_annotation_other_indic_block_only(self):
-        """R5-3 ships per-akshara annotation for Hindi only.  The other
-        five Indic languages keep block-level romanization with
-        annotation_func=None until their splitters are wired."""
+    def test_all_indic_langs_have_annotation(self):
+        """R5-3 (full): all six Indic languages ship per-akshara
+        annotation via the unified Brahmic splitter."""
         from loom_core.styles import get_lang_config
-        assert get_lang_config('hi')['annotation_func'] is not None
-        for lang in ('bn', 'ta', 'te', 'gu', 'pa'):
-            assert get_lang_config(lang)['annotation_func'] is None, (
-                f"{lang}: annotation_func should still be None until "
-                "akshara splitter is wired for this script."
+        for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
+            assert get_lang_config(lang)['annotation_func'] is not None, (
+                f"{lang}: expected non-None annotation_func"
             )
 
-    def test_all_indic_configs_have_romanizer(self):
+    def test_all_indic_configs_have_romanizer_and_annotation(self):
         from loom_core.styles import get_lang_config
         for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
             cfg = get_lang_config(lang)
@@ -272,6 +269,9 @@ class TestIndicLangConfig:
                 f"{lang}: expected has_phonetic_layer=True"
             )
             assert cfg['romanization_name'] == "IAST"
+            assert cfg['annotation_func'] is not None, (
+                f"{lang}: R5-3 full ships annotation for all 6 Indic langs"
+            )
 
     def test_per_language_default_fonts(self):
         from loom_core.styles import get_lang_config
@@ -417,12 +417,140 @@ class TestDevanagariAnnotation:
         assert "<ruby>न<rt>na</rt></ruby>" in html
         assert "<ruby>म<rt>ma</rt></ruby>" in html
 
-    def test_other_indic_langs_have_no_annotation(self):
-        """R5-3 ships annotation for Hindi only.  Other 5 Indic langs
-        should still return None from get_annotation_func."""
+    def test_all_indic_langs_have_annotation(self):
+        """All six Brahmic scripts share the unified splitter +
+        aksharamukha per-akshara romanizer."""
         from loom_core.romanize import get_annotation_func
-        for lang in ('bn', 'ta', 'te', 'gu', 'pa'):
-            assert get_annotation_func(lang) is None, (
-                f"{lang}: annotation_func should be None until akshara "
-                "splitter is wired for this script."
+        for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
+            assert get_annotation_func(lang) is not None
+
+
+# ---------------------------------------------------------------------------
+# R5-3 full: Brahmic per-akshara annotation for bn/ta/te/gu/pa
+# ---------------------------------------------------------------------------
+
+
+class TestBrahmicSplitterPerScript:
+    """Verifies the generalized _split_brahmic_aksharas algorithm on
+    representative words for each of the 5 non-Hindi Indic scripts."""
+
+    def _aksharas(self, text: str, primary: str) -> list:
+        from loom_core.romanize import (
+            _split_brahmic_aksharas, _BRAHMIC_BLOCKS,
+        )
+        block = _BRAHMIC_BLOCKS[primary]
+        return [s for s, a in _split_brahmic_aksharas(text, block) if a]
+
+    def test_bengali_namaskara(self):
+        """নমস্কার → [ন, ম, স্কা, র] — skā is the conjunct sk-ā."""
+        assert self._aksharas("নমস্কার", "bn") == [
+            "ন", "ম", "স্কা", "র",
+        ]
+
+    def test_tamil_vanakkam(self):
+        """வணக்கம் → [வ, ண, க்க, ம்] — kka conjunct + trailing pulli m."""
+        assert self._aksharas("வணக்கம்", "ta") == [
+            "வ", "ண", "க்க", "ம்",
+        ]
+
+    def test_tamil_single_akshara_with_pulli(self):
+        """ம் (single consonant + pulli) is one akshara."""
+        assert self._aksharas("ம்", "ta") == ["ம்"]
+
+    def test_telugu_namaskaram(self):
+        """నమస్కారం — anusvara attaches to the final akshara."""
+        assert self._aksharas("నమస్కారం", "te") == [
+            "న", "మ", "స్కా", "రం",
+        ]
+
+    def test_gujarati_namaste_vishva(self):
+        """નમસ્તે વિશ્વ → [ન, મ, સ્તે, વિ, શ્વ]"""
+        assert self._aksharas("નમસ્તે વિશ્વ", "gu") == [
+            "ન", "મ", "સ્તે", "વિ", "શ્વ",
+        ]
+
+    def test_gurmukhi_sri(self):
+        """ਸ੍ਰੀ — s-virama-r with ī matra, single conjunct akshara."""
+        assert self._aksharas("ਸ੍ਰੀ", "pa") == ["ਸ੍ਰੀ"]
+
+    def test_cross_script_isolation(self):
+        """Bengali text run through the Devanagari splitter should fall
+        through as 'other' spans — no accidental cross-script aksharas."""
+        from loom_core.romanize import (
+            _split_brahmic_aksharas, _BRAHMIC_BLOCKS,
+        )
+        devanagari = _BRAHMIC_BLOCKS["hi"]
+        out = _split_brahmic_aksharas("নমস্কার", devanagari)
+        # No akshara spans — Bengali chars are outside the Devanagari block.
+        assert all(not is_a for _, is_a in out)
+
+
+class TestBrahmicAnnotationPerScript:
+    """End-to-end per-akshara annotation readings for each script."""
+
+    def test_bengali(self):
+        from loom_core.romanize import get_annotation_func
+        spans = get_annotation_func("bn")("নম")
+        assert [(o, r) for o, r in spans if r] == [("ন", "na"), ("ম", "ma")]
+
+    def test_tamil_conjunct_romanizes_together(self):
+        """வணக்கம் — the kka conjunct must be one span with reading 'kka',
+        not two separate spans with 'k' + 'ka'."""
+        from loom_core.romanize import get_annotation_func
+        spans = get_annotation_func("ta")("வணக்கம்")
+        annotated = [(o, r) for o, r in spans if r]
+        assert ("க்க", "kka") in annotated
+
+    def test_telugu(self):
+        from loom_core.romanize import get_annotation_func
+        spans = get_annotation_func("te")("నమ")
+        assert [(o, r) for o, r in spans if r] == [("న", "na"), ("మ", "ma")]
+
+    def test_gujarati(self):
+        from loom_core.romanize import get_annotation_func
+        spans = get_annotation_func("gu")("નમ")
+        assert [(o, r) for o, r in spans if r] == [("ન", "na"), ("મ", "ma")]
+
+    def test_gurmukhi(self):
+        from loom_core.romanize import get_annotation_func
+        spans = get_annotation_func("pa")("ਸਤ")
+        assert [(o, r) for o, r in spans if r] == [("ਸ", "sa"), ("ਤ", "ta")]
+
+    def test_ruby_html_for_each_script(self):
+        """Every Indic script wraps into ruby HTML with its IAST reading."""
+        from loom_core.romanize import get_annotation_func, build_annotation_html
+        cases = {
+            "bn": ("নম", ["<ruby>ন<rt>na</rt>", "<ruby>ম<rt>ma</rt>"]),
+            "ta": ("வண", ["<ruby>வ<rt>va</rt>", "<ruby>ண<rt>ṇa</rt>"]),
+            "te": ("నమ", ["<ruby>న<rt>na</rt>", "<ruby>మ<rt>ma</rt>"]),
+            "gu": ("નમ", ["<ruby>ન<rt>na</rt>", "<ruby>મ<rt>ma</rt>"]),
+            "pa": ("ਸਤ", ["<ruby>ਸ<rt>sa</rt>", "<ruby>ਤ<rt>ta</rt>"]),
+        }
+        for lang, (text, expected_fragments) in cases.items():
+            ann = get_annotation_func(lang)
+            html = build_annotation_html(ann(text), mode="ruby")
+            for frag in expected_fragments:
+                assert frag in html, (
+                    f"{lang}: expected {frag!r} in ruby HTML, got {html!r}"
+                )
+
+    def test_block_romanization_coherent_with_per_akshara(self):
+        """Sanity: the per-akshara readings, joined, should match the
+        block romanization (modulo punctuation + polish).  Lets us
+        catch cases where the splitter boundaries produce different
+        readings than aksharamukha's block output."""
+        from loom_core.romanize import get_romanizer, get_annotation_func
+        for lang, text in [
+            ("hi", "नमस्ते"),
+            ("bn", "নমস্কার"),
+            ("ta", "வணக்கம்"),
+            ("te", "నమస్కారం"),
+            ("gu", "નમસ્તે"),
+            ("pa", "ਸਤ"),
+        ]:
+            block = get_romanizer(lang)(text)
+            pieces = [r for _, r in get_annotation_func(lang)(text) if r]
+            joined = "".join(pieces)
+            assert block.lower().replace(" ", "").rstrip(".") == joined, (
+                f"{lang}: block {block!r} vs joined aksharas {joined!r}"
             )

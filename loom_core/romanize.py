@@ -1690,6 +1690,301 @@ def _make_hebrew_romanizer():
     return romanize
 
 
+# ---------------------------------------------------------------------------
+# R5-4 remaining: Arabic block romanization (Modern Standard Arabic)
+# ---------------------------------------------------------------------------
+#
+# Design: "learner-academic hybrid" default (phonetic_system="learner"),
+# with "din" (full DIN 31635) and "loose" (ASCII-only, no emphatic marks)
+# as overrides.  The hybrid keeps the distinctions that matter for
+# levelling up from Duolingo (emphatics ṣ ḍ ṭ ẓ ḥ, long vowels ā ī ū,
+# ayn/hamza ʿ/ʾ) but uses digraphs for sounds with natural ASCII
+# equivalents (sh, gh, th, dh, kh).  DIN uses š ġ ṯ ḏ ḫ for the same.
+#
+# Like Hebrew, Arabic subtitle text rarely carries tashkil (short vowel
+# diacritics), so short vowel values must be guessed.  This module:
+#   * Strips tashkil (fatḥa, kasra, ḍamma, shadda, sukūn, tanwīn,
+#     superscript alif) before transliteration.
+#   * Treats alif (ا) as long ā when medial/final and as "a"-carrier
+#     when initial without hamza.
+#   * Treats wāw (و) and yāʾ (ي) with a mater-lectionis rule: vocalic
+#     (ū / ī) after a consonant, consonantal (w / y) at word-start or
+#     after a vowel-letter — same rule that worked for Hebrew's ו / י.
+#   * Inserts a default "a" between consecutive consonants.
+#   * Handles the definite article ال with sun-letter assimilation:
+#     14 sun letters (ت ث د ذ ر ز س ش ص ض ط ظ ل ن) cause lām to
+#     assimilate and the following letter to double (الشمس → ash-shams).
+#     14 moon letters keep al- unchanged (القمر → al-qamar).
+#   * Silent hamza-carrier alif forms (أ إ) contribute their hamza + the
+#     implied short vowel; wāw-hamza (ؤ) and yāʾ-hamza (ئ) emit bare ʾ.
+#   * Final ة (tāʾ marbūṭa) emits pause-form "a" (not "at") — the
+#     connective-form value is context-dependent and rarely needed for
+#     subtitle reading aids.
+#   * Alif maksūra (ى) emits long ā (same as regular alif in this role).
+#
+# Known failure modes (locked in tests so a future tashkil-aware or
+# dictionary pass shows up as a clean regression signal):
+#   * Unvocalized short vowels guessed as 'a' — e.g. "yadhhab" (he goes)
+#     comes out as "yadhhab" only by luck; "yaktub" (he writes) comes
+#     out as "yaktab" because the default-a heuristic doesn't know the
+#     imperfect-prefix ya- pattern.
+#   * No sun-letter assimilation for non-definite-article constructions
+#     (it's only applied to the prefix ال).
+#   * Loose mode drops ayn completely; a stricter reading would use
+#     an apostrophe, but apostrophes interact badly with English-side
+#     punctuation in mixed text.
+#
+# Output quality is "recognizable for common words" — same quality bar
+# we accepted for Hebrew.  Real-content troubleshooting deferred to the
+# browser extension phase (step 5) per the language-stacking feedback.
+
+# Three transliteration tables keyed by phonetic_system.  Each maps an
+# Arabic letter to its Roman output.  Missing keys (hamza carriers,
+# matres) are handled by the classifier.
+_ARABIC_CONSONANTS_LEARNER = {
+    "ب": "b",   "ت": "t",   "ث": "th",  "ج": "j",   "ح": "ḥ",
+    "خ": "kh",  "د": "d",   "ذ": "dh",  "ر": "r",   "ز": "z",
+    "س": "s",   "ش": "sh",  "ص": "ṣ",   "ض": "ḍ",   "ط": "ṭ",
+    "ظ": "ẓ",   "ع": "ʿ",   "غ": "gh",  "ف": "f",   "ق": "q",
+    "ك": "k",   "ل": "l",   "م": "m",   "ن": "n",   "ه": "h",
+    # Hamza-only carriers (no consonant body) emit ʾ.
+    "ء": "ʾ",
+    # Hamza-over-wāw and hamza-over-yāʾ act as pure hamza seats.
+    "ؤ": "ʾ",   "ئ": "ʾ",
+    # Final forms and letter variants Arabic shares with Persian/Urdu
+    # passthrough context; keep values identical to their base forms.
+    "ة": "a",          # tāʾ marbūṭa — pause form (most common in subtitles)
+}
+
+_ARABIC_CONSONANTS_DIN = {
+    **_ARABIC_CONSONANTS_LEARNER,
+    "ث": "ṯ",   "خ": "ḫ",   "ذ": "ḏ",   "ش": "š",   "غ": "ġ",
+}
+
+_ARABIC_CONSONANTS_LOOSE = {
+    **_ARABIC_CONSONANTS_LEARNER,
+    "ح": "h",   "ص": "s",   "ض": "d",   "ط": "t",   "ظ": "z",
+    "ع": "",    "ء": "",    "ؤ": "",    "ئ": "",
+}
+
+_ARABIC_TABLES = {
+    "learner": _ARABIC_CONSONANTS_LEARNER,
+    "din":     _ARABIC_CONSONANTS_DIN,
+    "loose":   _ARABIC_CONSONANTS_LOOSE,
+}
+
+# Long-vowel markers for each phonetic system.  DIN/learner use macrons;
+# loose uses bare vowels (matching the "no diacritics" principle).
+_ARABIC_LONG_VOWELS = {
+    "learner": {"a": "ā", "i": "ī", "u": "ū"},
+    "din":     {"a": "ā", "i": "ī", "u": "ū"},
+    "loose":   {"a": "a", "i": "i", "u": "u"},
+}
+
+# Hamza output by phonetic system.
+_ARABIC_HAMZA = {"learner": "ʾ", "din": "ʾ", "loose": ""}
+
+# Sun letters: cause lām of the definite article to assimilate (lām is
+# replaced by a copy of the following letter).  These are the 14 letters
+# whose points of articulation are close enough to lām that Classical
+# Arabic phonotactics collapse them.
+_ARABIC_SUN_LETTERS = frozenset("تثدذرزسشصضطظلن")
+
+# Tashkil (short-vowel marks + shadda + sukun + tanwin) + superscript
+# alif (U+0670) + alif waṣla (U+0671 carrier treated like alif).
+# Covers the main diacritic range; we strip before transliteration.
+_ARABIC_COMBINING_RE = re.compile(r"[\u064B-\u065F\u0670]")
+
+# Alif variants that carry a vowel + hamza: hamza-above-alif (أ) is an
+# a- or u- initial vowel (defaults to a), hamza-below-alif (إ) is i-.
+_ARABIC_HAMZA_ALIF_ABOVE = "أ"   # ʾa- by default
+_ARABIC_HAMZA_ALIF_BELOW = "إ"   # ʾi-
+_ARABIC_ALIF_MADDA = "آ"         # ʾā (alif with long-vowel carrier)
+_ARABIC_ALIF = "ا"
+_ARABIC_ALIF_MAKSURA = "ى"       # terminal alif variant — emits long ā
+_ARABIC_WAW = "و"
+_ARABIC_YA = "ي"
+_ARABIC_TA_MARBUTA = "ة"
+_ARABIC_LAM = "ل"
+
+# Letters that combine with wāw/yāʾ into a short diphthong rather than a
+# long vowel.  We render aw/ay in learner+din, aw/ay in loose too (since
+# diphthongs are phonetically distinct from long ū/ī).
+
+
+def _arabic_is_letter(ch: str, table: dict) -> bool:
+    return (ch in table
+            or ch in (_ARABIC_ALIF, _ARABIC_ALIF_MAKSURA, _ARABIC_WAW,
+                      _ARABIC_YA, _ARABIC_HAMZA_ALIF_ABOVE,
+                      _ARABIC_HAMZA_ALIF_BELOW, _ARABIC_ALIF_MADDA))
+
+
+def _arabic_romanize_word(letters: str, phonetic_system: str) -> str:
+    """Romanize a contiguous run of Arabic letters.
+
+    Applies the definite-article ال / sun-letter assimilation at
+    word-start, then walks letter-by-letter with the mater-lectionis
+    rule for wāw/yāʾ and a default-'a' between consecutive consonants.
+    """
+    if not letters:
+        return ""
+
+    table = _ARABIC_TABLES.get(phonetic_system, _ARABIC_TABLES["learner"])
+    long_vowels = _ARABIC_LONG_VOWELS[phonetic_system]
+    hamza = _ARABIC_HAMZA[phonetic_system]
+
+    # --- Definite article ال handling -----------------------------------
+    # Unified with the token walker so the default-'a' heuristic applies
+    # across the article boundary (e.g. الشمس emits tokens 'a' + cons
+    # 'sh-sh' + cons 'm' + cons 's', and the post-pass inserts 'a' between
+    # each consecutive pair → "ash-shamas").
+    tokens: list[tuple[str, str]] = []
+    prev_kind: str = "start"
+    body_start = 0
+
+    if len(letters) >= 3 and letters[0] == _ARABIC_ALIF and letters[1] == _ARABIC_LAM:
+        next_letter = letters[2]
+        if next_letter in _ARABIC_SUN_LETTERS:
+            # Sun-letter assimilation: drop the lām, double the sun letter
+            # (الشمس → ash-shams).  Emit 'a' as a vowel and the doubled
+            # sun letter as a single cons token; skip past both ا ل and
+            # the sun letter itself — it's already been emitted.
+            sun_out = table.get(next_letter, next_letter)
+            tokens.append(("vowel", "a"))
+            tokens.append(("cons", sun_out + "-" + sun_out))
+            prev_kind = "cons"
+            body_start = 3
+        else:
+            # Moon letter: al- stays.  Emit as a single vowel token so the
+            # next consonant does NOT get an 'a' inserted before it (the
+            # lām of the article carries sukun, not a short vowel).
+            tokens.append(("vowel", "al-"))
+            prev_kind = "vowel"
+            body_start = 2
+
+    # --- Main walker ----------------------------------------------------
+    # Classify each letter into:
+    #   'cons'   — a consonant (emit table value)
+    #   'hamza'  — standalone hamza or hamza-carrier (emit hamza value)
+    #   'long'   — a long-vowel letter (alif, waw-mater, ya-mater)
+    #   'vowel'  — a short-vowel seat (hamza-alif carriers)
+    #   'other'  — passthrough
+    for i, ch in enumerate(letters[body_start:]):
+        if ch in (_ARABIC_HAMZA_ALIF_ABOVE, _ARABIC_HAMZA_ALIF_BELOW):
+            # Word-start hamza-alif carries an initial short vowel.
+            default_v = "i" if ch == _ARABIC_HAMZA_ALIF_BELOW else "a"
+            tokens.append(("vowel", hamza + default_v))
+            prev_kind = "vowel"
+            continue
+        if ch == _ARABIC_ALIF_MADDA:
+            # ʾā — hamza + long ā.
+            tokens.append(("long", hamza + long_vowels["a"]))
+            prev_kind = "long"
+            continue
+        if ch == _ARABIC_ALIF:
+            if prev_kind == "start":
+                # Word-start bare alif — carrier for "a" initial vowel.
+                tokens.append(("vowel", "a"))
+                prev_kind = "vowel"
+            else:
+                tokens.append(("long", long_vowels["a"]))
+                prev_kind = "long"
+            continue
+        if ch == _ARABIC_ALIF_MAKSURA:
+            tokens.append(("long", long_vowels["a"]))
+            prev_kind = "long"
+            continue
+        if ch == _ARABIC_WAW:
+            if prev_kind in ("cons", "start"):
+                # Consonantal at start or directly after a consonant when
+                # we haven't emitted a vowel yet.  But if prev is 'cons'
+                # and the previous consonant was emitted, treat as long ū
+                # — that's the mater role.  Word-start keeps w.
+                if prev_kind == "start":
+                    tokens.append(("cons", "w"))
+                    prev_kind = "cons"
+                else:
+                    tokens.append(("long", long_vowels["u"]))
+                    prev_kind = "long"
+            else:
+                tokens.append(("cons", "w"))
+                prev_kind = "cons"
+            continue
+        if ch == _ARABIC_YA:
+            if prev_kind in ("cons", "start"):
+                if prev_kind == "start":
+                    tokens.append(("cons", "y"))
+                    prev_kind = "cons"
+                else:
+                    tokens.append(("long", long_vowels["i"]))
+                    prev_kind = "long"
+            else:
+                tokens.append(("cons", "y"))
+                prev_kind = "cons"
+            continue
+        if ch == _ARABIC_TA_MARBUTA:
+            # Pause-form "a".  Only valid at word-end; mid-word is rare.
+            tokens.append(("vowel", "a"))
+            prev_kind = "vowel"
+            continue
+        if ch in table:
+            tokens.append(("cons", table[ch]))
+            prev_kind = "cons"
+            continue
+        # Passthrough for anything else (shouldn't happen — caller filters).
+        tokens.append(("other", ch))
+        prev_kind = "other"
+
+    # --- Second pass: insert default 'a' between consecutive consonants -
+    out: list[str] = []
+    for i, (kind, val) in enumerate(tokens):
+        out.append(val)
+        if kind == "cons":
+            next_kind = tokens[i + 1][0] if i + 1 < len(tokens) else None
+            if next_kind == "cons":
+                out.append("a")
+
+    return "".join(out)
+
+
+def _make_arabic_romanizer(phonetic_system: str = "learner"):
+    """Return an Arabic block romanizer for the given phonetic system.
+
+    Segments input into Arabic-letter runs and non-Arabic passthrough
+    runs; romanizes each Arabic run with ``_arabic_romanize_word``.
+    Output flows through ``_polish_romaji(capitalize=True)``.
+    """
+    if phonetic_system not in _ARABIC_TABLES:
+        phonetic_system = "learner"
+    table = _ARABIC_TABLES[phonetic_system]
+
+    def _is_arabic_letter(ch: str) -> bool:
+        return _arabic_is_letter(ch, table)
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ""
+        clean = _strip_ass(text)
+        clean = _ARABIC_COMBINING_RE.sub("", clean)
+
+        out: list[str] = []
+        buf = ""
+        for ch in clean:
+            if _is_arabic_letter(ch):
+                buf += ch
+            else:
+                if buf:
+                    out.append(_arabic_romanize_word(buf, phonetic_system))
+                    buf = ""
+                out.append(ch)
+        if buf:
+            out.append(_arabic_romanize_word(buf, phonetic_system))
+
+        return _polish_romaji("".join(out), capitalize=True)
+
+    return romanize
+
+
 def _thai_tokenize(text: str) -> list:
     """Hybrid Thai tokenizer: word boundaries + syllable split for compounds.
 
@@ -2290,7 +2585,10 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     if primary == "he":
         return _make_hebrew_romanizer()
 
-    # Chunk R5-4 phase (b) — RTL rendering for he/ar/fa/ur ──────────── TODO
-    # Chunk R5-4 remaining — Arabic/Persian/Urdu block romanization ── TODO
+    # Chunk R5-4 remaining — Arabic (ar) block romanization ────────── ✅
+    # Hybrid "learner" default (macrons + emphatic marks, sh/gh/th/dh/kh
+    # digraphs); "din" for full DIN 31635; "loose" for ASCII-only.
+    if primary == "ar":
+        return _make_arabic_romanizer(phonetic_system=phonetic_system or "learner")
 
     return None

@@ -241,16 +241,28 @@ class TestIndicLangConfig:
         cfg = get_lang_config('hi')
         assert cfg['romanize_func'] is not None
         assert cfg['has_phonetic_layer'] is True
-        # R5-2 is block-only — no per-akshara annotation yet.
-        assert cfg['annotation_func'] is None
+        # R5-3: Hindi has per-akshara annotation.
+        assert cfg['annotation_func'] is not None
         assert cfg['romanization_name'] == "IAST"
         assert cfg['romanization_confidence'] == "moderate"
         assert cfg['supports_ass_annotation'] is False, (
-            "Indic scripts use alphabetic rendering — PGS-only annotation "
-            "when R5-3 adds per-akshara."
+            "Devanagari uses alphabetic rendering — PGS-only annotation "
+            "(conjunct/matra glyphs have variable widths)."
         )
         assert cfg['default_font'] == "Noto Sans Devanagari"
         assert cfg['rtl'] is False
+
+    def test_hindi_has_annotation_other_indic_block_only(self):
+        """R5-3 ships per-akshara annotation for Hindi only.  The other
+        five Indic languages keep block-level romanization with
+        annotation_func=None until their splitters are wired."""
+        from loom_core.styles import get_lang_config
+        assert get_lang_config('hi')['annotation_func'] is not None
+        for lang in ('bn', 'ta', 'te', 'gu', 'pa'):
+            assert get_lang_config(lang)['annotation_func'] is None, (
+                f"{lang}: annotation_func should still be None until "
+                "akshara splitter is wired for this script."
+            )
 
     def test_all_indic_configs_have_romanizer(self):
         from loom_core.styles import get_lang_config
@@ -260,8 +272,6 @@ class TestIndicLangConfig:
                 f"{lang}: expected has_phonetic_layer=True"
             )
             assert cfg['romanization_name'] == "IAST"
-            # Block-only for R5-2.
-            assert cfg['annotation_func'] is None
 
     def test_per_language_default_fonts(self):
         from loom_core.styles import get_lang_config
@@ -284,3 +294,135 @@ class TestIndicLangConfig:
         for lang in ('hi', 'bn', 'ta', 'te', 'gu', 'pa'):
             cfg = get_lang_config(lang)
             assert cfg['annotation_system_name'] == "Transliteration"
+
+
+# ---------------------------------------------------------------------------
+# R5-3: Devanagari akshara splitter + per-akshara annotation (Hindi)
+# ---------------------------------------------------------------------------
+
+class TestDevanagariAksharaSplitter:
+    """Verifies the akshara boundary algorithm for representative
+    Devanagari patterns — simple, matra-bearing, conjunct, and with
+    modifiers (anusvara, nukta)."""
+
+    def _aksharas(self, text: str) -> list:
+        from loom_core.romanize import _split_devanagari_aksharas
+        return [seg for seg, is_a in _split_devanagari_aksharas(text) if is_a]
+
+    def test_simple_three_akshara_word(self):
+        """नमस्ते → [न, म, स्ते] — s-virama-te is one conjunct akshara."""
+        assert self._aksharas("नमस्ते") == ["न", "म", "स्ते"]
+
+    def test_single_conjunct_word(self):
+        """क्या → [क्या] — entire word is one conjunct akshara (k-virama-y-ā)."""
+        assert self._aksharas("क्या") == ["क्या"]
+
+    def test_conjunct_with_matra(self):
+        """श्री → [श्री] — sh-virama-r + ii-matra, one akshara."""
+        assert self._aksharas("श्री") == ["श्री"]
+
+    def test_standalone_plus_conjunct(self):
+        """रक्त → [र, क्त] — ra is its own akshara; k-virama-t conjuncts."""
+        assert self._aksharas("रक्त") == ["र", "क्त"]
+
+    def test_anusvara_attaches(self):
+        """हैं → [हैं] — ha + ai-matra + anusvara all in one akshara."""
+        assert self._aksharas("हैं") == ["हैं"]
+
+    def test_matra_then_consonant_then_conjunct(self):
+        """हिन्दी → [हि, न्दी]"""
+        assert self._aksharas("हिन्दी") == ["हि", "न्दी"]
+
+    def test_mixed_latin_devanagari(self):
+        """Latin chars flow through as non-akshara spans; Devanagari
+        groups into aksharas."""
+        from loom_core.romanize import _split_devanagari_aksharas
+        out = _split_devanagari_aksharas("Hi नमस्ते!")
+        assert [seg for seg, is_a in out if is_a] == ["न", "म", "स्ते"]
+        # Non-akshara count covers every non-Devanagari char individually.
+        assert [seg for seg, is_a in out if not is_a] == list("Hi ") + ["!"]
+
+    def test_empty_input(self):
+        from loom_core.romanize import _split_devanagari_aksharas
+        assert _split_devanagari_aksharas("") == []
+
+    def test_pure_latin_all_non_akshara(self):
+        from loom_core.romanize import _split_devanagari_aksharas
+        out = _split_devanagari_aksharas("Hello!")
+        assert all(not is_a for _, is_a in out)
+
+
+class TestDevanagariAnnotation:
+    """End-to-end: get_annotation_func('hi') produces per-akshara spans
+    with IAST readings."""
+
+    def test_hindi_has_annotation_func(self):
+        from loom_core.romanize import get_annotation_func
+        ann = get_annotation_func('hi')
+        assert ann is not None
+
+    def test_namaste_spans(self):
+        from loom_core.romanize import get_annotation_func
+        ann = get_annotation_func('hi')
+        spans = ann("नमस्ते")
+        # Three aksharas, three readings
+        annotated = [(o, r) for o, r in spans if r is not None]
+        assert annotated == [("न", "na"), ("म", "ma"), ("स्ते", "ste")]
+
+    def test_non_devanagari_passes_through_unannotated(self):
+        from loom_core.romanize import get_annotation_func
+        ann = get_annotation_func('hi')
+        spans = ann("Hello नम!")
+        for orig, reading in spans:
+            from loom_core.romanize import _split_devanagari_aksharas
+            is_a = any(
+                s == orig and a
+                for s, a in _split_devanagari_aksharas("Hello नम!")
+            )
+            if is_a:
+                assert reading is not None, f"Akshara {orig!r} should have reading"
+            else:
+                assert reading is None, (
+                    f"Non-Devanagari {orig!r} should not have a reading"
+                )
+
+    def test_danda_not_annotated(self):
+        """The Devanagari danda (।) is punctuation, not an akshara —
+        it must not carry a reading in the annotation spans."""
+        from loom_core.romanize import get_annotation_func
+        ann = get_annotation_func('hi')
+        spans = ann("नम।")
+        danda_spans = [(o, r) for o, r in spans if o == "।"]
+        assert danda_spans == [("।", None)]
+
+    def test_empty_input(self):
+        from loom_core.romanize import get_annotation_func
+        assert get_annotation_func('hi')("") == []
+
+    def test_ass_tags_stripped(self):
+        from loom_core.romanize import get_annotation_func
+        ann = get_annotation_func('hi')
+        spans = ann("{\\an8}नम")
+        # Aksharas present with readings, no ASS override tag surfaces.
+        annotated = [(o, r) for o, r in spans if r is not None]
+        assert annotated == [("न", "na"), ("म", "ma")]
+
+    def test_ruby_html_integration(self):
+        """build_annotation_html wraps each annotated span as ruby,
+        passing non-annotated text straight through."""
+        from loom_core.romanize import get_annotation_func, build_annotation_html
+        ann = get_annotation_func('hi')
+        spans = ann("नम")
+        html = build_annotation_html(spans, mode='ruby')
+        assert "<ruby>न<rt>na</rt></ruby>" in html
+        assert "<ruby>म<rt>ma</rt></ruby>" in html
+
+    def test_other_indic_langs_have_no_annotation(self):
+        """R5-3 ships annotation for Hindi only.  Other 5 Indic langs
+        should still return None from get_annotation_func."""
+        from loom_core.romanize import get_annotation_func
+        for lang in ('bn', 'ta', 'te', 'gu', 'pa'):
+            assert get_annotation_func(lang) is None, (
+                f"{lang}: annotation_func should be None until akshara "
+                "splitter is wired for this script."
+            )

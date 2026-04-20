@@ -1344,6 +1344,137 @@ def _make_indic_romanizer(primary: str):
     return romanize
 
 
+# ---------------------------------------------------------------------------
+# R5-3: Devanagari per-akshara annotation (Hindi)
+# ---------------------------------------------------------------------------
+#
+# An akshara is the reading unit in Brahmic scripts — a consonant cluster
+# (one or more consonants joined by virama) plus an optional attached
+# vowel sign (matra) and modifiers (anusvara, visarga, candrabindu, nukta).
+# Examples:
+#   नमस्ते  →  [न, म, स्ते]     (na, ma, ste)
+#   क्या    →  [क्या]           (kyā — single conjunct akshara)
+#   रक्त    →  [र, क्त]          (ra, kta)
+#   हिन्दी  →  [हि, न्दी]         (hi, ndī)
+#
+# Each akshara becomes one ruby span; its IAST reading is produced by
+# aksharamukha on that single akshara (not the whole text) so ruby
+# placement and reading boundaries line up.
+#
+# The splitter is Devanagari-only for R5-3 (Hindi).  Extending to the
+# other 5 Indic scripts shipped in R5-2 is a matter of adding their
+# Unicode ranges + virama codepoint to the dispatch and wiring in
+# get_annotation_func — the algorithm is identical across Brahmic
+# scripts (consonant + optional conjuncts via virama + optional matra).
+
+_DEVANAGARI_VIRAMA = 0x094D
+
+
+def _is_devanagari_starter(c: str) -> bool:
+    """Consonant or independent vowel — opens a new akshara (unless the
+    previous character was a halant, in which case it joins as a conjunct)."""
+    cp = ord(c)
+    return (0x0904 <= cp <= 0x0914            # Candrabindu-A + independent vowels
+            or 0x0915 <= cp <= 0x0939          # consonants
+            or cp == 0x0950                    # OM
+            or 0x0958 <= cp <= 0x095F          # additional consonants (क़ ख़ …)
+            or 0x0960 <= cp <= 0x0961          # vocalic RR, LL (independent)
+            or 0x0972 <= cp <= 0x0977          # extended vowels
+            or 0x0978 <= cp <= 0x097F)         # extended consonants
+
+
+def _is_devanagari_extender(c: str) -> bool:
+    """Signs, matras, nukta, accents — stay inside the current akshara."""
+    cp = ord(c)
+    return (0x0900 <= cp <= 0x0903            # anusvara, visarga, candrabindu
+            or 0x093A <= cp <= 0x093D          # nukta, avagraha, rare matras
+            or 0x093E <= cp <= 0x094C          # vowel signs (matras)
+            or 0x094E <= cp <= 0x094F          # prishthamatra, awadhi matras
+            or 0x0951 <= cp <= 0x0957          # udatta, anudatta, stress + accent marks
+            or 0x0962 <= cp <= 0x0963)         # vocalic L, LL matras
+
+
+def _split_devanagari_aksharas(text: str) -> list:
+    """Split *text* into (segment, is_akshara) spans.
+
+    Devanagari aksharas (consonant cluster + optional matra + modifiers)
+    become (akshara_str, True).  Every non-Devanagari character (Latin,
+    digit, punctuation, whitespace) becomes a single (char, False) span
+    so downstream rendering can decide how to handle each.
+    """
+    result: list = []
+    current = ''
+    prev_was_halant = False
+
+    for ch in text:
+        if _is_devanagari_starter(ch):
+            if current and prev_was_halant:
+                # Conjunct: extend current akshara — this consonant is
+                # attached to the previous one via virama.
+                current += ch
+                prev_was_halant = False
+            else:
+                if current:
+                    result.append((current, True))
+                current = ch
+                prev_was_halant = False
+        elif _is_devanagari_extender(ch):
+            if current:
+                current += ch
+            else:
+                # Orphaned combining mark — shouldn't happen in well-formed
+                # text, but pass through as its own non-akshara span.
+                result.append((ch, False))
+            prev_was_halant = False
+        elif ord(ch) == _DEVANAGARI_VIRAMA:
+            if current:
+                current += ch
+                prev_was_halant = True
+            else:
+                # Orphaned virama — degenerate input, pass through.
+                result.append((ch, False))
+                prev_was_halant = False
+        else:
+            # Non-Devanagari: flush accumulated akshara, emit char alone.
+            if current:
+                result.append((current, True))
+                current = ''
+            result.append((ch, False))
+            prev_was_halant = False
+
+    if current:
+        result.append((current, True))
+    return result
+
+
+def _make_devanagari_annotation_func():
+    """Return a Devanagari per-akshara annotation span producer.
+
+    Each akshara (via _split_devanagari_aksharas) gets its IAST reading
+    produced by aksharamukha on that akshara alone.  Non-Devanagari
+    characters pass through with reading=None — spaces, punctuation,
+    Latin loanwords, Devanagari digits (converted separately by the
+    block romanizer) all appear as unannotated spans.
+    """
+    from aksharamukha import transliterate as _akt  # lazy import
+
+    def get_spans(text: str) -> list:
+        if not text:
+            return []
+        clean = _strip_ass(text)
+        segments = _split_devanagari_aksharas(clean)
+        spans = []
+        for segment, is_akshara in segments:
+            if is_akshara:
+                reading = _akt.process("Devanagari", "IAST", segment)
+                spans.append((segment, reading if reading else None))
+            else:
+                spans.append((segment, None))
+        return spans
+
+    return get_spans
+
+
 def _thai_tokenize(text: str) -> list:
     """Hybrid Thai tokenizer: word boundaries + syllable split for compounds.
 
@@ -1798,6 +1929,12 @@ def get_annotation_func(lang_code: str, system: str = None):
         if system == "ipa":
             return _make_thai_ipa_annotation_func()
         return _make_thai_annotation_func()  # RTGS default
+
+    # R5-3 — Hindi/Devanagari per-akshara annotation.  The other Indic
+    # scripts shipped in R5-2 (bn/ta/te/gu/pa) will plug in here once
+    # their akshara splitters are wired; algorithm generalizes cleanly.
+    if primary == "hi":
+        return _make_devanagari_annotation_func()
 
     return None
 

@@ -1,10 +1,15 @@
 name: CI
 
-# Phase 2: Ubuntu + macOS matrix.  Phase 3 will add windows-latest.
-# Phase 1 (Ubuntu-only) passed cleanly; this expansion starts
-# exercising the cross-platform story — Homebrew-installed binaries,
-# macOS fontconfig (a different version than Debian ships), Playwright
-# browser paths under ~/Library/Caches.
+# Phase 3: Ubuntu + macOS + Windows matrix.  Phases 1 (Ubuntu) and 2
+# (macOS) both passed cleanly.  Windows is the final platform — this
+# expansion exercises:
+#   * Chocolatey-installed ffmpeg/tesseract (no apt, no Homebrew).
+#   * fontconfig DELIBERATELY ABSENT — `loom_core/fonts.py` should hit
+#     its "fontconfig unavailable" graceful-degradation path and the
+#     test suite should still pass.
+#   * Playwright browser cache path under ~\AppData\Local\ms-playwright.
+#   * CRLF line endings in any tests that compare file contents.
+#   * Windows path separators (\ vs /) in subprocess + os.path code.
 
 on:
   push:
@@ -17,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false  # one OS failing shouldn't cancel the others
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.10']
     runs-on: ${{ matrix.os }}
 

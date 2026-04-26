@@ -699,10 +699,10 @@ def rasterize_pgs_to_file(
     if _dump_dir:
         os.makedirs(_dump_dir, exist_ok=True)
         # Save HTML template
-        with open(os.path.join(_dump_dir, 'frame_template.html'), 'w') as f:
+        with open(os.path.join(_dump_dir, 'frame_template.html'), 'w', encoding='utf-8') as f:
             f.write(page_html)
         # Save style config summary
-        with open(os.path.join(_dump_dir, 'style_config.txt'), 'w') as f:
+        with open(os.path.join(_dump_dir, 'style_config.txt'), 'w', encoding='utf-8') as f:
             for layer_name in ['Bottom', 'Top', 'Romanized', 'Annotation']:
                 cfg = styles.get(layer_name, {})
                 if not isinstance(cfg, dict):
@@ -850,7 +850,7 @@ def rasterize_pgs_to_file(
                                 f"max_alpha={_qmax}, mean_alpha={_qmean:.1f}")
 
                     with open(os.path.join(
-                            _dump_dir, f"frame_{frame_idx:04d}_region_{j}_edges.txt"), 'w') as _ef:
+                            _dump_dir, f"frame_{frame_idx:04d}_region_{j}_edges.txt"), 'w', encoding='utf-8') as _ef:
                         _ef.write(f"Region {j}: {sub_img.width}x{sub_img.height} "
                                   f"at ({sx},{sy})\n\n")
                         _ef.write("=== Original RGBA edge alpha ===\n")
@@ -927,7 +927,7 @@ def rasterize_pgs_to_file(
                 cropped.save(os.path.join(
                     _dump_dir, f"frame_{frame_idx:04d}_cropped.png"))
                 with open(os.path.join(
-                        _dump_dir, f"frame_{frame_idx:04d}_info.txt"), 'w') as _inf:
+                        _dump_dir, f"frame_{frame_idx:04d}_info.txt"), 'w', encoding='utf-8') as _inf:
                     _inf.write(f"Frame {frame_idx}\n")
                     _inf.write(f"Event: {event.start_ms}ms - {event.end_ms}ms\n")
                     _inf.write(f"Canvas: {render_width}x{render_height}\n")

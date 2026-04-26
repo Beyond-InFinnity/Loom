@@ -142,7 +142,7 @@ def scan_and_extract_tracks(mkv_path, temp_dir, probe_data=None):
 
         print(f"  Extracting {len(text_tracks)} text track(s) in one pass...")
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True)
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if proc.returncode != 0:
                 print(f"  ffmpeg extraction error: {proc.stderr[-500:]}")
         except Exception as e:
@@ -209,7 +209,7 @@ def extract_pgs_stream(mkv_path, stream_index, output_dir):
     ]
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if proc.returncode != 0:
             raise RuntimeError(
                 f"ffmpeg failed to extract PGS stream {stream_index}: "
@@ -495,7 +495,7 @@ def merge_subs_to_mkv(input_path, output_path,
     print(f"  {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             print(f"Error merging subtitles: {result.stderr[-1000:]}")
             return None

@@ -1,15 +1,13 @@
 name: CI
 
-# Phase 3: Ubuntu + macOS + Windows matrix.  Phases 1 (Ubuntu) and 2
-# (macOS) both passed cleanly.  Windows is the final platform — this
-# expansion exercises:
-#   * Chocolatey-installed ffmpeg/tesseract (no apt, no Homebrew).
-#   * fontconfig DELIBERATELY ABSENT — `loom_core/fonts.py` should hit
-#     its "fontconfig unavailable" graceful-degradation path and the
-#     test suite should still pass.
-#   * Playwright browser cache path under ~\AppData\Local\ms-playwright.
-#   * CRLF line endings in any tests that compare file contents.
-#   * Windows path separators (\ vs /) in subprocess + os.path code.
+# Cross-platform matrix: Ubuntu + macOS + Windows.  After the
+# fontconfig drop (loom_core/fonts.py is fontTools-only now) every
+# platform takes the same code path through the font validator —
+# Windows no longer needs the "fontconfig unavailable" graceful
+# degradation that earlier phases of CI exercised.
+#
+# Each platform installs system binaries through its native package
+# manager (apt / brew / choco) and the rest is pip + Playwright.
 
 on:
   push:
@@ -40,14 +38,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ffmpeg fontconfig tesseract-ocr \
+            ffmpeg tesseract-ocr \
             fonts-noto-core fonts-noto-extra \
             fonts-noto-cjk fonts-noto-cjk-extra
 
       - name: System deps (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ffmpeg tesseract fontconfig
+          brew install ffmpeg tesseract
           brew install --cask font-noto-sans-cjk || true
 
       - name: System deps (Windows)
@@ -55,9 +53,6 @@ jobs:
         shell: pwsh
         run: |
           choco install -y ffmpeg tesseract
-          # Intentionally NOT installing fontconfig — we want fc-match
-          # absent on Windows CI to exercise the "fontconfig unavailable"
-          # graceful-degradation path in loom_core/fonts.py.
 
       # ─── Python deps ───────────────────────────────────────────────────
       - name: Install Python deps
@@ -86,16 +81,21 @@ jobs:
       # ─── Font-validator observability ──────────────────────────────────
       # Prints validate_font() output for a handful of languages.  Runs
       # even on test failure so the CI log always shows cross-platform
-      # font coverage differences at a glance — critical for the R6b /
-      # 3c bundling decision.
+      # font coverage at a glance.  Now that the validator is fontTools-
+      # backed, "is_fallback: true" entries on macOS/Windows for fonts
+      # that aren't pre-installed by brew/choco are the headline signal
+      # for what 3c needs to bundle in the Tauri resource directory.
       - name: Font-validator self-check
         if: always()
         env:
           PYTHONPATH: ${{ github.workspace }}
         shell: python
         run: |
-          from loom_core.fonts import validate_font
+          from loom_core.fonts import validate_font, get_default_scanner
           import json
+          scanner = get_default_scanner()
+          print(f"Scanned dirs: {[str(d) for d in scanner.directories()]}")
+          print(f"Indexed faces: {len(scanner)}")
           for lang, font in [('ja', 'Noto Sans CJK JP'),
                              ('ar', 'Noto Naskh Arabic'),
                              ('he', 'Noto Sans Hebrew'),

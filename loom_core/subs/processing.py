@@ -3,13 +3,13 @@ import functools
 import logging
 import os
 import re
-import subprocess
 import pysubs2
 import tempfile
 
 logger = logging.getLogger(__name__)
 from ..styles import get_lang_config
 from ..romanize import build_annotation_html, _strip_inline_furigana, _strip_reverse_furigana
+from ..fonts import get_default_scanner
 from .utils import load_subs, shift_events
 
 # Matches ASS vector-path drawing commands (\p1, \p2, etc.)
@@ -118,19 +118,15 @@ def _merge_concurrent_target_events(target_event_data):
     return result
 
 
-@functools.lru_cache(maxsize=16)
 def _resolve_font_path(fontname: str):
-    """Resolve font family name to file path via fontconfig (fc-match)."""
-    try:
-        result = subprocess.run(
-            ['fc-match', fontname, '-f', '%{file}'],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return None
+    """Resolve font family name to ``(file_path, ttc_index)`` via the
+    fontTools-backed :class:`~loom_core.fonts.FontScanner`.
+
+    Returns ``None`` when the family isn't indexed in any scanned
+    directory.  Caching is handled by the scanner — no lru_cache here.
+    """
+    scanner = get_default_scanner()
+    return scanner.resolve(fontname)
 
 
 @functools.lru_cache(maxsize=16)
@@ -144,11 +140,12 @@ def _load_measurement_font(fontname: str, fontsize: int):
         from PIL import ImageFont
     except ImportError:
         return None
-    path = _resolve_font_path(fontname)
-    if not path:
+    face = _resolve_font_path(fontname)
+    if face is None:
         return None
+    path, index = face
     try:
-        return ImageFont.truetype(path, fontsize)
+        return ImageFont.truetype(path, fontsize, index=index)
     except Exception:
         return None
 

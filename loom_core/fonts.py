@@ -2,38 +2,55 @@
 
 Two independent questions this module answers:
 
-  1. **Availability** — does fontconfig resolve the requested family to an
-     exact match (or silently fall back to something else)?  On Linux,
-     ``fc-match`` always returns *some* font — never fails — so the real
-     "available" signal is whether the returned family matches what we
-     asked for (case-insensitive).
+  1. **Availability** — is the requested family present in any indexed
+     font directory?  No automatic substitution happens here — at
+     render time the rasterizer (libass / Chromium) will pick a
+     fallback if the font isn't shipped.  The validator surfaces this
+     up-front by setting ``is_fallback`` when the requested family
+     isn't found.
 
-  2. **Glyph coverage** — does the resolved font actually contain glyphs
-     for the characters we plan to render?  A font like Liberation Sans
-     will happily be selected by fontconfig but render Japanese as
-     tofu boxes because its cmap has no hiragana/kanji.
+  2. **Glyph coverage** — does the resolved font actually contain
+     glyphs for the characters we plan to render?  A Latin-only font
+     may be perfectly available yet render Japanese as tofu boxes
+     because its cmap has no hiragana/kanji.
 
-The validator handles both.  It is a read-only analysis — never modifies
-the user's font choice — and is safe to call from anywhere (pure Python
-after the lazy fontTools import; fc-match is a subprocess call).
+Backed by a :class:`FontScanner` — a fontTools-only directory walker
+that builds family-name and cmap maps once, then answers queries in
+memory.  No fontconfig / fc-match dependency, so the same backend is
+used identically on Linux, macOS, and Windows.
 
-Cross-platform note: the fc-match backend is Linux-only.  On macOS /
-Windows the module returns a "could not verify" result with a
-suitable warning so callers can decide whether to block or proceed.
-3c bundling will revisit the cross-platform story (likely shipping a
-fontTools-only backend that scans a bundled font directory).
+The 3c bundling track will point the scanner at a Tauri resource
+directory containing the bundled Noto fonts.  Until then, the default
+scanner probes platform-conventional system font directories so dev
+and CI work without configuration.
 """
 
 from __future__ import annotations
 
 import functools
-import subprocess
+import os
+import sys
+import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # Maximum number of missing characters to report.  Useful for diagnostics
 # without producing a thousand-char warning when someone picks an
 # English-only font for a Korean subtitle track.
 _MAX_REPORTED_MISSING = 8
+
+_FONT_EXTS = frozenset({'.ttf', '.otf', '.ttc'})
+
+# Name table record IDs we read.  Priority order — we keep the first
+# usable string we find for each font face.
+#   16 = Typographic Family (preferred when present; matches the user-
+#        visible family name in modern font menus, e.g. "Noto Sans" for
+#        all weights including "Noto Sans Light").
+#    1 = Family Name (legacy 4-style family — splits weights across
+#        family names on older fonts).
+#    4 = Full Font Name (used as a last-resort match target so users
+#        can ask for "Noto Sans CJK JP Regular" verbatim).
+_NAME_RECORD_PRIORITY = (16, 1, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -104,29 +121,31 @@ class FontValidation:
     font_name : str
         The requested family (echoed back).
     resolved_path : str | None
-        Absolute path to the file fontconfig selected, or ``None`` when
-        fc-match is unavailable or returned nothing.
+        Absolute path to the font file the scanner indexed under this
+        family name, or ``None`` when the family isn't in any scanned
+        directory.
     resolved_family : str | None
-        The family name of the resolved font — useful for detecting when
-        fontconfig silently substituted a different family.
+        Display family name as it appears in the font's ``name`` table
+        — may differ in casing / spacing from ``font_name``.  ``None``
+        when the family isn't found.
     resolved_index : int
         For TrueType Collections (TTC), the font index inside the file.
         0 when not a collection or unknown.
     is_fallback : bool
-        True when ``resolved_family`` doesn't match ``font_name``
-        (case-insensitive).  Users often hit this with "Arial" on Linux,
-        which fontconfig aliases to Liberation Sans — functionally fine
-        for Latin but signals the exact font isn't present.
+        True when the requested family wasn't found in any scanned
+        directory.  At render time the renderer will pick a system /
+        engine fallback — that substitution is what this flag warns
+        about.  Always False when the font is found.
     coverage_ok : bool | None
         True when every checked character is in the font's cmap, False
         when some are missing, None when no coverage check was performed
-        (no lang_code / text given, or backend unavailable).
+        (no lang_code / text given, or the font wasn't found).
     missing_chars : list[str]
         Characters that were checked and NOT found in the font's cmap.
         Capped at eight for diagnostic readability.
     warnings : list[str]
-        Human-readable messages explaining fallback / missing coverage /
-        backend issues.  Empty list when everything is clean.
+        Human-readable messages explaining missing fonts / missing
+        coverage.  Empty list when everything is clean.
     """
 
     font_name: str
@@ -140,58 +159,31 @@ class FontValidation:
 
 
 # ---------------------------------------------------------------------------
-# fc-match backend
+# Helpers
 # ---------------------------------------------------------------------------
 
-@functools.lru_cache(maxsize=64)
-def _fc_match(font_name: str) -> tuple[str, str, int] | None:
-    """Resolve *font_name* via fontconfig.
+def _normalize_family(name: str | None) -> str:
+    """Case-insensitive, whitespace-collapsed family name for comparison."""
+    return " ".join((name or "").lower().split())
 
-    Returns ``(file_path, family, index)`` or ``None`` if fc-match is
-    unavailable (not installed / non-Linux / process failure).
+
+def _primary_subtag(lang_code: str) -> str:
+    return (lang_code or "").lower().split("-")[0].split("_")[0]
+
+
+def _coverage_sample_for(lang_code: str | None) -> frozenset[str] | None:
+    """Look up the representative char sample for *lang_code*.
+
+    Tries the full lowercased code first (so ``zh-Hans`` maps to its
+    Simplified-specific set), then falls back to the primary subtag.
     """
-    try:
-        result = subprocess.run(
-            ["fc-match", font_name, "-f", "%{file}|%{family[0]}|%{index}"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    if not lang_code:
         return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    parts = result.stdout.strip().split("|")
-    if len(parts) < 2:
-        return None
-    path, family = parts[0], parts[1]
-    try:
-        index = int(parts[2]) if len(parts) >= 3 and parts[2] else 0
-    except ValueError:
-        index = 0
-    return path, family, index
-
-
-# ---------------------------------------------------------------------------
-# fontTools cmap check
-# ---------------------------------------------------------------------------
-
-@functools.lru_cache(maxsize=32)
-def _font_cmap(path: str, index: int = 0) -> frozenset[int] | None:
-    """Return the set of Unicode codepoints the font covers, or None
-    when the file can't be parsed.  Cached per (path, index) — opening
-    a font file is the slowest step in this module."""
-    try:
-        from fontTools.ttLib import TTFont  # lazy import
-    except ImportError:
-        return None
-    try:
-        tt = TTFont(path, fontNumber=index, lazy=True)
-        cmap = tt.getBestCmap()
-        tt.close()
-    except Exception:
-        return None
-    if cmap is None:
-        return None
-    return frozenset(cmap.keys())
+    lc = lang_code.lower()
+    if lc in _LANG_COVERAGE_SAMPLES:
+        return _LANG_COVERAGE_SAMPLES[lc]
+    primary = _primary_subtag(lang_code)
+    return _LANG_COVERAGE_SAMPLES.get(primary)
 
 
 def _chars_not_in_cmap(cmap_codepoints: frozenset[int], chars) -> list[str]:
@@ -208,46 +200,407 @@ def _chars_not_in_cmap(cmap_codepoints: frozenset[int], chars) -> list[str]:
     return missing
 
 
+def _default_system_font_dirs() -> list[Path]:
+    """Platform-conventional font directories.  Used by the default
+    scanner when no LOOM_FONT_DIR is set.
+
+    Returns paths regardless of whether they exist; the scanner filters
+    non-existent dirs at construction time.
+    """
+    home = Path.home()
+    if sys.platform == "darwin":
+        return [
+            Path("/System/Library/Fonts"),
+            Path("/Library/Fonts"),
+            home / "Library" / "Fonts",
+            # Homebrew (Apple Silicon) — picks up `brew install --cask
+            # font-noto-sans-cjk` and similar.
+            Path("/opt/homebrew/share/fonts"),
+            # Homebrew (Intel) fallback path.
+            Path("/usr/local/share/fonts"),
+        ]
+    if sys.platform.startswith("win"):
+        windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+        local_app = os.environ.get("LOCALAPPDATA")
+        dirs = [windir / "Fonts"]
+        if local_app:
+            dirs.append(Path(local_app) / "Microsoft" / "Windows" / "Fonts")
+        return dirs
+    # Linux / other Unix.
+    return [
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        home / ".local" / "share" / "fonts",
+        home / ".fonts",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# FontScanner — the fontTools-only backend
+# ---------------------------------------------------------------------------
+
+class FontScanner:
+    """Indexes one or more font directories and answers family-name +
+    cmap queries against them.
+
+    The index is built lazily on first query and rebuilt when a
+    directory's mtime changes.  Thread-safe — all index access goes
+    through an internal lock.
+
+    Resolution semantics differ from fontconfig:
+      * fontconfig always returns *some* font (silent substitution).
+      * FontScanner returns ``None`` when a family isn't indexed —
+        callers can decide whether to warn, fall through to a default,
+        or fail.
+
+    For tests, construct directly with a controlled directory; for
+    production use the module-level :func:`get_default_scanner`.
+    """
+
+    def __init__(self, directories: list[Path | str] | None = None):
+        if directories is None:
+            directories = _default_system_font_dirs()
+        # Filter to existing dirs, resolve to absolute, dedupe.
+        seen: set[Path] = set()
+        self._dirs: list[Path] = []
+        for d in directories:
+            p = Path(d)
+            try:
+                if not p.is_dir():
+                    continue
+                resolved = p.resolve()
+            except OSError:
+                continue
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            self._dirs.append(resolved)
+
+        self._lock = threading.Lock()
+        # normalized family name → list of (path, ttc_index) faces.
+        # First-indexed face wins on resolve(); duplicates are still
+        # tracked so callers asking for cmaps via cmap_for() find them.
+        self._families: dict[str, list[tuple[str, int]]] = {}
+        # normalized family → display name (first-seen casing/spacing).
+        self._display_names: dict[str, str] = {}
+        # (path, ttc_index) → cmap codepoints frozenset.
+        self._cmaps: dict[tuple[str, int], frozenset[int]] = {}
+        # Per-directory rglob mtime snapshot for lazy rebuild.
+        self._dir_mtimes: dict[Path, float] = {}
+        self._built = False
+
+    # ── introspection ─────────────────────────────────────────────────
+
+    def directories(self) -> list[Path]:
+        return list(self._dirs)
+
+    def families(self) -> list[str]:
+        """Sorted list of family display names indexed in this scanner."""
+        self._ensure_built()
+        return sorted(self._display_names.values())
+
+    def __len__(self) -> int:
+        self._ensure_built()
+        return len(self._cmaps)
+
+    # ── core lookup API ───────────────────────────────────────────────
+
+    def resolve(self, family: str) -> tuple[str, int] | None:
+        """Return ``(path, ttc_index)`` for *family*, or ``None`` when
+        the family isn't indexed.  Case- and whitespace-insensitive."""
+        if not family:
+            return None
+        self._ensure_built()
+        norm = _normalize_family(family)
+        faces = self._families.get(norm)
+        if not faces:
+            return None
+        return faces[0]
+
+    def display_family(self, family: str) -> str | None:
+        """Canonical display name (first-seen casing/spacing) for an
+        indexed family, or ``None`` when not found."""
+        if not family:
+            return None
+        self._ensure_built()
+        return self._display_names.get(_normalize_family(family))
+
+    def cmap_for(self, face: tuple[str, int]) -> frozenset[int] | None:
+        """Return the cmap codepoint set for a previously-resolved face."""
+        self._ensure_built()
+        return self._cmaps.get(face)
+
+    def invalidate(self) -> None:
+        """Drop the cached index — next query rebuilds.  Tests use
+        this when fonts change underneath the scanner."""
+        with self._lock:
+            self._built = False
+            self._families.clear()
+            self._display_names.clear()
+            self._cmaps.clear()
+            self._dir_mtimes.clear()
+
+    # ── internal: index build ─────────────────────────────────────────
+
+    def _ensure_built(self) -> None:
+        with self._lock:
+            if self._needs_rebuild():
+                self._rebuild()
+
+    def _needs_rebuild(self) -> bool:
+        if not self._built:
+            return True
+        for d in self._dirs:
+            try:
+                mtime = d.stat().st_mtime
+            except OSError:
+                continue
+            if self._dir_mtimes.get(d) != mtime:
+                return True
+        return False
+
+    def _rebuild(self) -> None:
+        self._families.clear()
+        self._display_names.clear()
+        self._cmaps.clear()
+        self._dir_mtimes.clear()
+        # Track style + weight per face so we can prefer Regular when a
+        # family has multiple weights/widths indexed.  Without this, the
+        # first-indexed face wins, which on a system with NotoSansCJK-
+        # Black.ttc + NotoSansCJK-Regular.ttc means Pillow measures text
+        # at Black-weight widths even though the renderer ships Regular.
+        face_priority: dict[tuple[str, int], tuple[int, int, str]] = {}
+        for d in self._dirs:
+            try:
+                self._dir_mtimes[d] = d.stat().st_mtime
+            except OSError:
+                continue
+            try:
+                paths = sorted(d.rglob("*"))
+            except OSError:
+                continue
+            for path in paths:
+                if not path.is_file():
+                    continue
+                if path.suffix.lower() not in _FONT_EXTS:
+                    continue
+                self._index_file(path, face_priority)
+        # Sort each family's face list by (Regular-ness, weight distance
+        # from 400, path) so resolve() returns the closest-to-Regular face.
+        for norm, faces in self._families.items():
+            faces.sort(key=lambda f: face_priority.get(f, (9, 999, "")))
+        self._built = True
+
+    def _index_file(self, path: Path,
+                    face_priority: dict[tuple[str, int],
+                                        tuple[int, int, str]]) -> None:
+        """Open *path*, walk every face it contains, record family
+        names + cmap.  Silently skips faces fontTools can't parse —
+        a corrupt font in the dir mustn't break the whole scanner.
+
+        ``face_priority`` is populated with a sort key per face so
+        :meth:`_rebuild` can prefer Regular weights at lookup time."""
+        try:
+            from fontTools.ttLib import TTFont  # lazy
+        except ImportError:
+            return
+
+        is_collection = path.suffix.lower() == '.ttc'
+        if is_collection:
+            num_faces = self._count_ttc_faces(path)
+        else:
+            num_faces = 1
+
+        for index in range(num_faces):
+            try:
+                tt = TTFont(str(path), fontNumber=index, lazy=True)
+            except Exception:
+                continue
+            try:
+                family_names = self._extract_family_names(tt)
+                cmap = tt.getBestCmap()
+                style_rank, weight_rank = self._weight_priority(tt)
+            except Exception:
+                family_names = []
+                cmap = None
+                style_rank, weight_rank = 9, 999
+            finally:
+                try:
+                    tt.close()
+                except Exception:
+                    pass
+
+            if not family_names or cmap is None:
+                continue
+
+            face = (str(path), index)
+            self._cmaps[face] = frozenset(cmap.keys())
+            face_priority[face] = (style_rank, weight_rank, str(path))
+            for fam in family_names:
+                norm = _normalize_family(fam)
+                if not norm:
+                    continue
+                self._families.setdefault(norm, []).append(face)
+                # First display name wins.
+                self._display_names.setdefault(norm, fam)
+
+    @staticmethod
+    def _weight_priority(tt) -> tuple[int, int]:
+        """Return ``(style_rank, weight_rank)`` for sorting faces of
+        the same family.  Lower is better.
+
+        ``style_rank`` is 0 for Regular/Roman/Book/Normal subfamily
+        names (matched case-insensitively against name record 2),
+        1 otherwise — covers the common case where filenames don't
+        carry the weight (e.g. NotoSansCJK-Regular.ttc).
+
+        ``weight_rank`` is ``abs(usWeightClass - 400)`` from OS/2 — a
+        finer-grained tiebreaker that prefers weights closer to
+        Regular (400) when no face is explicitly marked Regular.
+        """
+        style_rank = 1
+        weight_rank = 999
+        name_table = tt.get('name')
+        if name_table is not None:
+            for record in name_table.names:
+                if record.nameID != 2:  # subfamily / style
+                    continue
+                try:
+                    s = record.toUnicode().strip().lower()
+                except Exception:
+                    continue
+                if s in ('regular', 'roman', 'book', 'normal'):
+                    style_rank = 0
+                    break
+        os2 = tt.get('OS/2')
+        if os2 is not None:
+            try:
+                weight_rank = abs(int(os2.usWeightClass) - 400)
+            except (AttributeError, ValueError, TypeError):
+                pass
+        return style_rank, weight_rank
+
+    @staticmethod
+    def _count_ttc_faces(path: Path) -> int:
+        """Number of faces inside a TTC.  Falls back to 1 when the
+        collection header can't be read."""
+        try:
+            from fontTools.ttLib.ttCollection import TTCollection
+        except ImportError:
+            return 1
+        try:
+            with open(path, 'rb') as f:
+                coll = TTCollection(f, lazy=True)
+                return len(coll.fonts)
+        except Exception:
+            return 1
+
+    @staticmethod
+    def _extract_family_names(tt) -> list[str]:
+        """Return de-duplicated family-name strings from the font's
+        ``name`` table, prioritized by record ID (typographic family →
+        family → full name).  Within each ID, prefers Windows Unicode
+        records (platform 3, encoding 1) over Mac Roman.
+
+        The returned order is the priority order — callers that only
+        need the "best" name take ``[0]``; the scanner indexes all of
+        them so users can match either the typographic family ("Noto
+        Sans") or the legacy four-style family ("Noto Sans Light")."""
+        name_table = tt.get('name')
+        if name_table is None:
+            return []
+
+        seen: set[str] = set()
+        names: list[str] = []
+
+        def _decode(record) -> str | None:
+            try:
+                s = record.toUnicode()
+            except Exception:
+                return None
+            if not s:
+                return None
+            s = s.strip()
+            return s or None
+
+        for nameID in _NAME_RECORD_PRIORITY:
+            # Two passes: prefer Windows Unicode, then any other.
+            preferred = [r for r in name_table.names
+                         if r.nameID == nameID
+                         and r.platformID == 3 and r.platEncID == 1]
+            others = [r for r in name_table.names
+                      if r.nameID == nameID
+                      and not (r.platformID == 3 and r.platEncID == 1)]
+            for record in preferred + others:
+                s = _decode(record)
+                if s is None or s in seen:
+                    continue
+                seen.add(s)
+                names.append(s)
+        return names
+
+
+# ---------------------------------------------------------------------------
+# Module-level default scanner (lazy, env-aware)
+# ---------------------------------------------------------------------------
+
+_default_scanner: FontScanner | None = None
+_default_scanner_lock = threading.Lock()
+
+
+def get_default_scanner() -> FontScanner:
+    """Return the process-wide default :class:`FontScanner`.
+
+    Resolution order for the directories scanned:
+
+      1. ``LOOM_FONT_DIR`` environment variable (``os.pathsep``-separated).
+      2. Platform-conventional system font directories
+         (``/usr/share/fonts`` on Linux, ``/Library/Fonts`` on macOS,
+         ``C:\\Windows\\Fonts`` on Windows, plus user-local equivalents).
+
+    To override for testing, call :func:`set_default_scanner`."""
+    global _default_scanner
+    with _default_scanner_lock:
+        if _default_scanner is None:
+            env_dir = os.environ.get("LOOM_FONT_DIR")
+            if env_dir:
+                dirs: list[Path | str] = [
+                    p for p in env_dir.split(os.pathsep) if p
+                ]
+                _default_scanner = FontScanner(dirs)
+            else:
+                _default_scanner = FontScanner(None)  # system defaults
+        return _default_scanner
+
+
+def set_default_scanner(scanner: FontScanner | None) -> None:
+    """Replace the module-level default scanner.  Pass ``None`` to
+    clear it so the next :func:`get_default_scanner` call rebuilds
+    from environment.  Tests use this to swap in a fixture scanner."""
+    global _default_scanner
+    with _default_scanner_lock:
+        _default_scanner = scanner
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def _normalize_family(name: str) -> str:
-    """Case-insensitive, whitespace-trimmed family name for comparison."""
-    return " ".join((name or "").lower().split())
-
-
-def _primary_subtag(lang_code: str) -> str:
-    return (lang_code or "").lower().split("-")[0].split("_")[0]
-
-
-def _coverage_sample_for(lang_code: str) -> frozenset[str] | None:
-    """Look up the representative char sample for *lang_code*.
-
-    Tries the full lowercased code first (so ``zh-Hans`` maps to its
-    Simplified-specific set), then falls back to the primary subtag.
-    """
-    if not lang_code:
-        return None
-    lc = lang_code.lower()
-    if lc in _LANG_COVERAGE_SAMPLES:
-        return _LANG_COVERAGE_SAMPLES[lc]
-    primary = _primary_subtag(lang_code)
-    return _LANG_COVERAGE_SAMPLES.get(primary)
-
-
 def validate_font(font_name: str, *, lang_code: str | None = None,
-                  text: str | None = None) -> FontValidation:
-    """Validate that *font_name* is resolvable and covers the required glyphs.
+                  text: str | None = None,
+                  scanner: FontScanner | None = None) -> FontValidation:
+    """Validate that *font_name* is indexed and covers the required glyphs.
 
     When *text* is provided, coverage is checked against the unique
     characters of that text.  Otherwise, when *lang_code* is provided,
-    the per-language representative sample from ``_LANG_COVERAGE_SAMPLES``
-    is used.  With neither, only availability (fc-match resolution) is
-    checked — ``coverage_ok`` stays ``None``.
+    the per-language representative sample from
+    ``_LANG_COVERAGE_SAMPLES`` is used.  With neither, only availability
+    is checked — ``coverage_ok`` stays ``None``.
 
-    Never raises — on any backend failure the returned FontValidation
-    carries a warning in ``warnings`` so callers can decide what to do.
+    Pass an explicit ``scanner`` to query a custom directory; otherwise
+    the module-level default scanner is used.  Never raises — on any
+    backend failure the returned :class:`FontValidation` carries a
+    warning so callers can decide what to do.
     """
     v = FontValidation(font_name=font_name)
 
@@ -255,25 +608,23 @@ def validate_font(font_name: str, *, lang_code: str | None = None,
         v.warnings.append("empty font name")
         return v
 
-    resolved = _fc_match(font_name)
-    if resolved is None:
+    scanner = scanner or get_default_scanner()
+    face = scanner.resolve(font_name)
+    if face is None:
+        # Family not indexed.  Mark as fallback so callers know the
+        # rasterizer will pick something else at render time.
+        v.is_fallback = True
+        scanned = ", ".join(str(d) for d in scanner.directories()) or "<none>"
         v.warnings.append(
-            "fontconfig (fc-match) unavailable — could not verify font "
-            "availability or coverage on this system"
+            f"font {font_name!r} not found in scanned font directories "
+            f"({scanned}) — exact font not installed"
         )
         return v
 
-    path, family, index = resolved
+    path, index = face
     v.resolved_path = path
-    v.resolved_family = family
     v.resolved_index = index
-
-    if _normalize_family(family) != _normalize_family(font_name):
-        v.is_fallback = True
-        v.warnings.append(
-            f"requested {font_name!r} but fontconfig resolved to "
-            f"{family!r} — exact font not installed"
-        )
+    v.resolved_family = scanner.display_family(font_name)
 
     # Coverage check — source chars: explicit text > lang sample > nothing.
     chars_to_check: frozenset[str] | None = None
@@ -291,7 +642,7 @@ def validate_font(font_name: str, *, lang_code: str | None = None,
     if chars_to_check is None:
         return v
 
-    cmap = _font_cmap(path, index)
+    cmap = scanner.cmap_for(face)
     if cmap is None:
         v.warnings.append(
             f"could not read font cmap from {path!r} — coverage unchecked"
@@ -310,6 +661,7 @@ def validate_font(font_name: str, *, lang_code: str | None = None,
     )
     visible = "".join(v.missing_chars)
     v.warnings.append(
-        f"font {family!r} is missing glyphs for: {visible!r}{truncated}"
+        f"font {v.resolved_family or font_name!r} is missing glyphs for: "
+        f"{visible!r}{truncated}"
     )
     return v

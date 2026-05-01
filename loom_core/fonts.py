@@ -31,6 +31,7 @@ import functools
 import os
 import sys
 import threading
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -285,6 +286,15 @@ class FontScanner:
         self._display_names: dict[str, str] = {}
         # (path, ttc_index) → cmap codepoints frozenset.
         self._cmaps: dict[tuple[str, int], frozenset[int]] = {}
+        # (path, ttc_index) → preferred display family for that face
+        # (typographic family if present, else legacy family).  Used by
+        # iter_faces() to emit one @font-face block per face under a
+        # canonical family name.
+        self._face_families: dict[tuple[str, int], str] = {}
+        # (path, ttc_index) → OS/2 usWeightClass (raw, e.g. 400/700).
+        # Defaults to 400 when the face's OS/2 table is absent or
+        # unreadable.
+        self._face_weights: dict[tuple[str, int], int] = {}
         # Per-directory rglob mtime snapshot for lazy rebuild.
         self._dir_mtimes: dict[Path, float] = {}
         self._built = False
@@ -338,7 +348,43 @@ class FontScanner:
             self._families.clear()
             self._display_names.clear()
             self._cmaps.clear()
+            self._face_families.clear()
+            self._face_weights.clear()
             self._dir_mtimes.clear()
+
+    # ── face iteration (used by build_font_face_css) ──────────────────
+
+    def iter_faces(self) -> Iterator[tuple[str, tuple[str, int]]]:
+        """Yield ``(display_family, (path, ttc_index))`` for every
+        indexed face, deduplicated by face — a face that exposes both
+        a typographic and a legacy family name appears once, under its
+        preferred (typographic) name.
+
+        Stable ordering: family name, then weight ascending, then path.
+        Tests rely on the ordering for deterministic CSS output.
+        """
+        self._ensure_built()
+        items = []
+        for face in self._cmaps:
+            family = self._face_families.get(face)
+            if family is None:
+                continue
+            items.append((family, face))
+        items.sort(key=lambda fa: (
+            fa[0],
+            self._face_weights.get(fa[1], 400),
+            fa[1][0],
+            fa[1][1],
+        ))
+        for entry in items:
+            yield entry
+
+    def face_weight(self, face: tuple[str, int]) -> int:
+        """OS/2 ``usWeightClass`` for an indexed face, or 400 (Regular)
+        as a default when the face is unknown or its OS/2 table was
+        unreadable."""
+        self._ensure_built()
+        return self._face_weights.get(face, 400)
 
     # ── internal: index build ─────────────────────────────────────────
 
@@ -363,6 +409,8 @@ class FontScanner:
         self._families.clear()
         self._display_names.clear()
         self._cmaps.clear()
+        self._face_families.clear()
+        self._face_weights.clear()
         self._dir_mtimes.clear()
         # Track style + weight per face so we can prefer Regular when a
         # family has multiple weights/widths indexed.  Without this, the
@@ -419,11 +467,11 @@ class FontScanner:
             try:
                 family_names = self._extract_family_names(tt)
                 cmap = tt.getBestCmap()
-                style_rank, weight_rank = self._weight_priority(tt)
+                style_rank, weight_rank, raw_weight = self._weight_priority(tt)
             except Exception:
                 family_names = []
                 cmap = None
-                style_rank, weight_rank = 9, 999
+                style_rank, weight_rank, raw_weight = 9, 999, 400
             finally:
                 try:
                     tt.close()
@@ -436,6 +484,10 @@ class FontScanner:
             face = (str(path), index)
             self._cmaps[face] = frozenset(cmap.keys())
             face_priority[face] = (style_rank, weight_rank, str(path))
+            self._face_weights[face] = raw_weight
+            # First family name in priority order is the preferred
+            # display family for the @font-face emitter.
+            self._face_families[face] = family_names[0]
             for fam in family_names:
                 norm = _normalize_family(fam)
                 if not norm:
@@ -445,9 +497,10 @@ class FontScanner:
                 self._display_names.setdefault(norm, fam)
 
     @staticmethod
-    def _weight_priority(tt) -> tuple[int, int]:
-        """Return ``(style_rank, weight_rank)`` for sorting faces of
-        the same family.  Lower is better.
+    def _weight_priority(tt) -> tuple[int, int, int]:
+        """Return ``(style_rank, weight_rank, raw_weight)`` for sorting
+        faces of the same family + emitting @font-face blocks.  Lower
+        ``style_rank`` and ``weight_rank`` are better.
 
         ``style_rank`` is 0 for Regular/Roman/Book/Normal subfamily
         names (matched case-insensitively against name record 2),
@@ -457,9 +510,15 @@ class FontScanner:
         ``weight_rank`` is ``abs(usWeightClass - 400)`` from OS/2 — a
         finer-grained tiebreaker that prefers weights closer to
         Regular (400) when no face is explicitly marked Regular.
+
+        ``raw_weight`` is the unsigned ``usWeightClass`` (e.g. 400 for
+        Regular, 700 for Bold).  Stored verbatim per face so the
+        @font-face emitter can write ``font-weight: 700;`` without
+        guessing.  Defaults to 400 when OS/2 is missing.
         """
         style_rank = 1
         weight_rank = 999
+        raw_weight = 400
         name_table = tt.get('name')
         if name_table is not None:
             for record in name_table.names:
@@ -475,10 +534,11 @@ class FontScanner:
         os2 = tt.get('OS/2')
         if os2 is not None:
             try:
-                weight_rank = abs(int(os2.usWeightClass) - 400)
+                raw_weight = int(os2.usWeightClass)
+                weight_rank = abs(raw_weight - 400)
             except (AttributeError, ValueError, TypeError):
                 pass
-        return style_rank, weight_rank
+        return style_rank, weight_rank, raw_weight
 
     @staticmethod
     def _count_ttc_faces(path: Path) -> int:
@@ -665,3 +725,114 @@ def validate_font(font_name: str, *, lang_code: str | None = None,
         f"{visible!r}{truncated}"
     )
     return v
+
+
+# ---------------------------------------------------------------------------
+# @font-face CSS generation (Chromium consumption — used by the rasterizer)
+# ---------------------------------------------------------------------------
+
+_CSS_FORMAT_HINTS: dict[str, str] = {
+    '.otf': 'opentype',
+    '.ttf': 'truetype',
+    '.woff': 'woff',
+    '.woff2': 'woff2',
+}
+
+
+def build_font_face_css(scanner: FontScanner | None = None) -> str:
+    """Emit a CSS string of ``@font-face`` blocks — one per indexed face.
+
+    The 3c bundling design routes Chromium's font selection via
+    explicit ``unicode-range`` descriptors rather than fontconfig
+    fallback.  Without this, Chromium picks a system fallback for any
+    codepoint the requested family doesn't cover, defeating the point
+    of bundling Noto.
+
+    Each block emits:
+
+      * ``font-family`` — the face's preferred display family name
+        (typographic family if present, else the legacy 4-style family).
+        Callers in ``StyleConfig`` request this name verbatim.
+      * ``font-weight`` — OS/2 ``usWeightClass`` (e.g. 400 / 700).  CSS
+        looks up the weight when the consumer writes
+        ``font-family: 'Noto Sans'; font-weight: bold``.
+      * ``src`` — ``file://`` URL with a ``format(...)`` hint derived
+        from extension.
+      * ``unicode-range`` — contiguous ranges coalesced from the face's
+        cmap.  See :func:`_coalesce_unicode_ranges`.
+
+    Returns an empty string when *scanner* has no indexed faces — the
+    caller's CSS template then renders without any @font-face blocks
+    and Chromium falls through to its default fallback (system fonts
+    if the bundle didn't ship; tofu otherwise).
+
+    TTC face index > 0 is skipped for now — Chromium has no per-face
+    selector for collections.  The current bundled set is split-out
+    .otf so this never triggers; revisit when shipping pan-CJK .ttc.
+    """
+    if scanner is None:
+        scanner = get_default_scanner()
+
+    blocks: list[str] = []
+    for family, face in scanner.iter_faces():
+        path, ttc_index = face
+        if ttc_index != 0:
+            continue
+        cmap = scanner.cmap_for(face)
+        if not cmap:
+            continue
+        weight = scanner.face_weight(face)
+        ranges = _coalesce_unicode_ranges(cmap)
+        if not ranges:
+            continue
+        url = Path(path).as_uri()
+        fmt = _CSS_FORMAT_HINTS.get(Path(path).suffix.lower(), '')
+        src = f"url({url})"
+        if fmt:
+            src += f" format('{fmt}')"
+        # Single-quote escape for safety on family names that contain
+        # an apostrophe (none of the bundled Noto fonts do, but defensive).
+        family_escaped = family.replace("\\", "\\\\").replace("'", "\\'")
+        blocks.append(
+            f"@font-face {{\n"
+            f"  font-family: '{family_escaped}';\n"
+            f"  font-weight: {weight};\n"
+            f"  font-style: normal;\n"
+            f"  src: {src};\n"
+            f"  unicode-range: {ranges};\n"
+            f"}}"
+        )
+    return "\n".join(blocks)
+
+
+def _coalesce_unicode_ranges(codepoints: Iterable[int]) -> str:
+    """Coalesce a set of codepoints into a CSS ``unicode-range`` string.
+
+    Output format: ``U+20-7E, U+A0-FF, U+2000-206F`` (ranges) and
+    ``U+2030`` (singletons).  Ascending by start.  Empty input → empty
+    string (caller is expected to skip the block).
+
+    Coalescing is mandatory for CJK faces — emitting ~30k literal
+    codepoints per face would balloon the CSS to MBs and slow Chromium
+    parsing measurably.
+    """
+    sorted_pts = sorted(set(int(c) for c in codepoints))
+    if not sorted_pts:
+        return ''
+
+    parts: list[str] = []
+    start = end = sorted_pts[0]
+    for cp in sorted_pts[1:]:
+        if cp == end + 1:
+            end = cp
+            continue
+        parts.append(_fmt_range(start, end))
+        start = end = cp
+    parts.append(_fmt_range(start, end))
+    return ', '.join(parts)
+
+
+def _fmt_range(start: int, end: int) -> str:
+    if start == end:
+        return f"U+{start:X}"
+    return f"U+{start:X}-{end:X}"

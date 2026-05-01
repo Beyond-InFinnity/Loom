@@ -315,3 +315,189 @@ class TestDefaultScanner:
         set_default_scanner(None)
         s = get_default_scanner()
         assert isinstance(s, FontScanner)
+
+
+# ---------------------------------------------------------------------------
+# 3c bundling: @font-face CSS generation
+# ---------------------------------------------------------------------------
+
+class TestCoalesceUnicodeRanges:
+    """Coalescing arbitrary codepoint sets into CSS unicode-range syntax."""
+
+    def test_empty_input_returns_empty_string(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        assert _coalesce_unicode_ranges([]) == ''
+        assert _coalesce_unicode_ranges(set()) == ''
+
+    def test_single_codepoint_emits_single_token(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        assert _coalesce_unicode_ranges([0x41]) == 'U+41'
+
+    def test_contiguous_codepoints_emit_one_range(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        assert _coalesce_unicode_ranges(range(0x20, 0x7F)) == 'U+20-7E'
+
+    def test_disjoint_blocks_emit_multiple_ranges(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        result = _coalesce_unicode_ranges([0x20, 0x21, 0x40, 0x41, 0x42])
+        assert result == 'U+20-21, U+40-42'
+
+    def test_singleton_in_middle(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        # Gap of size 2 — singleton emerges between ranges.
+        result = _coalesce_unicode_ranges([0x20, 0x21, 0x23, 0x40, 0x41])
+        assert result == 'U+20-21, U+23, U+40-41'
+
+    def test_dedup_and_sort(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        # Out-of-order with dupes — should still emit ascending coalesced.
+        result = _coalesce_unicode_ranges([0x42, 0x40, 0x41, 0x42, 0x40])
+        assert result == 'U+40-42'
+
+    def test_high_codepoint_uses_uppercase_hex(self):
+        from loom_core.fonts import _coalesce_unicode_ranges
+        # Astral plane codepoint — exercises >4-hex-digit formatting.
+        assert _coalesce_unicode_ranges([0x1F600]) == 'U+1F600'
+
+
+class TestIterFaces:
+    """FontScanner.iter_faces() — face dedup + ordering."""
+
+    def test_yields_each_face_once(self, synthetic_scanner):
+        # Synthetic dir has 4 faces: TestLatin Regular+Bold, TestHebrew, TestCJK.
+        faces = list(synthetic_scanner.iter_faces())
+        assert len(faces) == 4
+
+    def test_dedups_face_under_typographic_family(self, synthetic_scanner):
+        # A face exposes both typographic and legacy family names; iter_faces
+        # must yield it under exactly one — the typographic / preferred name.
+        faces = list(synthetic_scanner.iter_faces())
+        seen_paths = [face[0] for _, face in faces]
+        assert len(seen_paths) == len(set(seen_paths))
+
+    def test_orders_by_family_then_weight(self, synthetic_scanner):
+        # Expected order: TestCJK, TestHebrew, TestLatin Regular, TestLatin Bold.
+        faces = list(synthetic_scanner.iter_faces())
+        families_in_order = [fam for fam, _ in faces]
+        assert families_in_order == [
+            'TestCJK', 'TestHebrew', 'TestLatin', 'TestLatin',
+        ]
+        # The two TestLatin entries: 400 before 700.
+        weights = [synthetic_scanner.face_weight(face) for _, face in faces]
+        assert weights == [400, 400, 400, 700]
+
+
+class TestFaceWeight:
+    def test_regular_returns_400(self, synthetic_scanner):
+        face = synthetic_scanner.resolve('TestLatin')
+        assert synthetic_scanner.face_weight(face) == 400
+
+    def test_bold_returns_700(self, synthetic_scanner):
+        # Walk faces to find the Bold one — resolve() prefers Regular.
+        bold = next(
+            face for fam, face in synthetic_scanner.iter_faces()
+            if fam == 'TestLatin' and synthetic_scanner.face_weight(face) == 700
+        )
+        assert synthetic_scanner.face_weight(bold) == 700
+
+    def test_unknown_face_defaults_to_400(self, synthetic_scanner):
+        # Face tuple that was never indexed.
+        assert synthetic_scanner.face_weight(('/no/such/path.ttf', 0)) == 400
+
+
+class TestBuildFontFaceCss:
+    """End-to-end: scanner → CSS string Chromium can consume."""
+
+    def test_emits_one_block_per_face(self, synthetic_scanner):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # 4 indexed faces → 4 @font-face blocks.
+        assert css.count('@font-face') == 4
+
+    def test_each_block_has_required_descriptors(self, synthetic_scanner):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # Each block must have all four descriptors.
+        for descriptor in ('font-family:', 'font-weight:',
+                           'src:', 'unicode-range:'):
+            assert css.count(descriptor) == 4, (
+                f"{descriptor!r} appeared {css.count(descriptor)}x; expected 4"
+            )
+
+    def test_family_names_match_typographic_family(self, synthetic_scanner):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        assert "font-family: 'TestLatin'" in css
+        assert "font-family: 'TestHebrew'" in css
+        assert "font-family: 'TestCJK'" in css
+
+    def test_weight_descriptor_distinguishes_regular_vs_bold(
+            self, synthetic_scanner):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # 3 Regular faces (Latin, Hebrew, CJK) + 1 Bold (Latin).
+        assert css.count('font-weight: 400;') == 3
+        assert css.count('font-weight: 700;') == 1
+
+    def test_src_uses_file_url_with_format_hint(
+            self, synthetic_scanner, synthetic_font_dir):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # All synthetic fixtures are .ttf → format('truetype').
+        assert "format('truetype')" in css
+        # File URL points into the fixture dir.
+        assert f"file://{synthetic_font_dir}/" in css or \
+               f"file://{synthetic_font_dir.resolve()}/" in css
+
+    def test_latin_unicode_range_covers_ascii(self, synthetic_scanner):
+        """The Latin synthetic face declares cmap = U+20-7E.  Its
+        unicode-range descriptor must coalesce to a single contiguous
+        range — confirms the cmap → range pipeline is intact."""
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # Find the TestLatin Regular block (font-weight: 400 immediately
+        # after font-family: 'TestLatin').
+        latin_block_start = css.find("font-family: 'TestLatin'")
+        # Find the next @font-face boundary.
+        latin_block_end = css.find('@font-face', latin_block_start + 1)
+        if latin_block_end == -1:
+            latin_block_end = len(css)
+        latin_block = css[latin_block_start:latin_block_end]
+        # ASCII printable range is U+20-7E; conftest defines exactly
+        # range(0x20, 0x7F).  After coalescing → "U+20-7E".
+        assert 'U+20-7E' in latin_block
+
+    def test_hebrew_unicode_range_covers_alefbet(self, synthetic_scanner):
+        from loom_core.fonts import build_font_face_css
+        css = build_font_face_css(synthetic_scanner)
+        # Hebrew letter block is range(0x05D0, 0x05EB) → coalesces to U+5D0-5EA.
+        hebrew_idx = css.find("font-family: 'TestHebrew'")
+        assert hebrew_idx != -1
+        next_block = css.find('@font-face', hebrew_idx + 1)
+        if next_block == -1:
+            next_block = len(css)
+        hebrew_block = css[hebrew_idx:next_block]
+        assert 'U+5D0-5EA' in hebrew_block
+
+    def test_empty_scanner_returns_empty_string(self, tmp_path):
+        """A scanner pointing at an empty dir yields no @font-face
+        blocks.  Caller (the rasterizer template) treats an empty
+        result as 'fall through to system fonts' — important so dev
+        without LOOM_FONT_DIR set doesn't break the template."""
+        from loom_core.fonts import FontScanner, build_font_face_css
+        empty_dir = tmp_path / "empty_fonts"
+        empty_dir.mkdir()
+        scanner = FontScanner([empty_dir])
+        assert build_font_face_css(scanner) == ''
+
+    def test_uses_default_scanner_when_none_passed(self, synthetic_scanner):
+        from loom_core.fonts import (
+            build_font_face_css, set_default_scanner, get_default_scanner,
+        )
+        original = get_default_scanner()
+        try:
+            set_default_scanner(synthetic_scanner)
+            css = build_font_face_css()  # no scanner arg
+            assert "font-family: 'TestLatin'" in css
+        finally:
+            set_default_scanner(original)

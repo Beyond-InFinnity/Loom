@@ -62,6 +62,7 @@ def _log_memory(label: str) -> None:
         pass
 
 from .sup_writer import DisplaySet, split_regions, _quantize_image
+from ..fonts import build_font_face_css
 
 
 @dataclass
@@ -258,8 +259,17 @@ def _build_fullframe_html(styles: dict, canvas_width: int,
     top_dir_attr = ' dir="rtl"' if top_rtl else ''
     bottom_dir_attr = ' dir="rtl"' if bottom_rtl else ''
 
+    # Bundled-font @font-face block.  Empty string when no scanner / no
+    # bundled fonts — Chromium then falls through to its system fallback,
+    # which is fine for dev but produces tofu in the bundled app on
+    # codepoints the system font doesn't cover.  Routing via explicit
+    # unicode-range descriptors is the whole point of the 3c bundling
+    # design (see CLAUDE.md "Active focus" → Track A).
+    font_face_css = build_font_face_css()
+
     return f'''<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>
+{font_face_css}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 html, body {{ background: transparent; overflow: hidden;
              width: {canvas_width}px; height: {canvas_height}px; }}

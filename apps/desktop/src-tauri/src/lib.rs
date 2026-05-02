@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
@@ -6,38 +6,121 @@ use tauri::{Manager, RunEvent, WindowEvent};
 
 struct SidecarHandle(Mutex<Option<Child>>);
 
-fn spawn_sidecar(font_dir: Option<PathBuf>) -> std::io::Result<Child> {
-    // Dev mode: rely on the developer's existing Python env. The defaults
-    // match Connor's setup; override via env if your interpreter or repo
-    // root lives elsewhere. Production bundling (step 3c) replaces this
-    // with a packaged Python runtime and embedded loom_api wheel.
-    let uvicorn = std::env::var("LOOM_UVICORN")
-        .unwrap_or_else(|_| "/home/connor/miniconda3/envs/srtstitcher/bin/uvicorn".to_string());
-    let project_root = std::env::var("LOOM_PROJECT_ROOT")
-        .unwrap_or_else(|_| "/home/connor/Documents/projects/Loom".to_string());
+/// Paths into the bundled `resources/` tree populated by
+/// `scripts/setup_bundle.sh`.  All members are absolute paths under
+/// the Tauri-resolved `resource_dir`.  `is_complete()` reports whether
+/// every required artifact is present — incomplete bundles fall back
+/// to the legacy dev defaults so a half-built install at least
+/// launches with a meaningful error message.
+struct BundlePaths {
+    python_bin: PathBuf,
+    source_dir: PathBuf,
+    fonts_dir: PathBuf,
+    browsers_dir: PathBuf,
+}
+
+impl BundlePaths {
+    fn from_resource_dir(resource_dir: &Path) -> Self {
+        // python-build-standalone interpreter — venv shim, not the
+        // raw runtime.  The shim points back at runtime/cpython-... so
+        // we never need to spawn the runtime directly.
+        let venv_bin_relative = if cfg!(windows) {
+            "python/venv/Scripts/python.exe"
+        } else {
+            "python/venv/bin/python"
+        };
+        Self {
+            python_bin: resource_dir.join(venv_bin_relative),
+            source_dir: resource_dir.join("python/source"),
+            fonts_dir: resource_dir.join("fonts"),
+            browsers_dir: resource_dir.join("playwright-browsers"),
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        // Tighter than just "python + source": also require the
+        // browsers dir to contain a Playwright chromium-* dir.
+        // Without this, a partial bundle (e.g. setup_bundle.sh
+        // interrupted) would still take the bundle branch and
+        // Playwright would silently fetch Chromium to ~/.cache/ on
+        // first preview, defeating the bundle.
+        if !self.python_bin.is_file() || !self.source_dir.is_dir() {
+            return false;
+        }
+        std::fs::read_dir(&self.browsers_dir)
+            .map(|mut entries| entries.any(|e| e.ok()
+                .and_then(|e| e.file_name().into_string().ok())
+                .map_or(false, |n| n.starts_with("chromium-"))))
+            .unwrap_or(false)
+    }
+}
+
+fn spawn_sidecar(bundle: Option<BundlePaths>) -> std::io::Result<Child> {
     let port = std::env::var("LOOM_SIDECAR_PORT").unwrap_or_else(|_| "8765".to_string());
 
-    let mut cmd = Command::new(uvicorn);
-    cmd.args([
-        "loom_api.main:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        &port,
-    ])
-    .current_dir(project_root)
-    .stdout(Stdio::inherit())
-    .stderr(Stdio::inherit());
+    // Resolution order:
+    //   1. LOOM_UVICORN explicitly set → dev mode, use that interpreter
+    //      against the developer's project root.  Bundle is ignored
+    //      even if present.
+    //   2. Bundle complete → spawn the bundled python -m uvicorn against
+    //      the bundled source dir.
+    //   3. Neither → fall back to the legacy hardcoded dev defaults
+    //      (matches Connor's setup; deliberately Linux-only).
+    let mut cmd = if let Ok(uvicorn) = std::env::var("LOOM_UVICORN") {
+        let project_root = std::env::var("LOOM_PROJECT_ROOT")
+            .unwrap_or_else(|_| "/home/connor/Documents/projects/Loom".to_string());
+        let mut c = Command::new(uvicorn);
+        c.args([
+            "loom_api.main:app",
+            "--host", "127.0.0.1",
+            "--port", &port,
+        ])
+        .current_dir(project_root);
+        c
+    } else if let Some(b) = bundle.as_ref().filter(|b| b.is_complete()) {
+        let mut c = Command::new(&b.python_bin);
+        c.args([
+            "-m", "uvicorn",
+            "loom_api.main:app",
+            "--host", "127.0.0.1",
+            "--port", &port,
+        ])
+        .current_dir(&b.source_dir);
+        // Strip inherited Python env vars that could pull dev-machine
+        // site-packages or pyenv shims into the bundled interpreter's
+        // import path.
+        c.env_remove("PYTHONHOME");
+        c.env_remove("PYTHONPATH");
+        c.env_remove("VIRTUAL_ENV");
+        // Point Playwright at the bundled Chromium.  Without this the
+        // bundled venv's Playwright would download Chromium to
+        // ~/.cache/ms-playwright/ on first use, defeating the bundle.
+        c.env("PLAYWRIGHT_BROWSERS_PATH", &b.browsers_dir);
+        // Helpful for log streaming during dev sessions.
+        c.env("PYTHONUNBUFFERED", "1");
+        c
+    } else {
+        let mut c = Command::new("/home/connor/miniconda3/envs/srtstitcher/bin/uvicorn");
+        c.args([
+            "loom_api.main:app",
+            "--host", "127.0.0.1",
+            "--port", &port,
+        ])
+        .current_dir("/home/connor/Documents/projects/Loom");
+        c
+    };
 
-    // LOOM_FONT_DIR resolution: explicit env var wins (dev override). Otherwise
-    // use the bundled resource dir if it exists. Falling through to neither
-    // leaves the var unset, and FontScanner falls back to system font dirs —
-    // appropriate for a fresh dev checkout that hasn't run fetch_noto_fonts.sh.
+    cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+
+    // LOOM_FONT_DIR — explicit env var wins (dev override).  Otherwise
+    // use the bundle's fonts dir when present.  Leaving the var unset
+    // makes the FontScanner fall back to system fonts — appropriate
+    // for a dev checkout that hasn't run setup_bundle.sh.
     if let Ok(explicit) = std::env::var("LOOM_FONT_DIR") {
         cmd.env("LOOM_FONT_DIR", explicit);
-    } else if let Some(dir) = font_dir {
-        if dir.is_dir() {
-            cmd.env("LOOM_FONT_DIR", dir);
+    } else if let Some(b) = bundle.as_ref() {
+        if b.fonts_dir.is_dir() {
+            cmd.env("LOOM_FONT_DIR", &b.fonts_dir);
         }
     }
 
@@ -58,8 +141,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(SidecarHandle(Mutex::new(None)))
         .setup(|app| {
-            let font_dir = app.path().resource_dir().ok().map(|d| d.join("fonts"));
-            let child = spawn_sidecar(font_dir)?;
+            let bundle = app.path().resource_dir().ok()
+                .map(|d| BundlePaths::from_resource_dir(&d));
+            let child = spawn_sidecar(bundle)?;
             let state = app.state::<SidecarHandle>();
             *state.0.lock().unwrap() = Some(child);
             Ok(())

@@ -26,3 +26,10 @@ Thumbs.db
 *.sup
 *.mkv
 *.ass
+
+# Bundled resources (3c) — fetched at build time via scripts/setup_bundle.sh.
+# Too large for git history (~600 MB total: fonts ~45 MB, Python runtime +
+# venv ~250 MB, Chromium ~170 MB).  Each subdir has its own fetch step.
+apps/desktop/src-tauri/resources/fonts/
+apps/desktop/src-tauri/resources/python/
+apps/desktop/src-tauri/resources/playwright-browsers/

@@ -445,9 +445,12 @@ class TestBuildFontFaceCss:
         css = build_font_face_css(synthetic_scanner)
         # All synthetic fixtures are .ttf → format('truetype').
         assert "format('truetype')" in css
-        # File URL points into the fixture dir.
-        assert f"file://{synthetic_font_dir}/" in css or \
-               f"file://{synthetic_font_dir.resolve()}/" in css
+        # File URL points into the fixture dir.  Compare via as_uri() so
+        # the expected prefix matches the emitter's normalization on
+        # Windows (backslash paths → file:///C:/... with forward slashes).
+        expected_prefix = synthetic_font_dir.as_uri() + "/"
+        expected_prefix_resolved = synthetic_font_dir.resolve().as_uri() + "/"
+        assert expected_prefix in css or expected_prefix_resolved in css
 
     def test_latin_unicode_range_covers_ascii(self, synthetic_scanner):
         """The Latin synthetic face declares cmap = U+20-7E.  Its

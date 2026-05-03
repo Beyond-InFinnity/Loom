@@ -7,6 +7,7 @@ import { SSAFile } from "../../lib/subs/ssa";
 import { generateAssFile } from "../../lib/subs/generate-ass";
 import { defaultStyleConfig } from "../../lib/subs/style-config";
 import { rasterizeFrames, type RasterizedFrame } from "../../lib/raster/rasterizer";
+import { SupWriter } from "../../lib/raster/sup-writer";
 
 // 4c-1 → 4c-3 smoke test page.
 //   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
@@ -103,6 +104,12 @@ export default function FFmpegTestPage() {
   const [generateStatus, setGenerateStatus] = useState<string | null>(null);
   const [rasterStatus, setRasterStatus] = useState<string | null>(null);
   const [rasterPreviews, setRasterPreviews] = useState<{ url: string; meta: string }[]>([]);
+  // 4d-4 SUP generation: holds the most recently generated .sup byte
+  // stream so the user can mux it back into the source via the existing
+  // mux button without re-running the rasterize/encode pipeline.
+  const [supBytes, setSupBytes] = useState<Uint8Array | null>(null);
+  const [supStatus, setSupStatus] = useState<string | null>(null);
+  const [supMuxStatus, setSupMuxStatus] = useState<string | null>(null);
 
   function appendLog(line: string) { setLogs((prev) => [...prev, line]); }
   function patchStep(i: number, patch: Partial<Step>) {
@@ -118,6 +125,9 @@ export default function FFmpegTestPage() {
     setRasterStatus(null);
     rasterPreviews.forEach((p) => URL.revokeObjectURL(p.url));
     setRasterPreviews([]);
+    setSupBytes(null);
+    setSupStatus(null);
+    setSupMuxStatus(null);
     setNativeTrackId(null);
     setTargetTrackId(null);
     setTopLevelError(null);
@@ -356,6 +366,93 @@ export default function FFmpegTestPage() {
     }
   }
 
+  /** End-to-end PGS .sup generation — runs the full rasterize → SupWriter
+      pipeline against the chosen native + target tracks and downloads the
+      resulting .sup.  Validates 4d-4 (palette quantization + RLE +
+      Display Set assembly + epoch state machine).  Optionally mux the
+      result back into the source via the dedicated button below. */
+  async function handleGenerateSup(opts: { maxFrames?: number } = {}) {
+    if (!currentFile || !clientRef.current || !probeResult || busy) return;
+    if (nativeTrackId == null || targetTrackId == null) return;
+    setBusy(true);
+    setSupBytes(null);
+    setSupStatus("extracting tracks…");
+    try {
+      const nativeTrack = probeResult.subtitle_tracks.find((t) => t.id === nativeTrackId)!;
+      const targetTrack = probeResult.subtitle_tracks.find((t) => t.id === targetTrackId)!;
+      const nativeRes = await clientRef.current.extractTrack(currentFile, nativeTrack);
+      const targetRes = await clientRef.current.extractTrack(currentFile, targetTrack);
+      const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
+      const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
+
+      const t0 = performance.now();
+      const writer = new SupWriter(1920, 1080);
+      let count = 0;
+      for await (const frame of rasterizeFrames({
+        native: nativeSubs,
+        target: targetSubs,
+        styles: defaultStyleConfig(),
+        onProgress: (done, total) => {
+          setSupStatus(`rasterize+encode ${done}/${total}…`);
+        },
+      })) {
+        writer.write({
+          start_ms: frame.start_ms,
+          end_ms: frame.end_ms,
+          rgba: frame.rgba,
+          width: frame.width,
+          height: frame.height,
+          top_text: frame.top_text,
+          bottom_text: frame.bottom_text,
+        });
+        count += 1;
+        if (opts.maxFrames !== undefined && count >= opts.maxFrames) break;
+      }
+      const bytes = writer.close();
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      setSupBytes(bytes);
+      const s = writer.stats;
+      const limitNote = opts.maxFrames !== undefined ? ` (capped at ${opts.maxFrames} frames)` : "";
+      setSupStatus(
+        `generated .sup (${(bytes.length / 1024).toFixed(1)} KB) in ${dt}s · ` +
+        `frames=${count}${limitNote} · ES=${s.epoch_start} AP=${s.acquisition_point} ` +
+        `Normal=${s.normal} Skip=${s.skipped} Clear=${s.clears} — downloading`,
+      );
+      const baseName = currentFile.name.replace(/\.[^.]+$/, "");
+      downloadBytes(bytes, `${baseName}.loom.sup`);
+    } catch (err) {
+      setSupStatus(`generate sup failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Mux the most recently generated .sup back into the source MKV.
+      Closes the validation loop: if mpv plays the resulting file with
+      subtitles appearing at the correct times + positions, the binary
+      output is valid PGS. */
+  async function handleMuxSupBack() {
+    if (!currentFile || !clientRef.current || !probeResult || !supBytes || busy) return;
+    setBusy(true);
+    setSupMuxStatus("muxing source + generated .sup…");
+    try {
+      const t0 = performance.now();
+      const { data, filename } = await clientRef.current.mux(currentFile, {
+        sup: supBytes,
+        target_lang_code: "und",
+        pgs_track_title: "Loom PGS (Loom)",
+        existing_subtitle_count: probeResult.subtitle_tracks.length,
+      });
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      setSupMuxStatus(`muxed ${filename} (${(data.length / 1e6).toFixed(1)} MB) in ${dt}s — downloading`);
+      downloadBytes(data, filename.replace(/(\.[^.]+)$/, ".sup-mux$1"));
+    } catch (err) {
+      setSupMuxStatus(`sup mux failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleMuxTest() {
     if (!currentFile || !clientRef.current || !probeResult || busy) return;
     setBusy(true);
@@ -559,6 +656,40 @@ export default function FFmpegTestPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={busy || nativeTrackId == null || targetTrackId == null}
+                  onClick={() => void handleGenerateSup({ maxFrames: 30 })}
+                  className="px-3 py-1 border border-rose-500 text-rose-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Generate .sup (first 30 frames)
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || nativeTrackId == null || targetTrackId == null}
+                  onClick={() => void handleGenerateSup()}
+                  className="px-3 py-1 border border-rose-500 text-rose-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Generate .sup (full episode — slow)
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || supBytes === null}
+                  onClick={() => void handleMuxSupBack()}
+                  className="px-3 py-1 border border-rose-300 text-rose-200 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Mux generated .sup back into source
+                </button>
+              </div>
+              {supStatus && (
+                <div className="mt-2 text-zinc-300 text-xs">↳ {supStatus}</div>
+              )}
+              {supMuxStatus && (
+                <div className="mt-1 text-zinc-300 text-xs">↳ {supMuxStatus}</div>
               )}
             </div>
             <div>

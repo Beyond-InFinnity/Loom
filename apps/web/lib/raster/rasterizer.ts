@@ -27,6 +27,14 @@ export interface RasterizedFrame {
   /** Width/height of the rgba buffer (matches canvas resolution). */
   width: number;
   height: number;
+  /** Source plain text for the upper subtitle layer (target/foreign).
+      Empty string when the layer is absent for this interval.  Carries
+      through so 4d-4's SupWriter can derive per-region content keys
+      for epoch-state Skip/Normal optimization. */
+  top_text: string;
+  /** Source plain text for the lower subtitle layer (native).  Same
+      purpose as top_text. */
+  bottom_text: string;
 }
 
 export interface RasterizeOptions {
@@ -161,6 +169,8 @@ export async function* rasterizeFrames(
         end_ms: iv.end_ms,
         rgba: nonTransparent ? img.data : null,
         width, height,
+        top_text: iv.top?.plain_text ?? "",
+        bottom_text: iv.bottom?.plain_text ?? "",
       };
 
       done += 1;

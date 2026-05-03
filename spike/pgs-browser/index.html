@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PGS-in-browser spike</title>
+<style>
+@font-face {
+  font-family: 'Noto Sans'; src: url('fonts/NotoSans-Regular.otf') format('opentype');
+  font-weight: 400; font-display: block;
+}
+@font-face {
+  font-family: 'Noto Sans'; src: url('fonts/NotoSans-Bold.otf') format('opentype');
+  font-weight: 700; font-display: block;
+}
+@font-face {
+  font-family: 'Noto Sans JP'; src: url('fonts/NotoSansJP-Regular.otf') format('opentype');
+  font-weight: 400; font-display: block;
+}
+@font-face {
+  font-family: 'Noto Sans JP'; src: url('fonts/NotoSansJP-Bold.otf') format('opentype');
+  font-weight: 700; font-display: block;
+}
+@font-face {
+  font-family: 'Noto Sans Hebrew'; src: url('fonts/NotoSansHebrew-Regular.otf') format('opentype');
+  font-weight: 400; font-display: block;
+}
+@font-face {
+  font-family: 'Noto Sans Hebrew'; src: url('fonts/NotoSansHebrew-Bold.otf') format('opentype');
+  font-weight: 700; font-display: block;
+}
+
+body { font-family: monospace; padding: 1rem; background: #1a1a1a; color: #eee; }
+button { font-size: 1rem; padding: .5rem 1rem; cursor: pointer; }
+.row { margin: .5rem 0; }
+canvas { background: transparent; max-width: 100%; height: auto;
+         border: 1px solid #666; image-rendering: pixelated; }
+.status { margin: .5rem 0; }
+.ok { color: #5e5; }
+.err { color: #f55; }
+pre { background: #000; padding: .5rem; max-height: 200px; overflow: auto; }
+
+/* The .frame div is the actual subtitle render target.  Sized exactly
+   1920×1080.  Hidden offscreen via absolute positioning — it's still
+   in the layout tree (which html2canvas needs to walk), just not
+   visible to the user. */
+#frame-host {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  background: transparent;
+}
+#frame-host .frame {
+  position: relative; width: 1920px; height: 1080px;
+}
+#frame-host .layer {
+  position: absolute; width: 100%; text-align: center;
+  white-space: pre-wrap; padding: 0 10px; box-sizing: border-box;
+  unicode-bidi: isolate;
+}
+#frame-host #bottom {
+  font-family: 'Noto Sans Hebrew', 'Noto Sans', sans-serif;
+  font-size: 48px; color: white; bottom: 40px;
+  text-shadow: -3px -3px 0 black, 3px -3px 0 black,
+               -3px  3px 0 black, 3px  3px 0 black;
+}
+#frame-host #top {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 52px; color: white; top: 90px;
+  text-shadow: -2.5px -2.5px 0 black, 2.5px -2.5px 0 black,
+               -2.5px  2.5px 0 black, 2.5px  2.5px 0 black;
+}
+#frame-host #top rt {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 26px; color: white;
+  text-shadow: -1.5px -1.5px 0 black, 1.5px -1.5px 0 black,
+               -1.5px  1.5px 0 black, 1.5px  1.5px 0 black;
+}
+#frame-host #romaji {
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 30px; color: rgb(200, 200, 200); top: 10px;
+  text-shadow: -1.5px -1.5px 0 black, 1.5px -1.5px 0 black,
+               -1.5px  1.5px 0 black, 1.5px  1.5px 0 black;
+}
+</style>
+<script src="html2canvas.min.js"></script>
+</head>
+<body>
+<h1>PGS-in-browser feasibility spike — phase 1</h1>
+<p>Approach: html2canvas walks the DOM and draws each text/shape via
+Canvas2D primitives.  No SVG involvement → canvas not tainted →
+<code>getImageData</code> works.</p>
+
+<div class="row">
+  <button id="run">Capture .frame → canvas (html2canvas)</button>
+  <button id="dlpng" disabled>Download browser.png</button>
+  <button id="dlbin" disabled>Download browser.bin (raw RGBA)</button>
+</div>
+
+<div class="status" id="status">Ready. Click "Capture" to begin.</div>
+
+<canvas id="canvas" width="1920" height="1080"></canvas>
+
+<h3>Render log</h3>
+<pre id="log"></pre>
+
+<!-- The .frame is rendered offscreen.  html2canvas captures THIS,
+     not the visible canvas — the canvas above just displays the result. -->
+<div id="frame-host">
+  <div class="frame">
+    <div id="bottom" class="layer" dir="rtl"><b>שלום עולם</b></div>
+    <div id="top" class="layer"><ruby>世界<rt>セカイ</rt></ruby>へようこそ</div>
+    <div id="romaji" class="layer">sekai e youkoso</div>
+  </div>
+</div>
+
+<script>
+const W = 1920, H = 1080;
+const logEl = document.getElementById("log");
+const statusEl = document.getElementById("status");
+function log(msg) { console.log(msg); logEl.textContent += msg + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+function status(msg, cls = "") { statusEl.textContent = msg; statusEl.className = "status " + cls; }
+
+let lastCanvas = null;
+let lastRgba = null;
+
+document.getElementById("run").addEventListener("click", async () => {
+  status("Working…");
+  logEl.textContent = "";
+  const t0 = performance.now();
+  try {
+    log("[1/4] waiting for fonts");
+    await document.fonts.ready;
+    log(`  document.fonts.ready in ${(performance.now()-t0).toFixed(0)}ms`);
+
+    log("[2/4] running html2canvas on #frame-host .frame");
+    const target = document.querySelector("#frame-host .frame");
+    const t1 = performance.now();
+    // backgroundColor: null → transparent (matches the Playwright
+    // omit_background=True reference).  width/height: explicit so
+    // html2canvas doesn't add fractional padding.  scale: 1 → 1:1
+    // pixel mapping (no devicePixelRatio scaling).
+    const captured = await html2canvas(target, {
+      backgroundColor: null,
+      width: W, height: H,
+      scale: 1,
+      logging: false,
+    });
+    log(`  captured (${captured.width}×${captured.height}) in ${(performance.now()-t1).toFixed(0)}ms`);
+
+    log("[3/4] copying to display canvas + getImageData");
+    const display = document.getElementById("canvas");
+    const dctx = display.getContext("2d");
+    dctx.clearRect(0, 0, W, H);
+    dctx.drawImage(captured, 0, 0);
+    // getImageData on the captured canvas — this is the moment of
+    // truth for the spike.  If it throws, html2canvas tainted the
+    // canvas somehow.  If it succeeds, we have pixels.
+    const cctx = captured.getContext("2d");
+    const imageData = cctx.getImageData(0, 0, W, H);
+    log(`  RGBA buffer: ${imageData.data.length.toLocaleString()} bytes`);
+    lastRgba = imageData.data;
+    lastCanvas = captured;
+
+    log("[4/4] verifying pixel content");
+    // Sanity: count non-transparent pixels.  Should be in the
+    // thousands (text regions).  If zero, the capture rendered a
+    // blank canvas.
+    let nonTransparent = 0;
+    for (let i = 3; i < imageData.data.length; i += 4) {
+      if (imageData.data[i] > 0) nonTransparent++;
+    }
+    log(`  non-transparent pixels: ${nonTransparent.toLocaleString()} (~${(100*nonTransparent/(W*H)).toFixed(2)}% of frame)`);
+
+    document.getElementById("dlpng").disabled = false;
+    document.getElementById("dlbin").disabled = false;
+    status(`OK — captured in ${(performance.now() - t0).toFixed(0)}ms`, "ok");
+  } catch (err) {
+    log(`[error] ${err.message}`);
+    status(`Failed: ${err.message}`, "err");
+  }
+});
+
+document.getElementById("dlpng").addEventListener("click", () => {
+  lastCanvas.toBlob((blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "browser.png";
+    a.click();
+  });
+});
+
+document.getElementById("dlbin").addEventListener("click", () => {
+  const blob = new Blob([lastRgba], { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "browser.bin";
+  a.click();
+});
+</script>
+</body>
+</html>

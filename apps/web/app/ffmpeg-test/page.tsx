@@ -1,26 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { toBlobURL } from "@ffmpeg/util";
+import { FFmpegClient } from "../../lib/ffmpeg/client";
+import type { ProbeResult } from "../../lib/ffmpeg/types";
 
-const WORKERFS = "WORKERFS" as const;
-
-// Wrap any promise so a never-settling third-party call surfaces as a
-// labeled rejection within `ms` instead of a silent infinite spinner.
-// Banned bug class per feedback_async_hang_prevention.md.
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const handle = setTimeout(
-      () => reject(new Error(`timeout after ${ms}ms waiting for: ${label}`)),
-      ms,
-    );
-    p.then(
-      (v) => { clearTimeout(handle); resolve(v); },
-      (e) => { clearTimeout(handle); reject(e); },
-    );
-  });
-}
+// 4c-1 + 4c-2 smoke test page.
+//   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
+//   4c-2 wraps both behind FFmpegClient — this page now exercises the
+//        public API (create, probe, terminate) instead of poking at
+//        the underlying @ffmpeg/ffmpeg primitives directly.  If a
+//        future change breaks the client, this page surfaces it.
 
 type StepState = "pending" | "running" | "done" | "error";
 type Step = {
@@ -28,112 +17,68 @@ type Step = {
   state: StepState;
   startedAt?: number;
   endedAt?: number;
-  timeoutMs: number;
   detail?: string;
 };
 
 const INITIAL_STEPS: Step[] = [
-  { label: "fetch ffmpeg-core.js (~110KB)", state: "pending", timeoutMs: 15_000 },
-  { label: "fetch ffmpeg-core.wasm (~31MB)", state: "pending", timeoutMs: 60_000 },
-  { label: "spawn worker + load wasm", state: "pending", timeoutMs: 30_000 },
-  { label: "mount file via WORKERFS", state: "pending", timeoutMs: 10_000 },
-  { label: "ffmpeg -i (probe)", state: "pending", timeoutMs: 30_000 },
+  { label: "FFmpegClient.create() — boot wasm + worker", state: "pending" },
+  { label: "client.probe(file) — mount + ffmpeg -i", state: "pending" },
 ];
 
 export default function FFmpegTestPage() {
-  const ffmpegRef = useRef<FFmpeg | null>(null);
-  const coreURLRef = useRef<string | null>(null);
-  const wasmURLRef = useRef<string | null>(null);
+  const clientRef = useRef<FFmpegClient | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
   const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
   const [logs, setLogs] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [coi, setCoi] = useState<boolean | null>(null);
-  const [tick, setTick] = useState(0); // heartbeat: forces re-render every 500ms while any step is running
+  const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [topLevelError, setTopLevelError] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
 
   function appendLog(line: string) {
     setLogs((prev) => [...prev, line]);
   }
-
-  function patchStep(index: number, patch: Partial<Step>) {
-    setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  function patchStep(i: number, patch: Partial<Step>) {
+    setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
-
   function resetSteps() {
     setSteps(INITIAL_STEPS.map((s) => ({ ...s })));
     setLogs([]);
+    setProbeResult(null);
     setTopLevelError(null);
   }
 
-  // Heartbeat: while any step is running, re-render every 500ms so the
-  // elapsed counters tick visibly.  Proves the UI is alive even when
-  // the underlying promise is silent.
+  // Heartbeat — proves the UI is alive while a step runs.
   useEffect(() => {
-    const anyRunning = steps.some((s) => s.state === "running");
-    if (!anyRunning) return;
+    if (!steps.some((s) => s.state === "running")) return;
     const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
   }, [steps]);
 
-  // Diagnostic: is the page actually cross-origin-isolated?
-  useEffect(() => {
-    setCoi(window.crossOriginIsolated);
-  }, []);
+  useEffect(() => { setCoi(window.crossOriginIsolated); }, []);
 
-  // Capture global errors + unhandled rejections.  The FFmpeg class's
-  // worker has no onerror handler, so worker boot failures (broken
-  // imports, parse errors, MIME mismatches) silently hang load().
-  // These listeners surface what otherwise goes nowhere.
+  // Window-level error capture — silent worker errors from third-party
+  // code surface here when the wrapped promises don't see them.
   useEffect(() => {
-    const onErr = (e: ErrorEvent) => {
+    const onErr = (e: ErrorEvent) =>
       appendLog(`[window error] ${e.message} (${e.filename}:${e.lineno}:${e.colno})`);
-    };
-    const onRej = (e: PromiseRejectionEvent) => {
+    const onRej = (e: PromiseRejectionEvent) =>
       appendLog(`[unhandled rejection] ${String(e.reason)}`);
-    };
     window.addEventListener("error", onErr);
     window.addEventListener("unhandledrejection", onRej);
     return () => {
       window.removeEventListener("error", onErr);
       window.removeEventListener("unhandledrejection", onRej);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Independent worker probe: spawn /ffmpeg/worker.js as a module worker
-  // and listen for ANY signal of life.  This bypasses the FFmpeg class
-  // entirely so we can tell whether the worker file itself is bootable.
-  async function probeWorker() {
-    appendLog("[probe] spawning /ffmpeg/worker.js as module worker");
-    return new Promise<string>((resolve) => {
-      const w = new Worker("/ffmpeg/worker.js", { type: "module" });
-      const finish = (msg: string) => {
-        try { w.terminate(); } catch { /* ignore */ }
-        appendLog(`[probe] result: ${msg}`);
-        resolve(msg);
-      };
-      w.onerror = (e) => finish(`onerror: ${e.message || "(no message — likely import failure)"} @ ${e.filename}:${e.lineno}`);
-      w.onmessageerror = (e) => finish(`onmessageerror: ${String(e)}`);
-      w.onmessage = (e) => finish(`onmessage: ${JSON.stringify(e.data).slice(0, 200)}`);
-      // Worker is initialized (top-level imports run) immediately on
-      // construction.  If it boots clean and idles, we won't get any
-      // event — that's the "alive" case.
-      setTimeout(() => finish("alive (no error within 3s — worker boot succeeded)"), 3000);
-    });
-  }
-
-  // Window-level dragover/drop: blocks the browser's default
-  // navigate-to-file-URL behavior and routes drops to handleFile.
+  // Window-level drop wiring.
   useEffect(() => {
-    const onDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      setDragActive(true);
-    };
-    const onDragLeave = (e: DragEvent) => {
-      e.preventDefault();
-      if (!e.relatedTarget) setDragActive(false);
-    };
+    const onDragOver = (e: DragEvent) => { e.preventDefault(); setDragActive(true); };
+    const onDragLeave = (e: DragEvent) => { e.preventDefault(); if (!e.relatedTarget) setDragActive(false); };
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
       setDragActive(false);
@@ -151,11 +96,18 @@ export default function FFmpegTestPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Tear down the client on unmount.
+  useEffect(() => {
+    return () => {
+      clientRef.current?.terminate();
+      clientRef.current = null;
+    };
+  }, []);
+
   function abort() {
-    try { ffmpegRef.current?.terminate(); } catch { /* ignore */ }
-    ffmpegRef.current = null;
-    coreURLRef.current = null;
-    wasmURLRef.current = null;
+    abortRef.current?.abort();
+    clientRef.current?.terminate();
+    clientRef.current = null;
     setBusy(false);
     setTopLevelError("aborted by user");
     setSteps((prev) =>
@@ -165,17 +117,14 @@ export default function FFmpegTestPage() {
     );
   }
 
-  // Run one step with timeout + state transitions.  All third-party
-  // promises go through here.
-  async function runStep<T>(index: number, op: () => Promise<T>): Promise<T> {
-    const startedAt = performance.now();
-    patchStep(index, { state: "running", startedAt, endedAt: undefined, detail: undefined });
+  async function runStep<T>(i: number, op: () => Promise<T>): Promise<T> {
+    patchStep(i, { state: "running", startedAt: performance.now(), endedAt: undefined, detail: undefined });
     try {
-      const result = await withTimeout(op(), INITIAL_STEPS[index].timeoutMs, INITIAL_STEPS[index].label);
-      patchStep(index, { state: "done", endedAt: performance.now() });
+      const result = await op();
+      patchStep(i, { state: "done", endedAt: performance.now() });
       return result;
     } catch (err) {
-      patchStep(index, { state: "error", endedAt: performance.now(), detail: String(err) });
+      patchStep(i, { state: "error", endedAt: performance.now(), detail: String(err) });
       throw err;
     }
   }
@@ -185,50 +134,21 @@ export default function FFmpegTestPage() {
     setBusy(true);
     resetSteps();
     appendLog(`[host] got file: ${file.name} (${(file.size / 1e6).toFixed(1)} MB)`);
+    abortRef.current = new AbortController();
     try {
-      // Steps 0-2 are one-time wasm boot.  Skip if already loaded.
-      if (!ffmpegRef.current) {
-        // Must be a fully-qualified URL with origin.  The FFmpeg class
-        // does `new URL(classWorkerURL, import.meta.url)` and in Next dev
-        // import.meta.url for the bundled module is `file:///...`, so a
-        // path-only string like `/ffmpeg/worker.js` resolves to file://
-        // and the browser blocks it as cross-protocol.
-        const baseURL = `${window.location.origin}/ffmpeg`;
-        coreURLRef.current = await runStep(0, () =>
-          toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"));
-        wasmURLRef.current = await runStep(1, () =>
-          toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"));
-        const ff = new FFmpeg();
-        ff.on("log", ({ message }) => appendLog(message));
-        await runStep(2, () => ff.load({
-          coreURL: coreURLRef.current!,
-          wasmURL: wasmURLRef.current!,
-          // Real URL not blob — worker is type:"module" with relative imports.
-          classWorkerURL: `${baseURL}/worker.js`,
+      if (!clientRef.current) {
+        clientRef.current = await runStep(0, () => FFmpegClient.create({
+          onLog: (msg) => appendLog(msg),
         }));
-        ffmpegRef.current = ff;
       } else {
-        // Mark boot steps as "done (cached)" for clarity.
-        for (const i of [0, 1, 2]) patchStep(i, { state: "done", detail: "(cached from prior run)" });
+        patchStep(0, { state: "done", detail: "(cached client from prior run)" });
       }
 
-      const ff = ffmpegRef.current!;
-      const mountPoint = "/mount";
-      await runStep(3, async () => {
-        try { await ff.unmount(mountPoint); } catch { /* first run */ }
-        try { await ff.deleteDir(mountPoint); } catch { /* first run */ }
-        await ff.createDir(mountPoint);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await ff.mount(WORKERFS as any, { files: [file] }, mountPoint);
-      });
-
-      await runStep(4, async () => {
-        // `-i` with no output prints metadata to stderr then exits non-zero.
-        await ff.exec(["-hide_banner", "-i", `${mountPoint}/${file.name}`]);
-        await ff.unmount(mountPoint);
-      });
-
-      appendLog("[host] all steps complete");
+      const result = await runStep(1, () =>
+        clientRef.current!.probe(file, { signal: abortRef.current!.signal }),
+      );
+      setProbeResult(result);
+      appendLog(`[host] probe complete: ${result.raw_stderr.split("\n").length} stderr lines captured`);
     } catch (err) {
       setTopLevelError(String(err));
       appendLog(`[host] FAILED: ${String(err)}`);
@@ -237,45 +157,37 @@ export default function FFmpegTestPage() {
     }
   }
 
-  // Render helpers --------------------------------------------------
+  // ── Render ───────────────────────────────────────────────────
 
-  void tick; // referenced so the heartbeat re-render isn't optimized away
+  void tick;
 
   function elapsed(s: Step): string {
     if (s.state === "pending") return "";
     const start = s.startedAt ?? 0;
     const end = s.endedAt ?? performance.now();
     const dt = ((end - start) / 1000).toFixed(1);
-    if (s.state === "running") {
-      const budget = (s.timeoutMs / 1000).toFixed(0);
-      return ` (${dt}s elapsed, ${budget}s timeout)`;
-    }
-    return ` (${dt}s)`;
+    return s.state === "running" ? ` (${dt}s elapsed…)` : ` (${dt}s)`;
   }
-
-  function stepIcon(s: Step): string {
-    return { pending: "·", running: "▶", done: "✓", error: "✗" }[s.state];
-  }
-  function stepColor(s: Step): string {
-    return {
-      pending: "text-zinc-500",
-      running: "text-amber-300",
-      done: "text-emerald-400",
-      error: "text-red-400",
-    }[s.state];
-  }
+  const stepIcon: Record<StepState, string> = { pending: "·", running: "▶", done: "✓", error: "✗" };
+  const stepColor: Record<StepState, string> = {
+    pending: "text-zinc-500",
+    running: "text-amber-300",
+    done: "text-emerald-400",
+    error: "text-red-400",
+  };
 
   return (
     <main className="min-h-screen p-8 font-mono text-sm bg-zinc-900 text-zinc-100">
-      <h1 className="text-xl mb-2">ffmpeg.wasm + WORKERFS smoke test (4c-1)</h1>
+      <h1 className="text-xl mb-2">ffmpeg.wasm + FFmpegClient smoke test (4c-2)</h1>
 
       <div className="mb-4 p-3 border border-zinc-700 rounded bg-zinc-800/50 text-xs">
-        <div className="font-bold mb-1 text-zinc-300">What success looks like:</div>
+        <div className="font-bold mb-1 text-zinc-300">What this validates:</div>
         <ul className="list-disc list-inside text-zinc-400 space-y-1">
-          <li>Cross-origin isolated below should be <span className="text-emerald-400">true</span>.</li>
-          <li>All 5 steps reach <span className="text-emerald-400">✓ done</span>.  Each step has its own timeout — if any step exceeds its budget you&apos;ll see a labeled <span className="text-red-400">✗ timeout</span> error, not a silent hang.</li>
-          <li>Black log box fills with ~15–30 lines of ffmpeg stderr (Input #0, Duration:, Stream #0:N).</li>
-          <li>If a step gets stuck or takes longer than expected, click <b>Abort</b>.</li>
+          <li>FFmpegClient.create() boots wasm + worker through the typed API.</li>
+          <li>client.probe(file) returns a ProbeResult with captured stderr.</li>
+          <li>Same-client reuse skips the boot step on the second drop (look for &ldquo;cached client from prior run&rdquo;).</li>
+          <li>Both calls accept AbortSignal — Abort cancels in-flight work.</li>
+          <li>Track/metadata parsing (the populated fields of ProbeResult) lands in 4c-3.</li>
         </ul>
       </div>
 
@@ -316,11 +228,15 @@ export default function FFmpegTestPage() {
         </button>
         <button
           type="button"
-          onClick={() => void probeWorker()}
+          onClick={() => {
+            clientRef.current?.terminate();
+            clientRef.current = null;
+            appendLog("[host] client terminated; next drop will re-boot");
+          }}
           disabled={busy}
           className="px-3 py-1 border border-sky-500 text-sky-300 rounded disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          Probe worker only
+          Terminate client
         </button>
       </div>
 
@@ -328,8 +244,8 @@ export default function FFmpegTestPage() {
         <div className="font-bold mb-2 text-zinc-300 text-xs">pipeline:</div>
         <ol className="space-y-1">
           {steps.map((s, i) => (
-            <li key={i} className={"text-xs " + stepColor(s)}>
-              <span className="inline-block w-4">{stepIcon(s)}</span>
+            <li key={i} className={"text-xs " + stepColor[s.state]}>
+              <span className="inline-block w-4">{stepIcon[s.state]}</span>
               <span>{i + 1}. {s.label}</span>
               <span className="text-zinc-500">{elapsed(s)}</span>
               {s.detail && <span className="block ml-6 text-red-300">↳ {s.detail}</span>}
@@ -342,6 +258,18 @@ export default function FFmpegTestPage() {
           </div>
         )}
       </div>
+
+      {probeResult && (
+        <div className="mb-4 p-3 border border-emerald-900 rounded bg-emerald-950/20 text-xs">
+          <div className="font-bold mb-1 text-emerald-300">ProbeResult (raw):</div>
+          <div className="text-zinc-400">
+            metadata: {JSON.stringify(probeResult.metadata)}<br />
+            subtitle_tracks: {probeResult.subtitle_tracks.length} (parsing in 4c-3)<br />
+            audio_tracks: {probeResult.audio_tracks.length} (parsing in 4c-3)<br />
+            raw_stderr: {probeResult.raw_stderr.length} chars
+          </div>
+        </div>
+      )}
 
       <div className="mb-1 text-xs text-zinc-500">
         ffmpeg stderr ({logs.length} lines):

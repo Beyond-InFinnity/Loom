@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FFmpegClient } from "../../lib/ffmpeg/client";
 import type { ProbeResult, TrackInfo } from "../../lib/ffmpeg/types";
+import { SSAFile } from "../../lib/subs/ssa";
 
 // 4c-1 → 4c-3 smoke test page.
 //   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
@@ -194,7 +195,27 @@ export default function FFmpegTestPage() {
       const t0 = performance.now();
       const { data, filename } = await clientRef.current.extractTrack(currentFile, track);
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
-      setExtractStatus(`extracted ${filename} (${(data.length / 1024).toFixed(1)} KB) in ${dt}s — downloading`);
+
+      // 4d-1 round-trip self-test: parse extracted bytes via SSAFile,
+      // serialize, re-parse, verify event count survives the round trip.
+      // Skips image-based subtitles (PGS .sup is binary, not text).
+      let parseSummary = "";
+      if (track.selectable) {
+        try {
+          const text = new TextDecoder("utf-8").decode(data);
+          const subs = SSAFile.fromString(text);
+          const reparsed = SSAFile.fromAss(subs.toAss());
+          const ok = reparsed.events.length === subs.events.length;
+          const first = subs.events[0];
+          parseSummary = ` · parsed: ${subs.events.length} events, ${subs.styles.size} styles` +
+            (first ? `, first="${first.text.slice(0, 40)}…"` : "") +
+            ` · round-trip: ${ok ? "OK" : `FAIL (${reparsed.events.length} ≠ ${subs.events.length})`}`;
+        } catch (e) {
+          parseSummary = ` · parse FAILED: ${String(e)}`;
+        }
+      }
+
+      setExtractStatus(`extracted ${filename} (${(data.length / 1024).toFixed(1)} KB) in ${dt}s${parseSummary} — downloading`);
       downloadBytes(data, filename);
     } catch (err) {
       setExtractStatus(`extract failed: ${String(err)}`);

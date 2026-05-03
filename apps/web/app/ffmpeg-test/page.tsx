@@ -8,6 +8,7 @@ import { generateAssFile } from "../../lib/subs/generate-ass";
 import { defaultStyleConfig } from "../../lib/subs/style-config";
 import { rasterizeFrames, type RasterizedFrame } from "../../lib/raster/rasterizer";
 import { SupWriter } from "../../lib/raster/sup-writer";
+import { LoomGenerator } from "../../lib/loom-generator";
 
 // 4c-1 → 4c-3 smoke test page.
 //   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
@@ -110,6 +111,8 @@ export default function FFmpegTestPage() {
   const [supBytes, setSupBytes] = useState<Uint8Array | null>(null);
   const [supStatus, setSupStatus] = useState<string | null>(null);
   const [supMuxStatus, setSupMuxStatus] = useState<string | null>(null);
+  // 4d-5: status for the combined LoomGenerator path (ASS + SUP in one go).
+  const [bothStatus, setBothStatus] = useState<string | null>(null);
 
   function appendLog(line: string) { setLogs((prev) => [...prev, line]); }
   function patchStep(i: number, patch: Partial<Step>) {
@@ -128,6 +131,7 @@ export default function FFmpegTestPage() {
     setSupBytes(null);
     setSupStatus(null);
     setSupMuxStatus(null);
+    setBothStatus(null);
     setNativeTrackId(null);
     setTargetTrackId(null);
     setTopLevelError(null);
@@ -453,6 +457,62 @@ export default function FFmpegTestPage() {
     }
   }
 
+  /** 4d-5 — single button drives the LoomGenerator façade end-to-end:
+      extracts native + target, parses both, then emits BOTH .ass and
+      .sup downloads.  This is the shape 4e/web UX will call into; the
+      separate Generate-ASS / Generate-SUP buttons above stay for
+      diagnostic isolation. */
+  async function handleGenerateBoth() {
+    if (!currentFile || !clientRef.current || !probeResult || busy) return;
+    if (nativeTrackId == null || targetTrackId == null) return;
+    setBusy(true);
+    setBothStatus("extracting tracks…");
+    try {
+      const nativeTrack = probeResult.subtitle_tracks.find((t) => t.id === nativeTrackId)!;
+      const targetTrack = probeResult.subtitle_tracks.find((t) => t.id === targetTrackId)!;
+      const nativeRes = await clientRef.current.extractTrack(currentFile, nativeTrack);
+      const targetRes = await clientRef.current.extractTrack(currentFile, targetTrack);
+      const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
+      const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
+
+      const gen = new LoomGenerator({
+        native: nativeSubs,
+        target: targetSubs,
+        styles: defaultStyleConfig(),
+      });
+
+      const t0 = performance.now();
+      setBothStatus("building .ass…");
+      const assBytes = gen.generateAss();
+      const baseName = currentFile.name.replace(/\.[^.]+$/, "");
+      downloadBytes(assBytes, `${baseName}.loom.ass`);
+
+      setBothStatus("rasterizing + encoding .sup…");
+      const sup = await gen.generateSup({
+        on_progress: (done, total, stats) => {
+          setBothStatus(
+            `rasterize+encode ${done}/${total} · ES=${stats.epoch_start} ` +
+            `Normal=${stats.normal} Skip=${stats.skipped} Clear=${stats.clears}`,
+          );
+        },
+      });
+      setSupBytes(sup.bytes);
+      downloadBytes(sup.bytes, `${baseName}.loom.sup`);
+
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      setBothStatus(
+        `generated .ass (${(assBytes.length / 1024).toFixed(1)} KB) + ` +
+        `.sup (${(sup.bytes.length / 1024).toFixed(1)} KB) in ${dt}s · ` +
+        `frames=${sup.frames} ES=${sup.stats.epoch_start} AP=${sup.stats.acquisition_point} ` +
+        `Normal=${sup.stats.normal} Skip=${sup.stats.skipped} Clear=${sup.stats.clears}`,
+      );
+    } catch (err) {
+      setBothStatus(`generate both failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleMuxTest() {
     if (!currentFile || !clientRef.current || !probeResult || busy) return;
     setBusy(true);
@@ -690,6 +750,22 @@ export default function FFmpegTestPage() {
               )}
               {supMuxStatus && (
                 <div className="mt-1 text-zinc-300 text-xs">↳ {supMuxStatus}</div>
+              )}
+            </div>
+            <div className="pt-2 mt-2 border-t border-emerald-900">
+              <button
+                type="button"
+                disabled={busy || nativeTrackId == null || targetTrackId == null}
+                onClick={() => void handleGenerateBoth()}
+                className="px-3 py-1 border border-lime-400 text-lime-200 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed font-semibold"
+              >
+                Generate ASS + SUP (LoomGenerator end-to-end)
+              </button>
+              {(nativeTrackId == null || targetTrackId == null) && (
+                <span className="ml-2 text-zinc-500 text-xs">↳ pick a native + target track first</span>
+              )}
+              {bothStatus && (
+                <div className="mt-2 text-zinc-300 text-xs">↳ {bothStatus}</div>
               )}
             </div>
             <div>

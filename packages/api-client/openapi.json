@@ -1,0 +1,2652 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Loom API",
+    "description": "Subtitle generation engine over loom_core.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload File",
+        "operationId": "upload_file_files_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_file_files_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/by-path": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Register File By Path",
+        "operationId": "register_file_by_path_files_by_path_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterPathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{file_id}": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Download File",
+        "operationId": "download_file_files__file_id__get",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/language/config/{code}": {
+      "get": {
+        "tags": [
+          "language"
+        ],
+        "summary": "Language Config",
+        "description": "Wire-safe view of ``loom_core.styles.get_lang_config()``.\n\nDrops the callable fields (``romanize_func``, ``annotation_func``, etc.)\nwhich can't cross the wire. The engine reconstructs them server-side\nfrom ``code`` + ``phonetic_system`` on each request that needs them.",
+        "operationId": "language_config_language_config__code__get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          },
+          {
+            "name": "phonetic_system",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Phonetic System"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageMetadata"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/ass": {
+      "post": {
+        "tags": [
+          "generate"
+        ],
+        "summary": "Generate Ass",
+        "operationId": "generate_ass_generate_ass_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateAssRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateAssResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/pgs": {
+      "post": {
+        "tags": [
+          "generate"
+        ],
+        "summary": "Generate Pgs",
+        "operationId": "generate_pgs_generate_pgs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeneratePgsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/suggest-filename": {
+      "post": {
+        "tags": [
+          "generate"
+        ],
+        "summary": "Suggest Filename",
+        "operationId": "suggest_filename_generate_suggest_filename_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestFilenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestFilenameResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "operationId": "get_job_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/video/scan": {
+      "post": {
+        "tags": [
+          "video"
+        ],
+        "summary": "Scan Video",
+        "description": "Scan an uploaded video for subtitle tracks + metadata.\n\nText tracks are extracted to the storage tempdir and registered with\nnew file IDs that the client can use in /generate/ass, /preview, etc.\nImage-based tracks (PGS, VobSub) are surfaced with ``selectable=False``\nand ``file_id=None``; they need OCR before they can be used as text.",
+        "operationId": "scan_video_video_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subs/detect-language": {
+      "post": {
+        "tags": [
+          "subs"
+        ],
+        "summary": "Detect Subtitle Language",
+        "operationId": "detect_subtitle_language_subs_detect_language_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectLanguageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subs/detect-styles": {
+      "post": {
+        "tags": [
+          "subs"
+        ],
+        "summary": "Detect Subtitle Styles",
+        "description": "Returns the named-style breakdown for an ASS/SSA file with multiple\nstyles. SRT files and single-style ASS files return ``styles=None`` \u2014\nthey have no meaningful style breakdown.",
+        "operationId": "detect_subtitle_styles_subs_detect_styles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectStylesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/align": {
+      "post": {
+        "tags": [
+          "align"
+        ],
+        "summary": "Compute Align",
+        "operationId": "compute_align_align_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview": {
+      "post": {
+        "tags": [
+          "preview"
+        ],
+        "summary": "Render Preview",
+        "description": "Render the composite preview HTML at a single timestamp.\n\nMirrors the Streamlit preview wiring: computes annotation spans when\nthe Annotation layer is enabled, runs the Japanese ``spans_to_romaji``\npipeline with the user's ``long_vowel_mode`` (reusing spans when\nannotation is already computed), and \u2014 when ``video_file_id`` is\nsupplied \u2014 inlines a cached frame screenshot as the preview\nbackground.",
+        "operationId": "render_preview_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/styles/fonts": {
+      "get": {
+        "tags": [
+          "styles"
+        ],
+        "summary": "Fonts",
+        "operationId": "fonts_styles_fonts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FontList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/styles/presets": {
+      "get": {
+        "tags": [
+          "styles"
+        ],
+        "summary": "Presets",
+        "description": "Catalogue of color presets applicable to ``lang``.\n\nUniversal presets (``languages=None``) are always included. Language-scoped\npresets are included when their scope matches ``lang`` via prefix.\nEmpty ``lang`` returns universal presets only.",
+        "operationId": "presets_styles_presets_get",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Lang"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetCatalog"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mux": {
+      "post": {
+        "tags": [
+          "mux"
+        ],
+        "summary": "Start Mux",
+        "operationId": "start_mux_mux_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MuxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlignRequest": {
+        "properties": {
+          "reference_file_id": {
+            "type": "string",
+            "title": "Reference File Id"
+          },
+          "target_file_id": {
+            "type": "string",
+            "title": "Target File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reference_file_id",
+          "target_file_id"
+        ],
+        "title": "AlignRequest",
+        "description": "Compute the auto-alignment offset between two same-language subtitle tracks.\n\nSign convention matches ``loom_core.subs.utils.compute_subtitle_offset``:\npositive offset means the reference is earlier than the target (shift\nreference-source tracks later by ``offset_seconds`` to align)."
+      },
+      "AlignResponse": {
+        "properties": {
+          "offset_seconds": {
+            "type": "number",
+            "title": "Offset Seconds"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offset_seconds"
+        ],
+        "title": "AlignResponse"
+      },
+      "AnnotationLayerStyle": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "fontname": {
+            "type": "string",
+            "title": "Fontname",
+            "default": "Noto Sans"
+          },
+          "fontsize": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fontsize",
+            "default": 22
+          },
+          "bold": {
+            "type": "boolean",
+            "title": "Bold",
+            "default": false
+          },
+          "italic": {
+            "type": "boolean",
+            "title": "Italic",
+            "default": false
+          },
+          "primarycolor": {
+            "type": "string",
+            "title": "Primarycolor",
+            "default": "#FFFFFF"
+          },
+          "primary_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Primary Opacity",
+            "default": 100
+          },
+          "outlinecolor": {
+            "type": "string",
+            "title": "Outlinecolor",
+            "default": "#000000"
+          },
+          "outline_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Outline Opacity",
+            "default": 100
+          },
+          "backcolor": {
+            "type": "string",
+            "title": "Backcolor",
+            "default": "#000000"
+          },
+          "back_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Back Opacity",
+            "default": 0
+          },
+          "outline_enabled": {
+            "type": "boolean",
+            "title": "Outline Enabled",
+            "default": true
+          },
+          "outline": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Outline",
+            "default": 1.0
+          },
+          "shadow_enabled": {
+            "type": "boolean",
+            "title": "Shadow Enabled",
+            "default": false
+          },
+          "shadow": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Shadow",
+            "default": 1.5
+          },
+          "background_enabled": {
+            "type": "boolean",
+            "title": "Background Enabled",
+            "default": false
+          },
+          "glow_enabled": {
+            "type": "boolean",
+            "title": "Glow Enabled",
+            "default": false
+          },
+          "glow_radius": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Glow Radius",
+            "default": 5
+          },
+          "glow_color_hex": {
+            "type": "string",
+            "title": "Glow Color Hex",
+            "default": "#FFFF00"
+          },
+          "alignment": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Alignment",
+            "default": 8
+          },
+          "marginl": {
+            "type": "integer",
+            "title": "Marginl",
+            "default": 10
+          },
+          "marginr": {
+            "type": "integer",
+            "title": "Marginr",
+            "default": 10
+          },
+          "marginv": {
+            "type": "integer",
+            "title": "Marginv",
+            "default": 10
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pinyin",
+                  "zhuyin",
+                  "jyutping",
+                  "rtgs",
+                  "paiboon",
+                  "ipa"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System"
+          }
+        },
+        "type": "object",
+        "title": "AnnotationLayerStyle"
+      },
+      "AudioTrackInfo": {
+        "properties": {
+          "audio_index": {
+            "type": "integer",
+            "title": "Audio Index"
+          },
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channels"
+          },
+          "lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lang Code"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio_index"
+        ],
+        "title": "AudioTrackInfo",
+        "description": "One audio track from the scanned video, surfaced for the mux UI's\n\"default audio\" selector.\n\n``audio_index`` is the 0-based index *among audio streams only* \u2014\nthis is what ffmpeg's ``-disposition:a:N`` expects, and what\n``mkv_handler.merge_subs_to_mkv(default_audio_index=...)`` consumes."
+      },
+      "Body_upload_file_files_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_file_files_post"
+      },
+      "BottomLayerStyle": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "fontname": {
+            "type": "string",
+            "title": "Fontname",
+            "default": "Georgia"
+          },
+          "fontsize": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fontsize",
+            "default": 48
+          },
+          "bold": {
+            "type": "boolean",
+            "title": "Bold",
+            "default": false
+          },
+          "italic": {
+            "type": "boolean",
+            "title": "Italic",
+            "default": false
+          },
+          "primarycolor": {
+            "type": "string",
+            "title": "Primarycolor",
+            "default": "#FFFFFF"
+          },
+          "primary_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Primary Opacity",
+            "default": 100
+          },
+          "outlinecolor": {
+            "type": "string",
+            "title": "Outlinecolor",
+            "default": "#000000"
+          },
+          "outline_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Outline Opacity",
+            "default": 100
+          },
+          "backcolor": {
+            "type": "string",
+            "title": "Backcolor",
+            "default": "#000000"
+          },
+          "back_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Back Opacity",
+            "default": 0
+          },
+          "outline_enabled": {
+            "type": "boolean",
+            "title": "Outline Enabled",
+            "default": true
+          },
+          "outline": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Outline",
+            "default": 3.0
+          },
+          "shadow_enabled": {
+            "type": "boolean",
+            "title": "Shadow Enabled",
+            "default": false
+          },
+          "shadow": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Shadow",
+            "default": 1.5
+          },
+          "background_enabled": {
+            "type": "boolean",
+            "title": "Background Enabled",
+            "default": false
+          },
+          "glow_enabled": {
+            "type": "boolean",
+            "title": "Glow Enabled",
+            "default": false
+          },
+          "glow_radius": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Glow Radius",
+            "default": 5
+          },
+          "glow_color_hex": {
+            "type": "string",
+            "title": "Glow Color Hex",
+            "default": "#FFFF00"
+          },
+          "alignment": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Alignment",
+            "default": 2
+          },
+          "marginl": {
+            "type": "integer",
+            "title": "Marginl",
+            "default": 10
+          },
+          "marginr": {
+            "type": "integer",
+            "title": "Marginr",
+            "default": 10
+          },
+          "marginv": {
+            "type": "integer",
+            "title": "Marginv",
+            "default": 40
+          }
+        },
+        "type": "object",
+        "title": "BottomLayerStyle"
+      },
+      "DetectLanguageResponse": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "DetectLanguageResponse"
+      },
+      "DetectStylesResponse": {
+        "properties": {
+          "styles": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StyleInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Styles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "styles"
+        ],
+        "title": "DetectStylesResponse"
+      },
+      "FileIdRequest": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id"
+        ],
+        "title": "FileIdRequest"
+      },
+      "FontList": {
+        "properties": {
+          "all": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "All"
+          },
+          "cjk": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cjk"
+          }
+        },
+        "type": "object",
+        "required": [
+          "all",
+          "cjk"
+        ],
+        "title": "FontList"
+      },
+      "GenerateAssRequest": {
+        "properties": {
+          "native_file_id": {
+            "type": "string",
+            "title": "Native File Id"
+          },
+          "target_file_id": {
+            "type": "string",
+            "title": "Target File Id"
+          },
+          "target_lang_code": {
+            "type": "string",
+            "title": "Target Lang Code"
+          },
+          "styles": {
+            "$ref": "#/components/schemas/StyleConfig"
+          },
+          "offsets": {
+            "$ref": "#/components/schemas/TimingOffsets",
+            "default": {
+              "bottom_ms": 0,
+              "top_ms": 0
+            }
+          },
+          "source_resolution": {
+            "$ref": "#/components/schemas/Resolution",
+            "default": {
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          "output_resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Resolution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "include_annotations": {
+            "type": "boolean",
+            "title": "Include Annotations",
+            "default": false
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "native_file_id",
+          "target_file_id",
+          "target_lang_code",
+          "styles"
+        ],
+        "title": "GenerateAssRequest",
+        "description": "Client \u2192 server request for ASS generation.\n\nFile handles cross the wire as IDs (returned by POST /files), not paths.\nThe server resolves IDs \u2192 on-disk paths just before calling the engine.\n\n``opt_in_training``: when true, the server is permitted to archive\n``(input_text, style_config, output, lang_code)`` for OCR training data.\nDefaults to false. No archival code wired in step 2c \u2014 the field is\nbaked into the contract so consumers don't need to upgrade their\nrequest shapes when archival turns on later."
+      },
+      "GenerateAssResponse": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id"
+        ],
+        "title": "GenerateAssResponse"
+      },
+      "GeneratePgsRequest": {
+        "properties": {
+          "native_file_id": {
+            "type": "string",
+            "title": "Native File Id"
+          },
+          "target_file_id": {
+            "type": "string",
+            "title": "Target File Id"
+          },
+          "target_lang_code": {
+            "type": "string",
+            "title": "Target Lang Code"
+          },
+          "styles": {
+            "$ref": "#/components/schemas/StyleConfig"
+          },
+          "offsets": {
+            "$ref": "#/components/schemas/TimingOffsets",
+            "default": {
+              "bottom_ms": 0,
+              "top_ms": 0
+            }
+          },
+          "source_resolution": {
+            "$ref": "#/components/schemas/Resolution",
+            "default": {
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          "output_resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Resolution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "native_file_id",
+          "target_file_id",
+          "target_lang_code",
+          "styles"
+        ],
+        "title": "GeneratePgsRequest",
+        "description": "Client \u2192 server request for PGS generation. Async \u2014 returns a job ID.\n\nPGS rasterization takes 30s\u201310min depending on event count and\ncanvas resolution. Poll GET /jobs/{id} for progress. When ``state``\ntransitions to ``completed``, ``result_file_id`` resolves to the\ngenerated .sup via GET /files/{id}."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobAccepted": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ass",
+              "pgs",
+              "mux"
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "JobAccepted"
+      },
+      "JobStatus": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ass",
+              "pgs",
+              "mux"
+            ],
+            "title": "Kind"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "progress": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "default": 0.0
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "result_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result File Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "state"
+        ],
+        "title": "JobStatus"
+      },
+      "LanguageMetadata": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "chinese_variant": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "zh-Hans",
+                  "zh-Hant",
+                  "yue"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chinese Variant"
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pinyin",
+                  "zhuyin",
+                  "jyutping",
+                  "rtgs",
+                  "paiboon",
+                  "ipa"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System"
+          },
+          "has_phonetic_layer": {
+            "type": "boolean",
+            "title": "Has Phonetic Layer"
+          },
+          "supports_ass_annotation": {
+            "type": "boolean",
+            "title": "Supports Ass Annotation"
+          },
+          "annotation_default_enabled": {
+            "type": "boolean",
+            "title": "Annotation Default Enabled"
+          },
+          "annotation_system_name": {
+            "type": "string",
+            "title": "Annotation System Name",
+            "default": "Annotation"
+          },
+          "annotation_render_mode": {
+            "type": "string",
+            "enum": [
+              "ruby",
+              "interlinear",
+              "inline"
+            ],
+            "title": "Annotation Render Mode",
+            "default": "ruby"
+          },
+          "annotation_font_ratio": {
+            "type": "number",
+            "title": "Annotation Font Ratio",
+            "default": 0.5
+          },
+          "romanization_name": {
+            "type": "string",
+            "title": "Romanization Name",
+            "default": "N/A"
+          },
+          "romanization_confidence": {
+            "type": "string",
+            "enum": [
+              "very_high",
+              "high",
+              "good",
+              "moderate",
+              "low",
+              "none"
+            ],
+            "title": "Romanization Confidence",
+            "default": "none"
+          },
+          "default_font": {
+            "type": "string",
+            "title": "Default Font",
+            "default": "Arial"
+          },
+          "rtl": {
+            "type": "boolean",
+            "title": "Rtl",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "has_phonetic_layer",
+          "supports_ass_annotation",
+          "annotation_default_enabled"
+        ],
+        "title": "LanguageMetadata",
+        "description": "Serializable subset of ``styles.get_lang_config()``.\n\nDrops the callable fields (``romanize_func``, ``annotation_func``,\n``resolve_spans_func``, ``spans_to_romaji_func``, ``word_boundary_func``)\nwhich can't cross the wire. The engine reconstructs them server-side\nfrom ``code`` + ``phonetic_system``."
+      },
+      "LayerColors": {
+        "properties": {
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "opacity": {
+            "type": "integer",
+            "title": "Opacity",
+            "default": 100
+          },
+          "outline_color": {
+            "type": "string",
+            "title": "Outline Color",
+            "default": "#000000"
+          },
+          "outline_opacity": {
+            "type": "integer",
+            "title": "Outline Opacity",
+            "default": 90
+          },
+          "glow_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glow Color"
+          },
+          "glow_opacity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glow Opacity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "color"
+        ],
+        "title": "LayerColors"
+      },
+      "MuxRequest": {
+        "properties": {
+          "video_file_id": {
+            "type": "string",
+            "title": "Video File Id"
+          },
+          "ass_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ass File Id"
+          },
+          "sup_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sup File Id"
+          },
+          "output_path": {
+            "type": "string",
+            "title": "Output Path"
+          },
+          "target_lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang Code"
+          },
+          "native_lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Lang Code"
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pinyin",
+                  "zhuyin",
+                  "jyutping",
+                  "rtgs",
+                  "paiboon",
+                  "ipa"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System"
+          },
+          "annotation_enabled": {
+            "type": "boolean",
+            "title": "Annotation Enabled",
+            "default": false
+          },
+          "keep_existing_subs": {
+            "type": "boolean",
+            "title": "Keep Existing Subs",
+            "default": true
+          },
+          "keep_attachments": {
+            "type": "boolean",
+            "title": "Keep Attachments",
+            "default": true
+          },
+          "default_audio_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Audio Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "video_file_id",
+          "output_path"
+        ],
+        "title": "MuxRequest"
+      },
+      "Preset": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "layers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LayerColors"
+            },
+            "type": "object",
+            "title": "Layers"
+          },
+          "languages": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Languages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "description",
+          "group",
+          "layers"
+        ],
+        "title": "Preset"
+      },
+      "PresetCatalog": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PresetGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/Preset"
+            },
+            "type": "array",
+            "title": "Presets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups",
+          "presets"
+        ],
+        "title": "PresetCatalog"
+      },
+      "PresetGroup": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "PresetGroup"
+      },
+      "PreviewRequest": {
+        "properties": {
+          "native_file_id": {
+            "type": "string",
+            "title": "Native File Id"
+          },
+          "target_file_id": {
+            "type": "string",
+            "title": "Target File Id"
+          },
+          "target_lang_code": {
+            "type": "string",
+            "title": "Target Lang Code"
+          },
+          "timestamp_seconds": {
+            "type": "number",
+            "title": "Timestamp Seconds"
+          },
+          "styles": {
+            "$ref": "#/components/schemas/StyleConfig"
+          },
+          "offsets": {
+            "$ref": "#/components/schemas/TimingOffsets",
+            "default": {
+              "bottom_ms": 0,
+              "top_ms": 0
+            }
+          },
+          "source_resolution": {
+            "$ref": "#/components/schemas/Resolution",
+            "default": {
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          "preview_mode": {
+            "type": "string",
+            "title": "Preview Mode",
+            "default": "ass"
+          },
+          "video_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "native_file_id",
+          "target_file_id",
+          "target_lang_code",
+          "timestamp_seconds",
+          "styles"
+        ],
+        "title": "PreviewRequest"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "html": {
+            "type": "string",
+            "title": "Html"
+          },
+          "native_text": {
+            "type": "string",
+            "title": "Native Text"
+          },
+          "target_text": {
+            "type": "string",
+            "title": "Target Text"
+          },
+          "romanized_text": {
+            "type": "string",
+            "title": "Romanized Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "html",
+          "native_text",
+          "target_text",
+          "romanized_text"
+        ],
+        "title": "PreviewResponse"
+      },
+      "RegisterPathRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "RegisterPathRequest"
+      },
+      "Resolution": {
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Width",
+            "default": 1920
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Height",
+            "default": 1080
+          }
+        },
+        "type": "object",
+        "title": "Resolution"
+      },
+      "RomanizedLayerStyle": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "fontname": {
+            "type": "string",
+            "title": "Fontname",
+            "default": "Times New Roman"
+          },
+          "fontsize": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fontsize",
+            "default": 30
+          },
+          "bold": {
+            "type": "boolean",
+            "title": "Bold",
+            "default": false
+          },
+          "italic": {
+            "type": "boolean",
+            "title": "Italic",
+            "default": true
+          },
+          "primarycolor": {
+            "type": "string",
+            "title": "Primarycolor",
+            "default": "#FFFFFF"
+          },
+          "primary_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Primary Opacity",
+            "default": 100
+          },
+          "outlinecolor": {
+            "type": "string",
+            "title": "Outlinecolor",
+            "default": "#000000"
+          },
+          "outline_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Outline Opacity",
+            "default": 100
+          },
+          "backcolor": {
+            "type": "string",
+            "title": "Backcolor",
+            "default": "#000000"
+          },
+          "back_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Back Opacity",
+            "default": 0
+          },
+          "outline_enabled": {
+            "type": "boolean",
+            "title": "Outline Enabled",
+            "default": true
+          },
+          "outline": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Outline",
+            "default": 1.5
+          },
+          "shadow_enabled": {
+            "type": "boolean",
+            "title": "Shadow Enabled",
+            "default": false
+          },
+          "shadow": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Shadow",
+            "default": 1.5
+          },
+          "background_enabled": {
+            "type": "boolean",
+            "title": "Background Enabled",
+            "default": false
+          },
+          "glow_enabled": {
+            "type": "boolean",
+            "title": "Glow Enabled",
+            "default": false
+          },
+          "glow_radius": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Glow Radius",
+            "default": 5
+          },
+          "glow_color_hex": {
+            "type": "string",
+            "title": "Glow Color Hex",
+            "default": "#FFFF00"
+          },
+          "alignment": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Alignment",
+            "default": 8
+          },
+          "marginl": {
+            "type": "integer",
+            "title": "Marginl",
+            "default": 10
+          },
+          "marginr": {
+            "type": "integer",
+            "title": "Marginr",
+            "default": 10
+          },
+          "marginv": {
+            "type": "integer",
+            "title": "Marginv",
+            "default": 10
+          },
+          "long_vowel_mode": {
+            "type": "string",
+            "enum": [
+              "macrons",
+              "doubled",
+              "unmarked"
+            ],
+            "title": "Long Vowel Mode",
+            "default": "macrons"
+          }
+        },
+        "type": "object",
+        "title": "RomanizedLayerStyle"
+      },
+      "ScanRequest": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id"
+        ],
+        "title": "ScanRequest"
+      },
+      "ScanResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/VideoMetadata"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TrackInfo"
+            },
+            "type": "array",
+            "title": "Tracks"
+          },
+          "audio_tracks": {
+            "items": {
+              "$ref": "#/components/schemas/AudioTrackInfo"
+            },
+            "type": "array",
+            "title": "Audio Tracks",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "tracks"
+        ],
+        "title": "ScanResponse"
+      },
+      "StyleConfig": {
+        "properties": {
+          "Bottom": {
+            "$ref": "#/components/schemas/BottomLayerStyle"
+          },
+          "Top": {
+            "$ref": "#/components/schemas/TopLayerStyle"
+          },
+          "Romanized": {
+            "$ref": "#/components/schemas/RomanizedLayerStyle"
+          },
+          "Annotation": {
+            "$ref": "#/components/schemas/AnnotationLayerStyle"
+          },
+          "vertical_offset": {
+            "type": "integer",
+            "title": "Vertical Offset",
+            "default": 0
+          },
+          "annotation_gap": {
+            "type": "integer",
+            "title": "Annotation Gap",
+            "default": 2
+          },
+          "romanized_gap": {
+            "type": "integer",
+            "title": "Romanized Gap",
+            "default": 0
+          },
+          "script_display": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "original",
+                  "simplified",
+                  "traditional"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Display"
+          }
+        },
+        "type": "object",
+        "title": "StyleConfig",
+        "description": "The full styles dict the engine consumes.\n\nMirrors the hybrid shape used in the codebase: layer dicts keyed by\n``\"Bottom\"``/``\"Top\"``/``\"Romanized\"``/``\"Annotation\"`` plus a few\ntop-level scalars. Field aliases preserve the layer-name casing so a\nJSON payload can use either the alias (``{\"Bottom\": {...}}``) or the\nsnake_case attribute (``{\"bottom\": {...}}``)."
+      },
+      "StyleInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "event_count": {
+            "type": "integer",
+            "title": "Event Count"
+          },
+          "has_animation": {
+            "type": "boolean",
+            "title": "Has Animation"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "dialogue",
+              "preserve",
+              "exclude"
+            ],
+            "title": "Role"
+          },
+          "sample_text": {
+            "type": "string",
+            "title": "Sample Text",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "event_count",
+          "has_animation",
+          "role"
+        ],
+        "title": "StyleInfo",
+        "description": "Per-style metadata from ``subs/processing.detect_ass_styles``.\n\nWire-safe \u2014 drops the engine's nested ``style: SSAStyle`` field which\ncan't cross JSON."
+      },
+      "SuggestFilenameRequest": {
+        "properties": {
+          "ext": {
+            "type": "string",
+            "title": "Ext"
+          },
+          "video_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video File Id"
+          },
+          "native_lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Lang Code"
+          },
+          "target_lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang Code"
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System"
+          },
+          "include_annotations": {
+            "type": "boolean",
+            "title": "Include Annotations",
+            "default": false
+          },
+          "include_romanization": {
+            "type": "boolean",
+            "title": "Include Romanization",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "ext"
+        ],
+        "title": "SuggestFilenameRequest",
+        "description": "Request a sanitized, metadata-aware default filename for a Save\ndialog. All inputs are optional \u2014 missing fields just get skipped.\n\nMirrors the Streamlit flow (loom_app.py:1252): pulls media title +\nyear from the video (when a ``video_file_id`` is supplied) and folds\nin the native/target language codes plus annotation / romanization\nsystem names."
+      },
+      "SuggestFilenameResponse": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename"
+        ],
+        "title": "SuggestFilenameResponse"
+      },
+      "TimingOffsets": {
+        "properties": {
+          "bottom_ms": {
+            "type": "integer",
+            "title": "Bottom Ms",
+            "default": 0
+          },
+          "top_ms": {
+            "type": "integer",
+            "title": "Top Ms",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "TimingOffsets"
+      },
+      "TopLayerStyle": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "fontname": {
+            "type": "string",
+            "title": "Fontname",
+            "default": "Noto Sans"
+          },
+          "fontsize": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Fontsize",
+            "default": 52
+          },
+          "bold": {
+            "type": "boolean",
+            "title": "Bold",
+            "default": false
+          },
+          "italic": {
+            "type": "boolean",
+            "title": "Italic",
+            "default": false
+          },
+          "primarycolor": {
+            "type": "string",
+            "title": "Primarycolor",
+            "default": "#FFFFFF"
+          },
+          "primary_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Primary Opacity",
+            "default": 100
+          },
+          "outlinecolor": {
+            "type": "string",
+            "title": "Outlinecolor",
+            "default": "#000000"
+          },
+          "outline_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Outline Opacity",
+            "default": 100
+          },
+          "backcolor": {
+            "type": "string",
+            "title": "Backcolor",
+            "default": "#000000"
+          },
+          "back_opacity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Back Opacity",
+            "default": 0
+          },
+          "outline_enabled": {
+            "type": "boolean",
+            "title": "Outline Enabled",
+            "default": true
+          },
+          "outline": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Outline",
+            "default": 2.5
+          },
+          "shadow_enabled": {
+            "type": "boolean",
+            "title": "Shadow Enabled",
+            "default": false
+          },
+          "shadow": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Shadow",
+            "default": 1.5
+          },
+          "background_enabled": {
+            "type": "boolean",
+            "title": "Background Enabled",
+            "default": false
+          },
+          "glow_enabled": {
+            "type": "boolean",
+            "title": "Glow Enabled",
+            "default": false
+          },
+          "glow_radius": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Glow Radius",
+            "default": 5
+          },
+          "glow_color_hex": {
+            "type": "string",
+            "title": "Glow Color Hex",
+            "default": "#FFFF00"
+          },
+          "alignment": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Alignment",
+            "default": 8
+          },
+          "marginl": {
+            "type": "integer",
+            "title": "Marginl",
+            "default": 10
+          },
+          "marginr": {
+            "type": "integer",
+            "title": "Marginr",
+            "default": 10
+          },
+          "marginv": {
+            "type": "integer",
+            "title": "Marginv",
+            "default": 90
+          }
+        },
+        "type": "object",
+        "title": "TopLayerStyle"
+      },
+      "TrackInfo": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "sub_num": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Num"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
+          "lang_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lang Code"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "mkv",
+              "external"
+            ],
+            "title": "Source",
+            "default": "mkv"
+          },
+          "selectable": {
+            "type": "boolean",
+            "title": "Selectable",
+            "default": true
+          },
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "metadata_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Lang"
+          },
+          "track_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "TrackInfo",
+        "description": "One subtitle track surfaced to the UI.\n\nWire-safe view of the dict returned by\n``video/mkv_handler.scan_and_extract_tracks``. The engine returns ``path``\n(a server-side filesystem path); the API route registers that path with\nstorage and exposes ``file_id`` instead so clients can reference the\nextracted track in subsequent requests. Image-based tracks (PGS, VobSub)\ncarry ``selectable=False`` and ``file_id=None``."
+      },
+      "UploadResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "size"
+        ],
+        "title": "UploadResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VideoMetadata": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds",
+            "default": 0.0
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width",
+            "default": 1920
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height",
+            "default": 1080
+          }
+        },
+        "type": "object",
+        "title": "VideoMetadata"
+      }
+    }
+  }
+}

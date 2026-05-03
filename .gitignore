@@ -27,6 +27,18 @@ Thumbs.db
 *.mkv
 *.ass
 
+# Node / npm workspaces
+node_modules/
+.npm/
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# Vite (desktop frontend build output)
+apps/desktop/dist/
+
 # Bundled resources (3c) — fetched at build time via scripts/setup_bundle.sh.
 # Too large for git history (~600 MB total: fonts ~45 MB, Python runtime +
 # venv ~250 MB, Chromium ~170 MB).  Each subdir has its own fetch step.

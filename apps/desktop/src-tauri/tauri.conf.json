@@ -23,7 +23,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm", "app", "dmg", "msi", "nsis"],
     "resources": [
       "resources/fonts/*",
       "resources/python/**/*",

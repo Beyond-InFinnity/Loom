@@ -9,7 +9,21 @@ OpenAPI schema is at /openapi.json; interactive docs at /docs.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import align, files, generate, health, jobs, language, mux, preview, styles, subs, video
+from .routes import (
+    align,
+    annotate,
+    files,
+    generate,
+    health,
+    jobs,
+    language,
+    mux,
+    preview,
+    romanize,
+    styles,
+    subs,
+    video,
+)
 
 app = FastAPI(
     title="Loom API",
@@ -33,6 +47,8 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(files.router)
 app.include_router(language.router)
+app.include_router(romanize.router)
+app.include_router(annotate.router)
 app.include_router(generate.router)
 app.include_router(jobs.router)
 app.include_router(video.router)

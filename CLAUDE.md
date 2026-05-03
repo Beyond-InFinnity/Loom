@@ -6,7 +6,22 @@
 
 **Current state (2026-05-03):** R1–R6a + R6b-presets + R6b-fonts (library primitive) + timing offsets + auto-alignment complete on the `monorepo-restructure` branch. R5 closed out — Hebrew + Arabic + Persian + Urdu all shipped. **Step 3c complete on Linux** — Track A (full Noto manifest) + Track B (uv-standalone Python + Playwright bundling) both shipped. `npm run tauri build` produces a working `Loom_0.1.0_amd64.deb` (1.2G) and `.rpm` (1.2G); the bundled sidecar spawns from `/usr/lib/Loom/resources/python/venv/bin/python` and answers `GET /health` 200 in 1s. CI pipeline is **fully cross-platform** (Ubuntu / macOS / Windows all green for tests; tauri build itself is not in CI).
 
-**Active focus:** **Step 4 — Next.js web app on Vercel.** Major architectural decisions still open: API hosting (Vercel can't run FastAPI long-running jobs natively), domain layout, auth/gating, file storage backend.
+**Active focus:** **Step 4 — Next.js web app at `loom.nerv-analytic.ai`.** Architecture locked 2026-05-03: **all-client processing with romanization-only API** (Option B). The browser runs ffmpeg.wasm for video probe/extract/mux, JS ports of ASS generation + PGS rasterization (canvas-based, same Chromium engine the desktop's Playwright path uses), and uses the server only for romanization (text-in / text-out, ~100KB request). This drops backend bandwidth ~99% vs upload-everything (target hosting cost: $5/mo Railway flat). Tradeoffs accepted: ~50MB initial JS bundle (one-time, cached), JS reimplementations of `loom_core/subs/processing.py::generate_ass_file` + `loom_core/rasterize/sup_writer.py` (drift risk — both must track the Python reference), weak-device fallback to a future server-mode toggle. Front-load risk: PGS-in-browser pixel-level parity vs Playwright reference is the spike that gates everything else; 4b is that spike.
+
+**Step 4 substeps (revised under Option B):**
+| | Ships | Goal |
+|---|---|---|
+| 4a ✅ | npm workspaces + `apps/web/` Next.js scaffold + `packages/api-client/` from OpenAPI | Foundation. Both apps build, share typed client. |
+| 4b 🔲 | PGS-in-browser rasterization spike — render reference HTML via canvas, byte-compare quantized output vs Playwright SUP reference | De-risk the architecture before building on it. |
+| 4c 🔲 | ffmpeg.wasm wiring: probe/extract/mux in a web worker | Video plumbing client-side. |
+| 4d 🔲 | JS port of ASS generation + PGS encoder (sup_writer port) | Subtitle outputs entirely client-side. |
+| 4e 🔲 | Lean romanizer-only API endpoint + web app full UX (drop-zone → tracks → editor → preview → generate → download) | Functional locally. |
+| 4f 🔲 | Deploy: Vercel (frontend) + Railway (API) + DNS at Namecheap + IP rate-limit + cleanup cron | Live. |
+| 4g 🔲 | Delete Streamlit (`loom_app.py` + `app/`) + update CLAUDE.md + capability matrix | Cleanup. |
+
+**Hosting + domain:** frontend on Vercel as `loom.nerv-analytic.ai`, API on Railway as `api.loom.nerv-analytic.ai`. Namecheap is the registrar — DNS records (CNAME or A) point at the hosts; Connor sets these at deploy time. Auth: none in V1, IP rate-limit via slowapi.
+
+**Step 4 deferred to follow-up:** desktop backfill onto `@loom/api-client` (4a-5 attempt surfaced 9 legitimate type errors — generated types are stricter than hand-written ones; needs per-call-site refactor, not a 5-min rewrite). Drift risk bounded as long as backend changes propagate to `apps/desktop/src/api.ts` + `apps/desktop/src/styles.ts` in the same commit.
 
 **Step 3c — what shipped:**
 - **Track A:** `scripts/fetch_noto_fonts.sh` pulls the full Noto manifest (~48MB across 29 face files: Sans CJK SC/TC/JP/KR, Sans Thai, Naskh Arabic, Nastaliq Urdu, Sans Devanagari/Bengali/Tamil/Telugu/Gujarati/Gurmukhi, Sans for Latin/Cyrillic/Greek). `loom_core/fonts.py::build_font_face_css(scanner)` emits one `@font-face` per face with cmap-coalesced `unicode-range`; injected at the top of `_build_fullframe_html`'s `<style>`. Chromium picks the correct family per codepoint without fontconfig fallback. **Dev-mode caveat:** Tauri 2's `resource_dir()` in dev returns the build artifact dir, not `src-tauri/resources/`, so during `npm run tauri dev` you must set `LOOM_FONT_DIR=$PWD/apps/desktop/src-tauri/resources/fonts` manually. Production bundles read from the actual resource dir.

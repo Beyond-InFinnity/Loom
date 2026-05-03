@@ -5,9 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "setup:ffmpeg": "bash scripts/setup-ffmpeg-assets.sh",
+    "postinstall": "bash scripts/setup-ffmpeg-assets.sh"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@loom/api-client": "*",
     "next": "16.2.4",
     "react": "19.2.4",

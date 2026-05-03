@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { FFmpegClient } from "../../lib/ffmpeg/client";
 import type { ProbeResult, TrackInfo } from "../../lib/ffmpeg/types";
 import { SSAFile } from "../../lib/subs/ssa";
+import { generateAssFile } from "../../lib/subs/generate-ass";
+import { defaultStyleConfig } from "../../lib/subs/style-config";
 
 // 4c-1 → 4c-3 smoke test page.
 //   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
@@ -71,6 +73,11 @@ export default function FFmpegTestPage() {
   const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
   const [extractStatus, setExtractStatus] = useState<string | null>(null);
   const [muxStatus, setMuxStatus] = useState<string | null>(null);
+  // 4d-2: track which subtitle streams the user picked as native + target
+  // for the .ass generation step.  Stored as ffmpeg stream index ids.
+  const [nativeTrackId, setNativeTrackId] = useState<number | null>(null);
+  const [targetTrackId, setTargetTrackId] = useState<number | null>(null);
+  const [generateStatus, setGenerateStatus] = useState<string | null>(null);
 
   function appendLog(line: string) { setLogs((prev) => [...prev, line]); }
   function patchStep(i: number, patch: Partial<Step>) {
@@ -82,6 +89,9 @@ export default function FFmpegTestPage() {
     setProbeResult(null);
     setExtractStatus(null);
     setMuxStatus(null);
+    setGenerateStatus(null);
+    setNativeTrackId(null);
+    setTargetTrackId(null);
     setTopLevelError(null);
   }
 
@@ -224,6 +234,49 @@ export default function FFmpegTestPage() {
     }
   }
 
+  /** Extract two tracks (native + target), parse both, run
+      generateAssFile with default styles, download the result.
+      Romanized layer is skipped (no romanize fn passed). */
+  async function handleGenerateAss() {
+    if (!currentFile || !clientRef.current || !probeResult || busy) return;
+    if (nativeTrackId == null || targetTrackId == null) return;
+    setBusy(true);
+    setGenerateStatus("extracting native + target tracks…");
+    try {
+      const nativeTrack = probeResult.subtitle_tracks.find((t) => t.id === nativeTrackId);
+      const targetTrack = probeResult.subtitle_tracks.find((t) => t.id === targetTrackId);
+      if (!nativeTrack || !targetTrack) {
+        throw new Error("track lookup failed");
+      }
+      const t0 = performance.now();
+
+      const nativeRes = await clientRef.current.extractTrack(currentFile, nativeTrack);
+      const targetRes = await clientRef.current.extractTrack(currentFile, targetTrack);
+
+      setGenerateStatus("parsing both tracks…");
+      const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
+      const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
+
+      setGenerateStatus("running generateAssFile…");
+      const ass = generateAssFile({
+        native: nativeSubs,
+        target: targetSubs,
+        styles: defaultStyleConfig(),
+      });
+
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      const baseName = currentFile.name.replace(/\.[^.]+$/, "");
+      const filename = `${baseName}.loom.ass`;
+      const bytes = new TextEncoder().encode(ass);
+      setGenerateStatus(`generated ${filename} (${(bytes.length / 1024).toFixed(1)} KB) in ${dt}s — ${nativeSubs.events.length} native + ${targetSubs.events.length} target events → downloading`);
+      downloadBytes(bytes, filename);
+    } catch (err) {
+      setGenerateStatus(`generate failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleMuxTest() {
     if (!currentFile || !clientRef.current || !probeResult || busy) return;
     setBusy(true);
@@ -341,9 +394,10 @@ export default function FFmpegTestPage() {
           <div className="mb-2">
             <span className="text-zinc-500">subtitle_tracks ({probeResult.subtitle_tracks.length}):</span>
             {probeResult.subtitle_tracks.length === 0 && <span className="text-zinc-500"> none</span>}
+            <div className="text-zinc-500 text-xs mt-1">↳ Pick &ldquo;native&rdquo; (your language) and &ldquo;target&rdquo; (foreign) for the .ass generate test below.</div>
             <ul className="space-y-1 mt-1">
               {probeResult.subtitle_tracks.map((t) => (
-                <li key={t.id} className="flex items-center gap-2">
+                <li key={t.id} className="flex items-center gap-2 flex-wrap">
                   <span className="text-zinc-300">
                     #{t.id} {t.label}
                     {!t.selectable && <span className="text-amber-400"> [image-based]</span>}
@@ -356,6 +410,18 @@ export default function FFmpegTestPage() {
                   >
                     Extract
                   </button>
+                  {t.selectable && (
+                    <>
+                      <label className={"text-xs px-2 py-0.5 border rounded cursor-pointer " + (nativeTrackId === t.id ? "border-cyan-400 text-cyan-300 bg-cyan-950/30" : "border-zinc-600 text-zinc-400")}>
+                        <input type="radio" name="native-track" className="mr-1" checked={nativeTrackId === t.id} onChange={() => setNativeTrackId(t.id)} disabled={busy} />
+                        native
+                      </label>
+                      <label className={"text-xs px-2 py-0.5 border rounded cursor-pointer " + (targetTrackId === t.id ? "border-purple-400 text-purple-300 bg-purple-950/30" : "border-zinc-600 text-zinc-400")}>
+                        <input type="radio" name="target-track" className="mr-1" checked={targetTrackId === t.id} onChange={() => setTargetTrackId(t.id)} disabled={busy} />
+                        target
+                      </label>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
@@ -375,18 +441,36 @@ export default function FFmpegTestPage() {
             </ul>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-emerald-900">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleMuxTest()}
-              className="px-3 py-1 border border-amber-500 text-amber-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Test mux: source + synthetic 2-line .ass → .mkv
-            </button>
-            {muxStatus && (
-              <div className="mt-2 text-zinc-300 text-xs">↳ {muxStatus}</div>
-            )}
+          <div className="mt-3 pt-3 border-t border-emerald-900 space-y-2">
+            <div>
+              <button
+                type="button"
+                disabled={busy || nativeTrackId == null || targetTrackId == null}
+                onClick={() => void handleGenerateAss()}
+                className="px-3 py-1 border border-cyan-500 text-cyan-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Generate stitched .ass (Bottom=native + Top=target)
+              </button>
+              {(nativeTrackId == null || targetTrackId == null) && (
+                <span className="ml-2 text-zinc-500 text-xs">↳ pick a native + target track first</span>
+              )}
+              {generateStatus && (
+                <div className="mt-2 text-zinc-300 text-xs">↳ {generateStatus}</div>
+              )}
+            </div>
+            <div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleMuxTest()}
+                className="px-3 py-1 border border-amber-500 text-amber-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Test mux: source + synthetic 2-line .ass → .mkv
+              </button>
+              {muxStatus && (
+                <div className="mt-2 text-zinc-300 text-xs">↳ {muxStatus}</div>
+              )}
+            </div>
           </div>
         </div>
       )}

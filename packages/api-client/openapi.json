@@ -237,6 +237,88 @@
         }
       }
     },
+    "/romanize": {
+      "post": {
+        "tags": [
+          "text"
+        ],
+        "summary": "Romanize",
+        "operationId": "romanize_romanize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RomanizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RomanizeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/annotate": {
+      "post": {
+        "tags": [
+          "text"
+        ],
+        "summary": "Annotate",
+        "operationId": "annotate_annotate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnotateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnotateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/generate/ass": {
       "post": {
         "tags": [
@@ -761,6 +843,116 @@
           "offset_seconds"
         ],
         "title": "AlignResponse"
+      },
+      "AnnotateRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "UTF-8 source text to annotate."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code",
+            "description": "BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, hi, ...)."
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System",
+            "description": "Per-language phonetic-system override.  Same values as POST /romanize.  Drives which annotation system is selected for languages that support multiple (Mandarin pinyin vs zhuyin, Cantonese jyutping, Thai paiboon/rtgs/ipa, etc.)."
+          },
+          "render_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Mode",
+            "description": "How to render the resulting HTML: 'ruby' (default for CJK; <ruby>+<rt>), 'interlinear' (two-row inline-block stack; better for long alphabetic readings), or 'inline' (parenthetical fallback: 'base(reading)').  When omitted, falls back to the language's default annotation_render_mode."
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "description": "See POST /romanize.  No-op until the OCR archival pipeline lands (Step 5+).",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "lang_code"
+        ],
+        "title": "AnnotateRequest"
+      },
+      "AnnotateResponse": {
+        "properties": {
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotateSpan"
+            },
+            "type": "array",
+            "title": "Spans"
+          },
+          "html": {
+            "type": "string",
+            "title": "Html"
+          },
+          "render_mode": {
+            "type": "string",
+            "title": "Render Mode"
+          },
+          "annotation_system_name": {
+            "type": "string",
+            "title": "Annotation System Name"
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "spans",
+          "html",
+          "render_mode",
+          "annotation_system_name",
+          "lang_code"
+        ],
+        "title": "AnnotateResponse"
+      },
+      "AnnotateSpan": {
+        "properties": {
+          "base": {
+            "type": "string",
+            "title": "Base"
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base"
+        ],
+        "title": "AnnotateSpan"
       },
       "AnnotationLayerStyle": {
         "properties": {
@@ -1936,6 +2128,78 @@
         },
         "type": "object",
         "title": "Resolution"
+      },
+      "RomanizeRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "UTF-8 source text to romanize."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code",
+            "description": "BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, ru, hi, he, ar, fa, ur, ...)."
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System",
+            "description": "Per-language phonetic-system override.  Thai: paiboon|rtgs|ipa.  Arabic: learner|din|loose.  Persian: learner|dmg.  Urdu: learner|ala-lc.  Chinese: pinyin|zhuyin|jyutping (typically auto-derived from lang_code).  When omitted, falls back to the language's default."
+          },
+          "long_vowel_mode": {
+            "type": "string",
+            "title": "Long Vowel Mode",
+            "description": "Japanese-only.  One of macrons|doubled|unmarked.  Ignored for other languages.",
+            "default": "macrons"
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "description": "When true, the (text, lang, romanized) tuple may be archived for OCR training data (Step 5+).  No-op until the pipeline lands.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "lang_code"
+        ],
+        "title": "RomanizeRequest"
+      },
+      "RomanizeResponse": {
+        "properties": {
+          "romanized": {
+            "type": "string",
+            "title": "Romanized"
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code"
+          },
+          "romanization_name": {
+            "type": "string",
+            "title": "Romanization Name"
+          },
+          "has_phonetic_layer": {
+            "type": "boolean",
+            "title": "Has Phonetic Layer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "romanized",
+          "lang_code",
+          "romanization_name",
+          "has_phonetic_layer"
+        ],
+        "title": "RomanizeResponse"
       },
       "RomanizedLayerStyle": {
         "properties": {

@@ -193,7 +193,7 @@ function layerStyleToSSA(
 /** Strip every ASS override block ({\...}) from text.  Matches the
     Python `re.sub(r'\{[^}]*\}', '', text)` pattern used in places
     where we need plain text for romanization / annotation. */
-function stripAssOverrideTags(text: string): string {
+export function stripAssOverrideTags(text: string): string {
   return text.replace(/\{[^}]*\}/g, "");
 }
 

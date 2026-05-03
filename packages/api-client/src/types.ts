@@ -113,6 +113,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/romanize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Romanize */
+        post: operations["romanize_romanize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/annotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Annotate */
+        post: operations["annotate_annotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/generate/ass": {
         parameters: {
             query?: never;
@@ -371,6 +405,55 @@ export interface components {
             offset_seconds: number;
             /** Warning */
             warning?: string | null;
+        };
+        /** AnnotateRequest */
+        AnnotateRequest: {
+            /**
+             * Text
+             * @description UTF-8 source text to annotate.
+             */
+            text: string;
+            /**
+             * Lang Code
+             * @description BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, hi, ...).
+             */
+            lang_code: string;
+            /**
+             * Phonetic System
+             * @description Per-language phonetic-system override.  Same values as POST /romanize.  Drives which annotation system is selected for languages that support multiple (Mandarin pinyin vs zhuyin, Cantonese jyutping, Thai paiboon/rtgs/ipa, etc.).
+             */
+            phonetic_system?: string | null;
+            /**
+             * Render Mode
+             * @description How to render the resulting HTML: 'ruby' (default for CJK; <ruby>+<rt>), 'interlinear' (two-row inline-block stack; better for long alphabetic readings), or 'inline' (parenthetical fallback: 'base(reading)').  When omitted, falls back to the language's default annotation_render_mode.
+             */
+            render_mode?: string | null;
+            /**
+             * Opt In Training
+             * @description See POST /romanize.  No-op until the OCR archival pipeline lands (Step 5+).
+             * @default false
+             */
+            opt_in_training: boolean;
+        };
+        /** AnnotateResponse */
+        AnnotateResponse: {
+            /** Spans */
+            spans: components["schemas"]["AnnotateSpan"][];
+            /** Html */
+            html: string;
+            /** Render Mode */
+            render_mode: string;
+            /** Annotation System Name */
+            annotation_system_name: string;
+            /** Lang Code */
+            lang_code: string;
+        };
+        /** AnnotateSpan */
+        AnnotateSpan: {
+            /** Base */
+            base: string;
+            /** Reading */
+            reading?: string | null;
         };
         /** AnnotationLayerStyle */
         AnnotationLayerStyle: {
@@ -1002,6 +1085,47 @@ export interface components {
              */
             height: number;
         };
+        /** RomanizeRequest */
+        RomanizeRequest: {
+            /**
+             * Text
+             * @description UTF-8 source text to romanize.
+             */
+            text: string;
+            /**
+             * Lang Code
+             * @description BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, ru, hi, he, ar, fa, ur, ...).
+             */
+            lang_code: string;
+            /**
+             * Phonetic System
+             * @description Per-language phonetic-system override.  Thai: paiboon|rtgs|ipa.  Arabic: learner|din|loose.  Persian: learner|dmg.  Urdu: learner|ala-lc.  Chinese: pinyin|zhuyin|jyutping (typically auto-derived from lang_code).  When omitted, falls back to the language's default.
+             */
+            phonetic_system?: string | null;
+            /**
+             * Long Vowel Mode
+             * @description Japanese-only.  One of macrons|doubled|unmarked.  Ignored for other languages.
+             * @default macrons
+             */
+            long_vowel_mode: string;
+            /**
+             * Opt In Training
+             * @description When true, the (text, lang, romanized) tuple may be archived for OCR training data (Step 5+).  No-op until the pipeline lands.
+             * @default false
+             */
+            opt_in_training: boolean;
+        };
+        /** RomanizeResponse */
+        RomanizeResponse: {
+            /** Romanized */
+            romanized: string;
+            /** Lang Code */
+            lang_code: string;
+            /** Romanization Name */
+            romanization_name: string;
+            /** Has Phonetic Layer */
+            has_phonetic_layer: boolean;
+        };
         /** RomanizedLayerStyle */
         RomanizedLayerStyle: {
             /**
@@ -1622,6 +1746,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LanguageMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    romanize_romanize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RomanizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RomanizeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    annotate_annotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotateResponse"];
                 };
             };
             /** @description Validation Error */

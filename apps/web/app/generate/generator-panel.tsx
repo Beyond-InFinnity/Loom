@@ -13,9 +13,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { loomApi } from "../../lib/api/client";
+import { buildRomanizeMap, hasPhoneticLayer, romanizeFromMap } from "../../lib/api/romanize";
 import { FFmpegClient } from "../../lib/ffmpeg/client";
 import { LoomGenerator } from "../../lib/loom-generator";
 import type { ProbeResult, TrackInfo } from "../../lib/ffmpeg/types";
+import { stripAssOverrideTags } from "../../lib/subs/generate-ass";
 import { SSAFile } from "../../lib/subs/ssa";
 import { defaultStyleConfig } from "../../lib/subs/style-config";
 import type { SupWriterStats } from "../../lib/raster/sup-writer";
@@ -133,10 +136,51 @@ export function GeneratorPanel() {
       const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
       const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
 
+      // 4e-4 — pre-resolve the Romanized layer via /romanize.  When the
+      // target track has a known lang_code AND the language has a phonetic
+      // layer, batch-call once per unique event text and pass a sync
+      // lookup into LoomGenerator.  Languages without phonetic support
+      // (English, French, etc.) skip the round-trip entirely.
+      let romanize: ((text: string) => string) | undefined = undefined;
+      if (target.lang_code) {
+        const api = loomApi();
+        try {
+          setProgress(`checking romanization for ${target.lang_code}…`);
+          const supported = await hasPhoneticLayer(api, target.lang_code);
+          if (supported) {
+            // Match generateAssFile's exact lookup key: stripAssOverrideTags
+            // without trim.  generateAssFile calls romanize(plain) where
+            // `plain = stripAssOverrideTags(ev.text)` — keys must agree byte
+            // for byte or the sync map lookup will miss.
+            const uniqueTexts = new Set<string>();
+            for (const ev of targetSubs.events) {
+              if (ev.type === "Comment") continue;
+              const plain = stripAssOverrideTags(ev.text);
+              if (plain.trim()) uniqueTexts.add(plain);
+            }
+            setProgress(`romanizing ${uniqueTexts.size} unique events…`);
+            const map = await buildRomanizeMap({
+              client: api,
+              lang_code: target.lang_code,
+              texts: uniqueTexts,
+              on_progress: (done, total) => {
+                setProgress(`romanizing · ${done} / ${total}`);
+              },
+            });
+            romanize = romanizeFromMap(map);
+          }
+        } catch (err) {
+          // Fail-soft: log + skip the Romanized layer rather than blocking
+          // the whole generate.  User still gets .ass + .sup with Bottom + Top.
+          console.warn("romanize batch failed; skipping Romanized layer:", err);
+        }
+      }
+
       const gen = new LoomGenerator({
         native: nativeSubs,
         target: targetSubs,
         styles: defaultStyleConfig(),
+        romanize,
       });
 
       const t0 = performance.now();

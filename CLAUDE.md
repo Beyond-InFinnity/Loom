@@ -102,6 +102,63 @@ CLAUDE.md
 
 ---
 
+## Capability Matrix
+
+**Purpose:** at-a-glance visibility into which features have reached which surfaces. Backend (`loom_core` + `loom_api`) is the single source of truth — frontends call the API, never reimplement engine logic. Frontend rows track UI affordance, not capability (a feature with backend ✅ is callable from any frontend the moment its UI lands).
+
+**Update protocol:** when shipping a feature, add a row OR update an existing row's columns in the same commit as the code. Don't ship a backend change without updating the matrix — drift here is the failure mode this exists to prevent.
+
+**Legend:** ✅ shipped · 🟡 partial · ⏳ planned · — N/A by design
+
+| Feature | Engine | API | Desktop | Web | Extension |
+|---|---|---|---|---|---|
+| **Subtitle ingestion** | | | | | |
+| `.srt` / `.ass` / `.ssa` / `.vtt` upload | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Local file picker (zenity / native) | ✅ | ✅ | ✅ | — | — |
+| External video file scan (MKV tracks) | ✅ | ✅ | ✅ | — | — |
+| YouTube URL → subtitle pull (yt-dlp) | ⏳ | ⏳ | — | ⏳ | ⏳ |
+| Page-DOM subtitle scrape (YT/Netflix) | — | — | — | — | ⏳ |
+| **Romanization** (engine + API ✅ for all) | | | | | |
+| Chinese (Pinyin / Zhuyin / Jyutping) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Japanese (MeCab + furigana, 3 long-vowel modes) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Korean (RR per-syllable + word-level) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Cyrillic (ru / uk / be / sr / bg / mk / mn) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Thai (paiboon / RTGS / IPA) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Indic (hi / bn / ta / te / gu / pa) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Hebrew | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Arabic / Persian / Urdu | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| **Output generation** | | | | | |
+| `.ass` 3- or 4-layer file | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| `.sup` (PGS) bitmap rasterization | ✅ | ✅ | ✅ | ⏳ | — |
+| Live HTML composite preview | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Output filename builder | ✅ | ✅ | ✅ | ⏳ | — |
+| MKV mux (ffmpeg subtitle merge) | ✅ | ✅ | ✅ | — | — |
+| **Style customization** | | | | | |
+| Per-layer color / opacity / font / size | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Per-layer outline / shadow / glow | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Top stack position + layer gaps | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Color presets (28, 4 categories, lang-scoped) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Output resolution scaling (480p–2160p + match) | ✅ | ✅ | ✅ | ⏳ | — |
+| **Timing / sync** | | | | | |
+| Manual offset (per-track ms shift) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Auto-alignment (histogram + fine pass) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| **Fonts** | | | | | |
+| Bundled Noto manifest (29 faces) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| `@font-face` CSS w/ unicode-range routing | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| FontScanner (validate + missing-char warn) | ✅ | ⏳ | ⏳ | ⏳ | ⏳ |
+| **Distribution / packaging** | | | | | |
+| Linux desktop bundle (`.deb` + `.rpm`) | — | — | ✅ | — | — |
+| AppImage | — | — | ⏳ | — | — |
+| macOS desktop bundle (`.app` + `.dmg`) | — | — | ⏳ | — | — |
+| Windows desktop bundle (`.msi` + `.nsis`) | — | — | ⏳ | — | — |
+| Tauri auto-updater (multi-hundred-MB diffs) | — | — | ⏳ | — | — |
+| **OCR data pipeline** (step 5 → step 6) | | | | | |
+| `opt_in_training` flag on requests | ✅ | ✅ | — | ⏳ | ⏳ |
+| `(text, style, language)` tuple archive | — | ⏳ | — | — | ⏳ |
+| Synthetic OCR training pipeline | ⏳ | — | — | — | — |
+
+---
+
 ## Layer Terminology — CRITICAL
 
 **Get this right. Every time. No exceptions.**

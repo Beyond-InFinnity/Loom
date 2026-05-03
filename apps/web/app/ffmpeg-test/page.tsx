@@ -6,6 +6,7 @@ import type { ProbeResult, TrackInfo } from "../../lib/ffmpeg/types";
 import { SSAFile } from "../../lib/subs/ssa";
 import { generateAssFile } from "../../lib/subs/generate-ass";
 import { defaultStyleConfig } from "../../lib/subs/style-config";
+import { rasterizeFrames, type RasterizedFrame } from "../../lib/raster/rasterizer";
 
 // 4c-1 → 4c-3 smoke test page.
 //   4c-1 validated ffmpeg.wasm boot + WORKERFS streaming.
@@ -38,6 +39,28 @@ function downloadBytes(data: Uint8Array, filename: string) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** Convert a RasterizedFrame's RGBA into a PNG blob URL for inline
+    preview.  Clear frames (rgba=null) get a transparent placeholder. */
+async function framePngUrl(
+  frame: RasterizedFrame,
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+): Promise<string> {
+  canvas.width = frame.width;
+  canvas.height = frame.height;
+  if (frame.rgba) {
+    ctx.putImageData(new ImageData(frame.rgba, frame.width, frame.height), 0, 0);
+  } else {
+    ctx.clearRect(0, 0, frame.width, frame.height);
+  }
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error("toBlob returned null"));
+      resolve(URL.createObjectURL(blob));
+    }, "image/png");
+  });
 }
 
 // Tiny synthetic .ass for mux validation.  ~2 dialogue lines so the
@@ -78,6 +101,8 @@ export default function FFmpegTestPage() {
   const [nativeTrackId, setNativeTrackId] = useState<number | null>(null);
   const [targetTrackId, setTargetTrackId] = useState<number | null>(null);
   const [generateStatus, setGenerateStatus] = useState<string | null>(null);
+  const [rasterStatus, setRasterStatus] = useState<string | null>(null);
+  const [rasterPreviews, setRasterPreviews] = useState<{ url: string; meta: string }[]>([]);
 
   function appendLog(line: string) { setLogs((prev) => [...prev, line]); }
   function patchStep(i: number, patch: Partial<Step>) {
@@ -90,6 +115,9 @@ export default function FFmpegTestPage() {
     setExtractStatus(null);
     setMuxStatus(null);
     setGenerateStatus(null);
+    setRasterStatus(null);
+    rasterPreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    setRasterPreviews([]);
     setNativeTrackId(null);
     setTargetTrackId(null);
     setTopLevelError(null);
@@ -277,6 +305,57 @@ export default function FFmpegTestPage() {
     }
   }
 
+  /** Rasterize the first N frames of the union timeline + render each
+      as a PNG inline.  Visual sanity check for 4d-3 — confirms the
+      html2canvas pipeline produces the expected layout. */
+  async function handleRasterizeTest(maxFrames: number) {
+    if (!currentFile || !clientRef.current || !probeResult || busy) return;
+    if (nativeTrackId == null || targetTrackId == null) return;
+    setBusy(true);
+    rasterPreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    setRasterPreviews([]);
+    setRasterStatus("extracting tracks…");
+    try {
+      const nativeTrack = probeResult.subtitle_tracks.find((t) => t.id === nativeTrackId)!;
+      const targetTrack = probeResult.subtitle_tracks.find((t) => t.id === targetTrackId)!;
+      const nativeRes = await clientRef.current.extractTrack(currentFile, nativeTrack);
+      const targetRes = await clientRef.current.extractTrack(currentFile, targetTrack);
+      const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
+      const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
+
+      setRasterStatus(`rasterizing first ${maxFrames} frames…`);
+      const t0 = performance.now();
+      const previews: { url: string; meta: string }[] = [];
+      let i = 0;
+      // Off-screen canvas for converting RGBA → PNG blob URL.
+      const exportCanvas = document.createElement("canvas");
+      const exportCtx = exportCanvas.getContext("2d")!;
+      for await (const frame of rasterizeFrames({
+        native: nativeSubs,
+        target: targetSubs,
+        styles: defaultStyleConfig(),
+        onProgress: (done, total) => {
+          setRasterStatus(`rasterizing ${done}/${total}…`);
+        },
+      })) {
+        if (i >= maxFrames) break;
+        const url = await framePngUrl(frame, exportCanvas, exportCtx);
+        previews.push({
+          url,
+          meta: `frame ${i + 1}: ${frame.start_ms}ms–${frame.end_ms}ms${frame.rgba ? "" : " (clear)"}`,
+        });
+        setRasterPreviews([...previews]);
+        i += 1;
+      }
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      setRasterStatus(`rasterized ${previews.length} frames in ${dt}s`);
+    } catch (err) {
+      setRasterStatus(`rasterize failed: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleMuxTest() {
     if (!currentFile || !clientRef.current || !probeResult || busy) return;
     setBusy(true);
@@ -456,6 +535,30 @@ export default function FFmpegTestPage() {
               )}
               {generateStatus && (
                 <div className="mt-2 text-zinc-300 text-xs">↳ {generateStatus}</div>
+              )}
+            </div>
+            <div>
+              <button
+                type="button"
+                disabled={busy || nativeTrackId == null || targetTrackId == null}
+                onClick={() => void handleRasterizeTest(10)}
+                className="px-3 py-1 border border-fuchsia-500 text-fuchsia-300 rounded text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Rasterize first 10 frames (4d-3 visual sanity check)
+              </button>
+              {rasterStatus && (
+                <div className="mt-2 text-zinc-300 text-xs">↳ {rasterStatus}</div>
+              )}
+              {rasterPreviews.length > 0 && (
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  {rasterPreviews.map((p, i) => (
+                    <div key={i} className="border border-zinc-700 rounded overflow-hidden bg-black/60">
+                      <div className="text-xs text-zinc-400 px-2 py-1 border-b border-zinc-800">{p.meta}</div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.url} alt={p.meta} style={{ width: "100%", display: "block" }} />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             <div>

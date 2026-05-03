@@ -18,7 +18,9 @@ import type {
   FFmpegClientOptions,
   OperationOptions,
   ProbeResult,
-} from "./types.js";
+  TrackInfo,
+} from "./types";
+import { extensionForSubtitleCodec, parseProbeJSON } from "./parse-probe";
 
 const WORKERFS = "WORKERFS" as const;
 
@@ -121,11 +123,9 @@ export class FFmpegClient {
     this.#loaded = true;
   }
 
-  /** Run `ffmpeg -i <file>` and return the captured stderr alongside
-      a (currently raw) ProbeResult.
-      4c-2 deliverable: API surface + raw stderr capture.
-      4c-3 will populate metadata/subtitle_tracks/audio_tracks by
-      parsing the stderr blob.  Until then, those fields are empty. */
+  /** Probe a video file and return its metadata + subtitle/audio
+      track lists.  Uses ffprobe with JSON output (mirrors the Python
+      side) — far more robust than parsing ffmpeg's stderr by regex. */
   async probe(file: File, opts?: OperationOptions): Promise<ProbeResult> {
     const ff = this.#requireLoaded();
     return this.#withBusy(async () => {
@@ -134,57 +134,227 @@ export class FFmpegClient {
         stderrLines.push(message);
       };
       ff.on("log", collectLog);
+      const mountPoint = "/mount";
+      const inFs = `${mountPoint}/${file.name}`;
+      const outFs = "/probe.json";
       try {
-        const mountPoint = "/mount";
-        await withTimeout(
-          (async () => {
-            // Best-effort cleanup of any stale mount from a prior op.
-            try { await ff.unmount(mountPoint); } catch { /* fine */ }
-            try { await ff.deleteDir(mountPoint); } catch { /* fine */ }
-            await ff.createDir(mountPoint);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await ff.mount(WORKERFS as any, { files: [file] }, mountPoint);
-          })(),
-          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.mount,
-          "probe.mount",
-          opts?.signal,
-        );
+        await withTimeout(this.#mountFile(file, mountPoint),
+          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.mount, "probe.mount", opts?.signal);
 
+        // ffprobe writes structured JSON to outFs.  -show_format gives
+        // duration + container tags (title/date/year), -show_streams
+        // gives per-stream codec_type, codec_name, dimensions, channels,
+        // and tags (language/title).
         await withTimeout(
-          // exec returns a non-zero exit because there's no output file —
-          // that's expected and not an error for `-i`-only invocation.
-          ff.exec(["-hide_banner", "-i", `${mountPoint}/${file.name}`]),
+          ff.ffprobe([
+            "-v", "error",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            inFs,
+            "-o", outFs,
+          ]),
           opts?.timeoutMs ?? DEFAULT_TIMEOUTS.probe,
-          "probe.exec",
+          "probe.ffprobe",
           opts?.signal,
         );
 
-        try { await ff.unmount(mountPoint); } catch { /* fine */ }
+        const jsonBytes = await ff.readFile(outFs, "utf8");
+        // readFile returns FileData = Uint8Array | string.  When encoding
+        // is set, we get a string back; type narrowing for the parser.
+        const jsonText = typeof jsonBytes === "string"
+          ? jsonBytes
+          : new TextDecoder().decode(jsonBytes);
 
-        return {
-          metadata: { title: null, year: null, duration_seconds: 0, width: 0, height: 0 },
-          subtitle_tracks: [],
-          audio_tracks: [],
-          raw_stderr: stderrLines.join("\n"),
-        };
+        await this.#cleanupMount(mountPoint);
+        try { await ff.deleteFile(outFs); } catch { /* best effort */ }
+
+        const result = parseProbeJSON(jsonText, file.name);
+        result.raw_stderr = stderrLines.join("\n");
+        return result;
       } finally {
         ff.off("log", collectLog);
       }
     });
   }
 
-  /** Pull a subtitle track to bytes.  4c-3. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async extractTrack(_file: File, _streamIndex: number, _opts?: OperationOptions): Promise<Uint8Array> {
-    this.#requireLoaded();
-    throw new Error("FFmpegClient.extractTrack: not implemented (lands in 4c-3)");
+  /** Extract one subtitle track from a video file to its native bytes.
+      Caller picks the stream by ffmpeg index (TrackInfo.id from probe).
+      Returns the raw subtitle file contents (e.g. .srt UTF-8 text bytes,
+      .ass UTF-8 text bytes, .sup PGS binary).  Codec → extension picked
+      automatically; pass `track.codec` from probe to avoid surprises. */
+  async extractTrack(
+    file: File,
+    track: Pick<TrackInfo, "id" | "codec">,
+    opts?: OperationOptions,
+  ): Promise<{ data: Uint8Array; filename: string }> {
+    const ff = this.#requireLoaded();
+    return this.#withBusy(async () => {
+      const mountPoint = "/mount";
+      const inFs = `${mountPoint}/${file.name}`;
+      const ext = extensionForSubtitleCodec(track.codec);
+      const outFs = `/extract.${ext}`;
+      try {
+        await withTimeout(this.#mountFile(file, mountPoint),
+          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.mount, "extract.mount", opts?.signal);
+
+        // -map 0:N picks the source stream by index (TrackInfo.id).
+        // -c copy avoids any re-encoding for text subs.  The container
+        // is implied by the output extension (Matroska single-stream
+        // for .sup, raw text for .srt/.ass/.vtt).
+        await withTimeout(
+          ff.exec(["-hide_banner", "-i", inFs, "-map", `0:${track.id}`, "-c", "copy", outFs]),
+          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.extract,
+          "extract.exec",
+          opts?.signal,
+        );
+
+        const data = await ff.readFile(outFs);
+        const bytes = typeof data === "string"
+          ? new TextEncoder().encode(data)
+          : data;
+
+        await this.#cleanupMount(mountPoint);
+        try { await ff.deleteFile(outFs); } catch { /* best effort */ }
+
+        const baseName = file.name.replace(/\.[^.]+$/, "");
+        return { data: bytes, filename: `${baseName}.track${track.id}.${ext}` };
+      } catch (err) {
+        await this.#cleanupMount(mountPoint);
+        throw err;
+      }
+    });
   }
 
-  /** Mux generated .ass / .sup back into the source container.  4c-3. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async mux(_source: File, _additions: { ass?: Uint8Array; sup?: Uint8Array }, _opts?: OperationOptions): Promise<Uint8Array> {
-    this.#requireLoaded();
-    throw new Error("FFmpegClient.mux: not implemented (lands in 4c-3)");
+  /** Mux generated .ass / .sup back into the source container.
+      Mirrors loom_core/video/mkv_handler.py::merge_subs_to_mkv flag-
+      for-flag.  Output is always MKV (only container that supports
+      ASS + PGS + attachments together). */
+  async mux(
+    source: File,
+    additions: {
+      ass?: Uint8Array;
+      sup?: Uint8Array;
+      target_lang_code?: string | null;
+      ass_track_title?: string | null;
+      pgs_track_title?: string | null;
+      keep_existing_subs?: boolean;
+      keep_attachments?: boolean;
+      default_audio_index?: number | null;
+      /** Number of subtitle streams already in the source — required
+          when keep_existing_subs is true so the new tracks land at the
+          right -disposition / -metadata indices.  Pass from probe. */
+      existing_subtitle_count?: number;
+    },
+    opts?: OperationOptions,
+  ): Promise<{ data: Uint8Array; filename: string }> {
+    const ff = this.#requireLoaded();
+    if (!additions.ass && !additions.sup) {
+      throw new Error("FFmpegClient.mux: at least one of ass/sup required");
+    }
+    return this.#withBusy(async () => {
+      const mountPoint = "/mount";
+      const inFs = `${mountPoint}/${source.name}`;
+      const assFs = additions.ass ? "/in.ass" : null;
+      const supFs = additions.sup ? "/in.sup" : null;
+      const baseName = source.name.replace(/\.[^.]+$/, "");
+      const outFs = `/${baseName}.loom.mkv`;
+
+      const keepExistingSubs = additions.keep_existing_subs ?? true;
+      const keepAttachments = additions.keep_attachments ?? true;
+      const existingSubCount = keepExistingSubs ? (additions.existing_subtitle_count ?? 0) : 0;
+
+      try {
+        await withTimeout(this.#mountFile(source, mountPoint),
+          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.mount, "mux.mount", opts?.signal);
+
+        if (assFs) await ff.writeFile(assFs, additions.ass!);
+        if (supFs) await ff.writeFile(supFs, additions.sup!);
+
+        const args: string[] = ["-hide_banner", "-y", "-i", inFs];
+        if (assFs) args.push("-i", assFs);
+        if (supFs) args.push("-i", supFs);
+
+        // Map source streams by type (mirrors merge_subs_to_mkv).  Order
+        // matters for the disposition/metadata index math below.
+        args.push("-map", "0:v", "-map", "0:a");
+        if (keepExistingSubs) args.push("-map", "0:s?");
+
+        let nextInput = 1;
+        let assSubIdx: number | null = null;
+        let supSubIdx: number | null = null;
+        if (assFs) {
+          args.push("-map", String(nextInput));
+          assSubIdx = existingSubCount;
+          nextInput += 1;
+        }
+        if (supFs) {
+          args.push("-map", String(nextInput));
+          supSubIdx = existingSubCount + (assFs ? 1 : 0);
+          nextInput += 1;
+        }
+        if (keepAttachments) args.push("-map", "0:t?");
+
+        args.push("-c", "copy");
+        if (assSubIdx !== null) args.push(`-c:s:${assSubIdx}`, "ass");
+
+        // Strict DTS-order interleaving — see merge_subs_to_mkv comment
+        // (without this, subtitle blocks get clustered and disappear).
+        args.push("-max_interleave_delta", "0");
+
+        // Clear all subtitle dispositions, set our default.
+        args.push("-disposition:s", "0");
+        const defaultIdx = supSubIdx ?? assSubIdx;
+        if (defaultIdx !== null) args.push(`-disposition:s:${defaultIdx}`, "default");
+
+        if (additions.default_audio_index != null) {
+          args.push("-disposition:a", "0");
+          args.push(`-disposition:a:${additions.default_audio_index}`, "default");
+        }
+
+        // Per-stream metadata for new tracks.
+        if (assSubIdx !== null) {
+          if (additions.target_lang_code) {
+            args.push(`-metadata:s:s:${assSubIdx}`, `language=${additions.target_lang_code}`);
+          }
+          if (additions.ass_track_title) {
+            args.push(`-metadata:s:s:${assSubIdx}`, `title=${additions.ass_track_title}`);
+          }
+        }
+        if (supSubIdx !== null) {
+          if (additions.target_lang_code) {
+            args.push(`-metadata:s:s:${supSubIdx}`, `language=${additions.target_lang_code}`);
+          }
+          if (additions.pgs_track_title) {
+            args.push(`-metadata:s:s:${supSubIdx}`, `title=${additions.pgs_track_title}`);
+          }
+        }
+
+        args.push(outFs);
+
+        await withTimeout(
+          ff.exec(args),
+          opts?.timeoutMs ?? DEFAULT_TIMEOUTS.mux,
+          "mux.exec",
+          opts?.signal,
+        );
+
+        const data = await ff.readFile(outFs);
+        const bytes = typeof data === "string"
+          ? new TextEncoder().encode(data)
+          : data;
+
+        await this.#cleanupMount(mountPoint);
+        if (assFs) try { await ff.deleteFile(assFs); } catch { /* best effort */ }
+        if (supFs) try { await ff.deleteFile(supFs); } catch { /* best effort */ }
+        try { await ff.deleteFile(outFs); } catch { /* best effort */ }
+
+        return { data: bytes, filename: `${baseName}.loom.mkv` };
+      } catch (err) {
+        await this.#cleanupMount(mountPoint);
+        throw err;
+      }
+    });
   }
 
   // ── Internals ────────────────────────────────────────────────
@@ -194,6 +364,28 @@ export class FFmpegClient {
       throw new Error("FFmpegClient: not loaded.  Did you call create()?");
     }
     return this.#ffmpeg;
+  }
+
+  /** WORKERFS-mount a File at mountPoint, cleaning up any leftover
+      mount from a prior op first.  Used by every operation that needs
+      streaming access to the input. */
+  async #mountFile(file: File, mountPoint: string): Promise<void> {
+    const ff = this.#ffmpeg!;
+    try { await ff.unmount(mountPoint); } catch { /* fine */ }
+    try { await ff.deleteDir(mountPoint); } catch { /* fine */ }
+    await ff.createDir(mountPoint);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ff.mount(WORKERFS as any, { files: [file] }, mountPoint);
+  }
+
+  /** Best-effort unmount + dir cleanup.  Errors swallowed because
+      this runs in finally/catch paths where re-throwing would mask
+      the real failure. */
+  async #cleanupMount(mountPoint: string): Promise<void> {
+    const ff = this.#ffmpeg;
+    if (!ff) return;
+    try { await ff.unmount(mountPoint); } catch { /* fine */ }
+    try { await ff.deleteDir(mountPoint); } catch { /* fine */ }
   }
 
   /** Serialize operations on the underlying ffmpeg instance — the

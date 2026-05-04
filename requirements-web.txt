@@ -1,0 +1,53 @@
+# Slim dependency set for the production web API (loom_api.web).
+#
+# Scope: only what POST /romanize, POST /annotate, GET /language/config/{code},
+# and GET /health actually reach.  No video / no Playwright / no Streamlit /
+# no OCR / no Pillow / no fonttools / no ffmpeg.
+#
+# Used by: Railway deploy at api.loom.nerv-analytic.ai.  Local dev devs
+# install requirements.txt instead so they get the full toolchain.
+#
+# When adding a new language to loom_core/romanize.py, add its pip dep here
+# too — otherwise Railway will 500 on the first request that exercises it.
+
+# ── Web framework ──────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic>=2.0
+slowapi                                # IP rate limiting (4f hardening)
+
+# ── Core dependencies ──────────────────────────────────────────────────
+pysubs2                                # imported by loom_core.models / language
+langdetect                             # _dominant_script fallback
+langcodes
+language_data                          # transitive of langcodes
+
+# ── Per-language romanization deps ─────────────────────────────────────
+# Japanese — fugashi (MeCab) + unidic-lite dictionary
+fugashi
+unidic-lite
+
+# Chinese — pinyin / zhuyin / Traditional→Simplified
+pypinyin
+jieba
+opencc-python-reimplemented
+
+# Cantonese — jyutping
+pycantonese
+
+# Korean — Revised Romanization
+korean-romanizer
+
+# Cyrillic — ru / uk / be / sr / bg / mk / mn
+cyrtranslit
+
+# Thai — paiboon / RTGS / IPA (RTGS engine = thai2rom = neural, needs torch)
+pythainlp
+python-crfsuite                        # han_solo CRF segmenter (transitive)
+# Pin torch to the CPU-only PyPI wheel — the default index pulls CUDA
+# builds (~800MB).  Railway gets the ~200MB CPU build via this hint.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+
+# Indic — Devanagari / Bengali / Tamil / Telugu / Gujarati / Gurmukhi
+aksharamukha

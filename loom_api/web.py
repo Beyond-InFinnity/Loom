@@ -25,6 +25,10 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
 from .routes import annotate, health, language, romanize
 
@@ -58,6 +62,18 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# IP-keyed rate limit covering all routes.  A typical episode hits
+# /romanize ~300 times via the client's per-event fan-out, so the daily
+# default of 2000/IP comfortably allows ~6 generations/day per IP — well
+# above any single user's actual demand, well below abuse thresholds.
+# Tighten later if Railway bandwidth shows hot spikes.  Override via
+# LOOM_RATE_LIMIT (e.g. "5000/day" or "100/minute").
+_rate_limit = os.environ.get("LOOM_RATE_LIMIT", "2000/day").strip()
+limiter = Limiter(key_func=get_remote_address, default_limits=[_rate_limit])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(health.router)
 app.include_router(language.router)

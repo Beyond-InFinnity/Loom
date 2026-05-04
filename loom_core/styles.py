@@ -192,6 +192,13 @@ def _chinese_variant(lang_code: str) -> str | None:
     """Classify a Chinese lang_code into a canonical variant string.
 
     Returns one of "zh-Hans", "zh-Hant", "yue", or None for non-Chinese.
+
+    zh-HK is treated as Cantonese ("yue") rather than Traditional Mandarin —
+    HK's spoken language is Cantonese and subtitle tracks tagged zh-HK
+    nearly always carry Cantonese in practice.  See language.py's
+    Cantonese discriminator which already flags zh-HK as suspect.  Callers
+    needing Mandarin-on-zh-HK can override via phonetic_system="pinyin"
+    or "zhuyin".
     """
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "yue":
@@ -199,7 +206,9 @@ def _chinese_variant(lang_code: str) -> str | None:
     if primary != "zh":
         return None
     lc = (lang_code or "").lower()
-    if lc in ("zh-hant", "zh-tw", "zh-hk"):
+    if lc == "zh-hk":
+        return "yue"
+    if lc in ("zh-hant", "zh-tw"):
         return "zh-Hant"
     # zh, zh-hans, zh-cn, and bare "zh" default to Simplified
     return "zh-Hans"
@@ -225,6 +234,8 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
         return "Jyutping"
     if primary == "zh":
         lc = (lang_code or "").lower()
+        if lc == "zh-hk":
+            return "Jyutping"
         if lc in ("zh-hant", "zh-tw"):
             return "Zhuyin"
         return "Pinyin"
@@ -335,13 +346,18 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
 
     # Override romanization name/confidence for Chinese based on
     # variant + phonetic_system.  Auto-resolution mirrors get_romanizer:
-    # zh-Hant / zh-TW / zh-HK default to Zhuyin; everything else (zh,
-    # zh-Hans, zh-CN) defaults to Pinyin.  Caller can override either way.
+    #   zh-HK            → Jyutping (HK = Cantonese in practice)
+    #   zh-Hant / zh-TW  → Zhuyin (Taiwan)
+    #   zh / zh-Hans / … → Pinyin
+    # Explicit phonetic_system always wins.
     if primary == 'zh':
         lc = (lang_code or "").lower()
-        is_traditional = lc in ('zh-hant', 'zh-tw', 'zh-hk')
+        is_traditional = lc in ('zh-hant', 'zh-tw')
+        is_hk = lc == 'zh-hk'
         sys_norm = (phonetic_system or "").lower() or None
-        if sys_norm == 'zhuyin' or (sys_norm is None and is_traditional):
+        if sys_norm == 'jyutping' or (sys_norm is None and is_hk):
+            rom_name, confidence = ('Jyutping', 'high')
+        elif sys_norm == 'zhuyin' or (sys_norm is None and is_traditional):
             rom_name, confidence = ('Zhuyin (Bopomofo)', 'very_high')
         elif sys_norm == 'pinyin' or sys_norm is None:
             rom_name, confidence = ('Pinyin', 'very_high')

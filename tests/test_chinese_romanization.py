@@ -192,6 +192,36 @@ class TestGetRomanizerVariant:
         result = rom("你好")
         assert "ㄋㄧ" in result, f"expected zhuyin override, got {result!r}"
 
+    def test_zh_hk_defaults_to_jyutping(self):
+        """zh-HK is Cantonese in practice — defaults to Jyutping, not Mandarin
+        anything.  HK's spoken language is Cantonese and subtitle metadata
+        nearly always reflects that, even though BCP-47 strictly classifies
+        zh-HK as Mandarin-in-HK-locale."""
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-HK')
+        assert rom is not None
+        result = rom("你好")
+        # Jyutping format: lowercase letters + tone digit (e.g. "nei5 hou2")
+        assert any(ch.isdigit() for ch in result), f"expected jyutping tones, got {result!r}"
+        # Should NOT be bopomofo (Mandarin Trad route)
+        assert "ㄋ" not in result and "ㄏ" not in result, f"got bopomofo for zh-HK: {result!r}"
+
+    def test_zh_hk_pinyin_override(self):
+        """Caller can force Mandarin-Pinyin on zh-HK (rare, but supported)."""
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-HK', phonetic_system='pinyin')
+        assert rom is not None
+        result = rom("你好")
+        assert "nǐhǎo" in result.lower(), f"expected pinyin override, got {result!r}"
+
+    def test_zh_hk_zhuyin_override(self):
+        """Caller can force Mandarin-Zhuyin on zh-HK (very rare)."""
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-HK', phonetic_system='zhuyin')
+        assert rom is not None
+        result = rom("你好")
+        assert "ㄋㄧ" in result, f"expected zhuyin override, got {result!r}"
+
     def test_bare_zh_returns_romanizer(self):
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh')

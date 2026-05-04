@@ -2821,8 +2821,13 @@ def get_annotation_func(lang_code: str, system: str = None):
         return _make_jyutping_annotation_func()
 
     if primary == "zh":
-        # Auto-detect: Traditional Mandarin → Zhuyin, others → Pinyin
+        # Auto-detect from variant — same routing as get_romanizer:
+        #   zh-HK → Jyutping (HK = Cantonese in practice)
+        #   zh-Hant / zh-TW → Zhuyin (Taiwan)
+        #   everything else → Pinyin
         lc = (lang_code or "").lower()
+        if lc == "zh-hk":
+            return _make_jyutping_annotation_func()
         if lc in ("zh-hant", "zh-tw"):
             return _make_zhuyin_annotation_func()
         return _make_chinese_annotation_func()
@@ -2943,23 +2948,33 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
-    # Chunk R2 — Chinese (Pinyin / Zhuyin, jieba-segmented) ────────── ✅
-    # Variant defaults: zh-Hant / zh-TW / zh-HK → Zhuyin (Taiwan convention,
-    # locked per CLAUDE.md).  All other zh subtags → Pinyin.  Caller can
-    # override either way via phonetic_system ("pinyin" or "zhuyin").
+    # Chunk R2 — Chinese (Pinyin / Zhuyin / Jyutping, jieba-segmented) ✅
+    # Variant defaults:
+    #   zh-Hant / zh-TW            → Zhuyin (Taiwan convention)
+    #   zh-HK                      → Jyutping (HK's spoken language is Cantonese;
+    #                                practically every zh-HK-tagged subtitle track
+    #                                carries Cantonese — see also language.py's
+    #                                Cantonese discriminator that already flags
+    #                                zh-HK as suspect-Cantonese)
+    #   zh / zh-Hans / zh-CN / etc → Pinyin
+    # Explicit phonetic_system ("pinyin" | "zhuyin" | "jyutping") always wins.
+    lc = (lang_code or "").lower()
     if primary == "zh":
-        lc = (lang_code or "").lower()
-        is_traditional = lc in ('zh-hant', 'zh-tw', 'zh-hk')
-        variant = 'zh-Hant' if is_traditional else 'zh-Hans'
         sys = (phonetic_system or "").lower() or None
+        if sys == "jyutping":
+            return _make_jyutping_romanizer()
         if sys == "zhuyin":
+            variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
             return _make_zhuyin_romanizer(variant=variant)
         if sys == "pinyin":
+            variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
             return _make_pinyin_romanizer(variant=variant)
-        # Auto-resolve from variant.
-        if is_traditional:
-            return _make_zhuyin_romanizer(variant=variant)
-        return _make_pinyin_romanizer(variant=variant)
+        # Auto-resolve.
+        if lc == "zh-hk":
+            return _make_jyutping_romanizer()
+        if lc in ('zh-hant', 'zh-tw'):
+            return _make_zhuyin_romanizer(variant='zh-Hant')
+        return _make_pinyin_romanizer(variant='zh-Hans')
 
     # Chunk R2c — Cantonese Jyutping (pycantonese) ────────────────── ✅
     if primary == "yue":

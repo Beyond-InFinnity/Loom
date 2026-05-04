@@ -159,22 +159,46 @@ class TestGetRomanizerVariant:
         result = rom("你好")
         assert "nǐhǎo" in result.lower()
 
-    def test_zh_hant_returns_romanizer(self):
+    def test_zh_hant_defaults_to_zhuyin(self):
+        """zh-Hant defaults to Zhuyin (Taiwan convention) per CLAUDE.md."""
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-Hant')
         assert rom is not None
         result = rom("你好")
-        assert "nǐhǎo" in result.lower()
+        # ㄋㄧˇ ㄏㄠˇ — bopomofo characters, NOT pinyin "nǐhǎo"
+        assert "ㄋㄧ" in result, f"expected bopomofo, got {result!r}"
+        assert "ㄏㄠ" in result, f"expected bopomofo, got {result!r}"
+
+    def test_zh_tw_defaults_to_zhuyin(self):
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-TW')
+        assert rom is not None
+        result = rom("你好")
+        assert "ㄋㄧ" in result, f"expected bopomofo for zh-TW, got {result!r}"
+
+    def test_zh_hant_pinyin_override(self):
+        """Caller can force Pinyin on zh-Hant via phonetic_system."""
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-Hant', phonetic_system='pinyin')
+        assert rom is not None
+        result = rom("你好")
+        assert "nǐhǎo" in result.lower(), f"expected pinyin override, got {result!r}"
+
+    def test_zh_hans_zhuyin_override(self):
+        """Caller can force Zhuyin on zh-Hans via phonetic_system."""
+        from loom_core.romanize import get_romanizer
+        rom = get_romanizer('zh-Hans', phonetic_system='zhuyin')
+        assert rom is not None
+        result = rom("你好")
+        assert "ㄋㄧ" in result, f"expected zhuyin override, got {result!r}"
 
     def test_bare_zh_returns_romanizer(self):
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh')
         assert rom is not None
-
-    def test_zh_tw_returns_romanizer(self):
-        from loom_core.romanize import get_romanizer
-        rom = get_romanizer('zh-TW')
-        assert rom is not None
+        # Bare zh defaults to Pinyin (Mandarin Simplified is the default)
+        result = rom("你好")
+        assert "nǐhǎo" in result.lower()
 
 
 # ---------------------------------------------------------------------------

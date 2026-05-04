@@ -630,6 +630,82 @@ def _make_pinyin_romanizer(variant: str = None):
     return romanize
 
 
+def _make_zhuyin_romanizer(variant: str = None):
+    """Return a Chinese Zhuyin (Bopomofo) romanizer with word-segmented output.
+
+    Sibling of ``_make_pinyin_romanizer`` — same pipeline (jieba segmentation
+    + optional Trad→Simp mapping), but emits Style.BOPOMOFO so the Romanized
+    layer renders with bopomofo glyphs (e.g. "ㄋㄧˇ ㄏㄠˇ ㄕˋ ㄐㄧㄝˋ" for "你好世界").
+
+    Parameters
+    ----------
+    variant : str | None
+        ``"zh-Hant"`` for Traditional, anything else for Simplified.  Default
+        for Traditional Mandarin per CLAUDE.md's "Locked Architectural
+        Decisions" — Taiwan uses Zhuyin Fuhao (注音符號) as the primary
+        phonetic system, so a zh-Hant track gets bopomofo rather than pinyin
+        unless the caller explicitly overrides via ``phonetic_system="pinyin"``.
+
+    Output convention
+    -----------------
+    Syllables within a jieba-segmented word are space-separated rather than
+    glued.  Bopomofo syllables render as vertical stacks in CJK fonts; no
+    space between two syllables collapses them into one ambiguous stack.
+    Spaces between words and within words look identical when rendered, so
+    no information loss — readers parse word boundaries from context.
+
+    ``capitalize=False`` because bopomofo has no case.  ``_polish_romaji``
+    still runs to convert CJK punctuation (。 → ., ， → ,) and tidy
+    whitespace before closing punctuation.
+    """
+    from pypinyin import pinyin as _pinyin, Style  # lazy import
+    import jieba  # lazy import
+
+    import logging as _logging
+    _logging.getLogger('jieba').setLevel(_logging.WARNING)
+
+    _t2s = None
+    if variant == 'zh-Hant':
+        import opencc  # lazy import
+        _t2s = opencc.OpenCC('t2s')
+
+    def romanize(text: str) -> str:
+        if not text:
+            return ''
+        clean = _strip_ass(text)
+
+        if _t2s is not None:
+            simplified = _t2s.convert(clean)
+            seg_words = list(jieba.cut(simplified))
+            words = []
+            pos = 0
+            for sw in seg_words:
+                words.append(clean[pos:pos + len(sw)])
+                pos += len(sw)
+        else:
+            words = list(jieba.cut(clean))
+
+        parts = []
+        for word in words:
+            if not word.strip():
+                continue
+            if _is_cjk_punct_segment(word):
+                parts.append(word)
+                continue
+            if any(_is_cjk(c) for c in word):
+                # Space-separate syllables within the word — each bopomofo
+                # syllable is a vertical stack, glued syllables become an
+                # ambiguous taller stack.
+                syllables = [s[0] for s in _pinyin(word, style=Style.BOPOMOFO, errors='default')]
+                parts.append(' '.join(syllables))
+            else:
+                parts.append(word.strip())
+
+        return _polish_romaji(' '.join(p for p in parts if p), capitalize=False)
+
+    return romanize
+
+
 def _make_japanese_pipeline():
     """Shared Japanese pipeline — one MeCab tagger instance, two consumers.
 
@@ -2867,10 +2943,22 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
-    # Chunk R2 — Chinese pinyin (pypinyin + jieba segmentation) ────── ✅
+    # Chunk R2 — Chinese (Pinyin / Zhuyin, jieba-segmented) ────────── ✅
+    # Variant defaults: zh-Hant / zh-TW / zh-HK → Zhuyin (Taiwan convention,
+    # locked per CLAUDE.md).  All other zh subtags → Pinyin.  Caller can
+    # override either way via phonetic_system ("pinyin" or "zhuyin").
     if primary == "zh":
         lc = (lang_code or "").lower()
-        variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
+        is_traditional = lc in ('zh-hant', 'zh-tw', 'zh-hk')
+        variant = 'zh-Hant' if is_traditional else 'zh-Hans'
+        sys = (phonetic_system or "").lower() or None
+        if sys == "zhuyin":
+            return _make_zhuyin_romanizer(variant=variant)
+        if sys == "pinyin":
+            return _make_pinyin_romanizer(variant=variant)
+        # Auto-resolve from variant.
+        if is_traditional:
+            return _make_zhuyin_romanizer(variant=variant)
         return _make_pinyin_romanizer(variant=variant)
 
     # Chunk R2c — Cantonese Jyutping (pycantonese) ────────────────── ✅

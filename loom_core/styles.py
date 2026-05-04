@@ -333,6 +333,19 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     if primary == 'ur' and phonetic_system in _URDU_PHONETIC_META:
         rom_name, confidence = _URDU_PHONETIC_META[phonetic_system]
 
+    # Override romanization name/confidence for Chinese based on
+    # variant + phonetic_system.  Auto-resolution mirrors get_romanizer:
+    # zh-Hant / zh-TW / zh-HK default to Zhuyin; everything else (zh,
+    # zh-Hans, zh-CN) defaults to Pinyin.  Caller can override either way.
+    if primary == 'zh':
+        lc = (lang_code or "").lower()
+        is_traditional = lc in ('zh-hant', 'zh-tw', 'zh-hk')
+        sys_norm = (phonetic_system or "").lower() or None
+        if sys_norm == 'zhuyin' or (sys_norm is None and is_traditional):
+            rom_name, confidence = ('Zhuyin (Bopomofo)', 'very_high')
+        elif sys_norm == 'pinyin' or sys_norm is None:
+            rom_name, confidence = ('Pinyin', 'very_high')
+
     # For Japanese: create one shared pipeline — single MeCab tagger instance
     # serves both the annotation (resolve_spans) and romaji (spans_to_romaji)
     # consumers.  For all other languages: independent functions, no pipeline.

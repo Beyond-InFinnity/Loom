@@ -213,13 +213,27 @@ class TestChinesePolish:
         first_alpha = next(c for c in out if c.isalpha())
         assert first_alpha.isupper()
 
-    def test_traditional_also_polished(self):
+    def test_traditional_pinyin_polished(self):
+        """zh-Hant defaults to Zhuyin now; explicit phonetic_system='pinyin'
+        forces the Pinyin path so this test still exercises the polish
+        pipeline (capitalization + fullwidth punctuation rewrite)."""
         from loom_core.romanize import get_romanizer
-        r = get_romanizer('zh-Hant')
+        r = get_romanizer('zh-Hant', phonetic_system='pinyin')
         out = r('你好，世界。')
         assert '，' not in out and '。' not in out
         first_alpha = next(c for c in out if c.isalpha())
         assert first_alpha.isupper()
+
+    def test_traditional_zhuyin_punct_polished(self):
+        """zh-Hant default = Zhuyin.  Polish still rewrites CJK punctuation
+        to Latin and tidies whitespace, but does NOT capitalize (bopomofo
+        has no case)."""
+        from loom_core.romanize import get_romanizer
+        r = get_romanizer('zh-Hant')
+        out = r('你好，世界。')
+        assert '，' not in out and '。' not in out
+        # Bopomofo present, no Latin letters.
+        assert 'ㄋㄧ' in out
 
 
 class TestCantonesePolish:

@@ -44,8 +44,10 @@ cyrtranslit
 # Thai — paiboon / RTGS / IPA (RTGS engine = thai2rom = neural, needs torch)
 pythainlp
 python-crfsuite                        # han_solo CRF segmenter (transitive)
+numpy                                  # thai2rom calls .numpy() on torch tensors
 # Pin torch to the CPU-only PyPI wheel — the default index pulls CUDA
-# builds (~800MB).  Railway gets the ~200MB CPU build via this hint.
+# builds (~800MB).  Railway gets the ~700MB CPU build via this hint
+# (still much smaller than the ~2GB CUDA install).
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 

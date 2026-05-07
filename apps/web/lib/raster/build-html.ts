@@ -129,17 +129,25 @@ export function buildSubtitleHtml(opts: BuildSubtitleHtmlOptions): string {
     ? `<div id="bottom" class="layer"${bottomDir}>${lineBreaksToBr(escapeHtml(bottom_text))}</div>`
     : "";
 
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { background: transparent; overflow: hidden;
-             width: ${canvas_width}px; height: ${canvas_height}px; }
-.frame { position: relative; width: ${canvas_width}px; height: ${canvas_height}px; }
-.layer { position: absolute; width: 100%; text-align: center;
-         white-space: pre-wrap; padding: 0 10px; box-sizing: border-box;
-         unicode-bidi: isolate; }
-#bottom { ${bottomCss} }
-#top { ${topCss} }
-</style></head>
-<body><div class="frame">${topDiv}${bottomDiv}</div></body></html>`;
+  // Every rule scoped to #loom-raster-host so the styles can't bleed into
+  // the host page when we mount this snippet inline.  An earlier version
+  // emitted `* { margin: 0 }` + `html, body { background: transparent }`
+  // — those applied globally once mounted (the host's <html>/<body>) and
+  // visibly trashed the marketing chrome during a long generate.  Dropped
+  // the universal reset entirely: the host container already gets the
+  // sizing it needs from rasterizer.ts setup, and CJK glyphs don't care
+  // about element default margins.
+  return `<style>
+#loom-raster-host { background: transparent; overflow: hidden;
+                    width: ${canvas_width}px; height: ${canvas_height}px; }
+#loom-raster-host .frame { position: relative;
+                           width: ${canvas_width}px; height: ${canvas_height}px; }
+#loom-raster-host .layer { position: absolute; width: 100%; text-align: center;
+                           white-space: pre-wrap; padding: 0 10px;
+                           box-sizing: border-box; unicode-bidi: isolate;
+                           margin: 0; }
+#loom-raster-host #bottom { ${bottomCss} }
+#loom-raster-host #top { ${topCss} }
+</style>
+<div class="frame">${topDiv}${bottomDiv}</div>`;
 }

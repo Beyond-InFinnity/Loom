@@ -161,6 +161,11 @@ export async function* rasterizeFrames(
     let done = 0;
     for (const iv of intervals) {
       // Build per-event HTML.  Empty top/bottom = layer skipped.
+      // The output is a self-contained `<style>...</style><div class="frame">...</div>`
+      // pair — every CSS rule scoped to #loom-raster-host so the styles
+      // can't leak to the host page (an earlier version emitted a global
+      // `*` reset + `html, body` rules and visibly trashed the marketing
+      // chrome during long generates).
       const html = buildSubtitleHtml({
         styles: opts.styles,
         top_text: iv.top?.plain_text ?? "",
@@ -169,17 +174,7 @@ export async function* rasterizeFrames(
         canvas_height: height,
         scale,
       });
-
-      // Mount.  innerHTML rewrite is the cheapest way to swap content
-      // — html2canvas needs the computed styles fresh per frame so a
-      // textContent-only swap wouldn't work (style block changes too).
-      container.innerHTML = extractBody(html);
-      const styleBlock = extractStyle(html);
-      // Inject the style block as a <style> child of container so it's
-      // scoped to this rasterization (doesn't leak to host page styles).
-      const styleEl = document.createElement("style");
-      styleEl.textContent = styleBlock;
-      container.prepend(styleEl);
+      container.innerHTML = html;
 
       // Force layout flush before html2canvas reads computed styles.
       void container.offsetHeight;
@@ -189,12 +184,15 @@ export async function* rasterizeFrames(
       //   width/height: explicit so html2canvas doesn't add fractional padding
       //   scale: 1 → 1:1 pixel mapping (no devicePixelRatio scaling)
       //   logging: false — suppresses html2canvas's noisy console output
+      //   removeContainer: true → html2canvas's internal cloned DOM is
+      //     auto-cleaned (default in 1.4.x but explicit beats inferred)
       const canvas = await withTimeout(
         html2canvas(container, {
           backgroundColor: null,
           width, height,
           scale: 1,
           logging: false,
+          removeContainer: true,
         }),
         timeoutMs,
         `html2canvas frame ${done + 1}/${total}`,
@@ -220,22 +218,29 @@ export async function* rasterizeFrames(
         bottom_text: iv.bottom?.plain_text ?? "",
       };
 
+      // Dispose the per-frame canvas html2canvas allocated.  Setting
+      // width/height to 0 releases the underlying GPU + CPU buffers
+      // (~16MB each at 1920x1080 RGBA).  Without this, ~1437 frames
+      // hold ~23 GB of pinned canvas memory and the browser hits a
+      // GC-thrashing perf cliff around frame 1200, where individual
+      // html2canvas calls start exceeding 60s.
+      canvas.width = 0;
+      canvas.height = 0;
+
       done += 1;
       opts.onProgress?.(done, total);
+
+      // Yield to the event loop.  Lets the browser interleave GC, paint,
+      // and the consumer's pending work — without this we'd hold the JS
+      // thread for thousands of synchronous turns and the browser tab
+      // visibly degrades.  setTimeout(0) is a coarser yield than
+      // requestAnimationFrame but doesn't depend on the page being
+      // visible (rAF stalls when the tab is backgrounded, which is
+      // exactly when the user wants to walk away from a long generate).
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
   } finally {
     container.remove();
   }
 }
 
-/** Extract everything between <body>...</body> from a full HTML doc. */
-function extractBody(html: string): string {
-  const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-  return m ? m[1] : html;
-}
-
-/** Extract everything between <style>...</style> in <head>. */
-function extractStyle(html: string): string {
-  const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-  return m ? m[1] : "";
-}

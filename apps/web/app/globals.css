@@ -1,4 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300..700&family=JetBrains+Mono:wght@400..700&display=swap');
+/* Page chrome: Inter / JetBrains Mono / Cormorant Garamond — same set
+   nerv-analytic.ai uses, keeps the visual continuity intact.
+
+   Rasterizer fallback fonts: Noto Sans (Latin/Cyrillic) + Noto Sans
+   JP / SC / TC / KR + Noto Sans Thai cover the languages Loom currently
+   romanizes.  Loaded via Google Fonts so the browser fetches them
+   on-demand at first use; the rasterizer (apps/web/lib/raster/rasterizer.ts)
+   pre-warms them with explicit document.fonts.load() calls before the
+   render loop starts so no html2canvas frame hits a missing-glyph hang
+   waiting for an unfetched font.  Drop family Indic / Hebrew / Arabic
+   when the corresponding language pipeline ships the rasterizer path
+   for those scripts. */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300..700&family=JetBrains+Mono:wght@400..700&family=Noto+Sans:wght@400;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Sans+TC:wght@400;700&family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap');
 
 @import "tailwindcss";
 

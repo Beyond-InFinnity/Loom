@@ -101,7 +101,7 @@ export function buildSubtitleHtml(opts: BuildSubtitleHtmlOptions): string {
   const top = styles.top;
 
   const bottomCss = (
-    `font-family: '${bottom.fontname}', 'Noto Sans CJK JP', sans-serif;` +
+    `font-family: '${bottom.fontname}', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans KR', 'Noto Sans Thai', 'Noto Sans', sans-serif;` +
     `font-size: ${(bottom.fontsize * scale).toFixed(1)}px;` +
     `font-weight: ${bottom.bold ? "bold" : "normal"};` +
     `font-style: ${bottom.italic ? "italic" : "normal"};` +
@@ -110,7 +110,7 @@ export function buildSubtitleHtml(opts: BuildSubtitleHtmlOptions): string {
     textShadowCss(bottom, scale)
   );
   const topCss = (
-    `font-family: '${top.fontname}', 'Noto Sans CJK JP', sans-serif;` +
+    `font-family: '${top.fontname}', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans KR', 'Noto Sans Thai', 'Noto Sans', sans-serif;` +
     `font-size: ${(top.fontsize * scale).toFixed(1)}px;` +
     `font-weight: ${top.bold ? "bold" : "normal"};` +
     `font-style: ${top.italic ? "italic" : "normal"};` +

@@ -45,10 +45,32 @@ export interface RasterizeOptions {
   resolution?: [number, number];
   /** Optional progress hook — called after each rasterized frame. */
   onProgress?: (done: number, total: number) => void;
-  /** Optional per-frame timeout (ms).  Default 30s — html2canvas can
-      hang if fonts never load.  Required by feedback_async_hang_prevention.md. */
+  /** Optional per-frame timeout (ms).  Default 60s — html2canvas can
+      hang if fonts never load.  Required by feedback_async_hang_prevention.md.
+      Bumped from 30s after first prod test hit a JP frame stall: 60s leaves
+      headroom for a slow font fetch + glyph measurement on cold-start
+      devices, while still surfacing genuine hangs in finite time. */
   per_frame_timeout_ms?: number;
 }
+
+/** Font families build-html.ts emits in the rasterizer's font-family
+    stack.  Browser only fetches a Google Font when something on the page
+    references it, so we kick off the loads explicitly via
+    document.fonts.load() at rasterizer setup — otherwise the FIRST frame
+    that needs a CJK glyph would block waiting for the font (or worse,
+    silently fall back to a system font that hangs html2canvas's text
+    measurement, which is exactly what bit the first prod test). */
+const PRELOAD_FONT_SPECS: ReadonlyArray<string> = [
+  // Latin core
+  '48px "Noto Sans"',
+  // CJK
+  '48px "Noto Sans JP"',
+  '48px "Noto Sans SC"',
+  '48px "Noto Sans TC"',
+  '48px "Noto Sans KR"',
+  // Thai
+  '48px "Noto Sans Thai"',
+];
 
 /** Wrap a promise so a never-settling render surfaces as labeled
     rejection.  Mirrors the helper in lib/ffmpeg/client.ts — every
@@ -75,7 +97,7 @@ export async function* rasterizeFrames(
 ): AsyncGenerator<RasterizedFrame, void, unknown> {
   const [width, height] = opts.resolution ?? [1920, 1080];
   const scale = height / 1080;
-  const timeoutMs = opts.per_frame_timeout_ms ?? 30_000;
+  const timeoutMs = opts.per_frame_timeout_ms ?? 60_000;
 
   const intervals = buildPgsTimeline({
     native: opts.native,
@@ -106,9 +128,34 @@ export async function* rasterizeFrames(
   document.body.appendChild(container);
 
   try {
-    // Wait for all installed fonts to be ready BEFORE the first
-    // rasterization — otherwise text falls back to system serif and
-    // the first few frames look wrong.
+    // Pre-warm the rasterizer's font set BEFORE the first frame.  Two
+    // gates here, in order:
+    //
+    //   1) document.fonts.load(spec)  — explicitly request each Google
+    //      Font we might emit.  Without this, the font isn't fetched
+    //      until first reference, and the first JP frame would race
+    //      against the network (caught a 30s hang in prod; 60s timeout
+    //      now but we'd rather not hit it at all).
+    //
+    //   2) document.fonts.ready  — wait until ALL pending fonts have
+    //      resolved (loaded or failed).  Failures are silent here on
+    //      purpose: a missing CJK font is a degraded-render condition,
+    //      not a hard fail — html2canvas falls back to the next family
+    //      in the stack and the result is still usable.
+    //
+    // Each individual load gets its own timeout so one stalled font
+    // doesn't block the whole pipeline.
+    await Promise.all(
+      PRELOAD_FONT_SPECS.map((spec) =>
+        withTimeout(document.fonts.load(spec), timeoutMs, `font preload: ${spec}`).catch(
+          (err) => {
+            // Best effort — log + continue.  Real users on flaky networks
+            // shouldn't get a hard fail when a Google Font CDN hiccups.
+            console.warn("[loom rasterizer] font preload failed:", spec, err);
+          },
+        ),
+      ),
+    );
     await withTimeout(document.fonts.ready, timeoutMs, "document.fonts.ready");
 
     let done = 0;

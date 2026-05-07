@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { OwnerKeyBootstrap } from "../components/owner-key-bootstrap";
 
 // Fonts ship via the @import in globals.css (Inter, JetBrains Mono,
 // Cormorant Garamond — same set the marketing site uses).  No
@@ -22,6 +23,7 @@ export default function RootLayout({
     <html lang="en" className="dark h-full antialiased">
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
+        <OwnerKeyBootstrap />
       </body>
     </html>
   );

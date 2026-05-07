@@ -163,6 +163,78 @@ CLAUDE.md
 
 ---
 
+## Owner Auth Roadmap
+
+**Why this exists.** Production rate limits (100/minute, 2000/day per IP, 5000-char per-request cap) protect the slim API from abuse, but they also block legitimate operator use — especially the OCR synthetic-data generation pipeline (Step 6) which will fan out tens of thousands of romanize/annotate calls during training-data assembly. The owner auth path lets *Connor* (and only Connor) skip the limiter without weakening defenses for everyone else.
+
+**Three layers, additive.** Each tier builds on the previous. Don't skip ahead — A satisfies v1; B and C are upgrades when the use case demands.
+
+### Tier A — Pre-shared bypass key (✅ shipped)
+
+**How it works:**
+- Operator generates a long random secret: `python -c "import secrets; print(secrets.token_hex(32))"`
+- Secret(s) live in Railway as `LOOM_BYPASS_KEYS` (comma-separated list, supports rotation).
+- Operator visits `loom.nerv-analytic.ai/?owner_key=<secret>` once per device — `OwnerKeyBootstrap` (`apps/web/components/owner-key-bootstrap.tsx`) intercepts the param, stashes it in `localStorage` under `loom_owner_key`, and rewrites the URL clean.
+- Every API call from that device gets `X-Loom-Auth: <secret>` via the `openapi-fetch` middleware in `apps/web/lib/api/client.ts` (reads `localStorage` per-request so a fresh value takes effect immediately).
+- `BypassAwareSlowAPI` (`loom_api/web.py`) wraps `SlowAPIMiddleware`: requests carrying a key in the allow-list bypass the limiter ENTIRELY (not "given a higher bucket" — the request never reaches slowapi). `hmac.compare_digest` for constant-time match.
+
+**Indicator:** floating "owner mode" pill in the bottom-right of every page when `localStorage.loom_owner_key` is set. The only visible signal that bypass is in effect.
+
+**Reset:** `localStorage.removeItem("loom_owner_key")` from devtools, or visit `/?owner_key=` (empty value).
+
+**Rotation:** change `LOOM_BYPASS_KEYS` in Railway → old keys instantly invalid → re-issue new key via `?owner_key=...` to the operator's devices. Frontend code unchanged.
+
+**Limitations (acceptable for v1):**
+- Devices, not identities: same key on all of Connor's devices. Doesn't differentiate `infinnity12@gmail.com` from `connor.m.finnerty@nerv-analytic.ai` — Tier B addresses this if we ever care.
+- Key-in-URL exposure: the `?owner_key=...` URL ends up in browser history + any HTTP referer logs upstream of `?owner_key=` getting stripped. Mitigated by short URL lifespan (`replaceState` immediately after) but not eliminated.
+- No revocation per-device: rotating the env var nukes ALL devices simultaneously.
+
+### Tier B — Google OAuth identity binding (planned, post-Step 5)
+
+**Trigger:** when the synthetic-data pipeline (Step 6) starts attributing training samples to specific operator emails — e.g., for cleaner provenance in training-set documentation, or if Connor wants per-email rate budgets ("I'm OK with anyone reading 100k samples/day from `connor.m.finnerty@nerv-analytic.ai` but only 1k/day from secondary accounts").
+
+**Design:**
+- "Sign in with Google" button in `apps/web/app/owner/page.tsx`.
+- Frontend uses `@react-oauth/google` to obtain a Google ID token (JWT).
+- ID token sent to a new `POST /auth/session` endpoint on `loom_api.web`.
+- Backend verifies the JWT signature against Google's public keys + checks `email_verified=true` + checks `email` claim against `LOOM_OWNER_EMAILS` env-var allow-list (`infinnity12@gmail.com,connor.m.finnerty@gmail.com,connor.m.finnerty@nerv-analytic.ai`).
+- On success, backend mints a short-lived session token (HS256-signed JWT, 24h TTL).
+- Frontend stores session token in `localStorage` (replaces `loom_owner_key`).
+- `BypassAwareSlowAPI` updated: accept either `X-Loom-Auth: <bypass-key>` (Tier A) OR `X-Loom-Auth: Bearer <session-jwt>` (Tier B). The internal predicate becomes "is this request authenticated as the operator?" — same bypass behavior, broader auth backends.
+- Token refresh on 401: frontend silently retries Google sign-in.
+
+**Migration from A:** strictly additive. Tier A keys keep working forever; Tier B adds a second authentication backend. No frontend rewrite — `X-Loom-Auth` header path stays unchanged, just carries a different secret format.
+
+**Cost:** ~2-3 hours setup (Google Cloud OAuth client + redirect URIs for prod custom domain + Vercel preview wildcards), two new deps (`google-auth` server-side, `@react-oauth/google` client-side), one new endpoint, +~100 lines.
+
+### Tier C — Cloudflare Access network gate (deferred indefinitely)
+
+**Trigger:** if Tier B's email-binding still isn't enough — e.g., we want zero-trust gating with device posture checks, or want to put `loom.nerv-analytic.ai` itself behind auth (not just the API).
+
+**Design:**
+- Cloudflare in front of both `api.loom.nerv-analytic.ai` and `loom.nerv-analytic.ai`.
+- Cloudflare Access policy: `email in {infinnity12@gmail.com, ...}`.
+- Visitors hit the Cloudflare-issued login page (Google/email magic-link), get a Cloudflare Access JWT cookie, then their request reaches Railway/Vercel.
+- Backend optionally re-validates the `CF-Access-Jwt-Assertion` header for defense-in-depth.
+
+**Why deferred:** putting the public site itself behind auth defeats the purpose (it's a tool for general use; only the bypass path is auth-gated). Could selectively gate `/api/*` paths if we proxy through Cloudflare Workers, but that's complexity for what Tier B already handles.
+
+**Cost:** ~30 min setup, free tier covers it, but the routing complexity (which paths gated, which not) doesn't pay for itself unless Tier B is also somehow inadequate.
+
+### Implications for the synthetic data pipeline (Step 6)
+
+The OCR closed-loop pipeline runs as a batch process — it'll generate millions of `(rendered_image, text, language, style)` tuples by:
+1. Sampling text from the extension's archived corpus (`opt_in_training=true` path),
+2. Calling `/romanize` + `/annotate` to enrich each sample with phonetic + annotation ground-truth,
+3. Rendering through the same html2canvas / Playwright pipeline used in production,
+4. Feeding the resulting bitmap + text pairs to TrOCR fine-tuning.
+
+Steps 2–3 will hit the slim API hard (one call per sample, potentially fan-out for varied phonetic systems). Tier A's bypass key is the v1 enabler — without it the pipeline would either rate-limit itself to a crawl or need a separate "internal" deployment path. With Tier A, the pipeline runs from Connor's laptop / a CI runner with `X-Loom-Auth` set and slowapi never sees it.
+
+Tier B becomes relevant if we want to attribute generated samples to specific operator identities for dataset documentation (e.g., "this 50k-sample subset was assembled by `connor.m.finnerty@nerv-analytic.ai` on 2026-09-15"). Not strictly required for the pipeline to function.
+
+---
+
 ## Capability Matrix
 
 **Purpose:** at-a-glance visibility into which features have reached which surfaces. Backend (`loom_core` + `loom_api`) is the single source of truth — frontends call the API, never reimplement engine logic. Frontend rows track UI affordance, not capability (a feature with backend ✅ is callable from any frontend the moment its UI lands).

@@ -21,6 +21,7 @@ Bandwidth: text-in / text-out, ~100KB per request worst-case.  No file
 uploads, no async jobs — process per request, return, done.
 """
 
+import hmac
 import os
 
 from fastapi import FastAPI
@@ -89,7 +90,64 @@ _rate_limits = [s.strip() for s in _rate_env.split(",") if s.strip()]
 limiter = Limiter(key_func=get_remote_address, default_limits=_rate_limits)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
+
+# Owner-bypass keys.  Comma-separated long random strings — generate with
+#   python -c "import secrets; print(secrets.token_hex(32))"
+# Set in Railway as LOOM_BYPASS_KEYS.  Frontend stores the key in
+# localStorage (see apps/web/components/owner-key-bootstrap.tsx) and
+# attaches it as X-Loom-Auth on every request via the openapi-fetch
+# middleware.  Requests carrying a key in the allow-list bypass the
+# slowapi pipeline entirely — same code path as if the rate limiter
+# weren't installed.
+#
+# Why bypass instead of an "owner bucket" with a higher per-key limit:
+# the operator is the only legitimate consumer of unrestricted access,
+# and a higher bucket would still rate-limit the synthetic-data
+# generation pipeline (Step 6) at the bucket boundary.  Skipping the
+# limiter entirely is the right semantics — and downgrading later (if a
+# key leaks) just means rotating the env var, no code change.
+_bypass_env = os.environ.get("LOOM_BYPASS_KEYS", "").strip()
+_BYPASS_KEYS: list[str] = [k.strip() for k in _bypass_env.split(",") if k.strip()]
+
+
+def _is_bypass_key(presented: str) -> bool:
+    """Constant-time check: is `presented` in the allow-list?
+
+    Iterates every key with hmac.compare_digest to keep timing leakage
+    proportional only to len(_BYPASS_KEYS), not to which key matched
+    (or how many leading bytes agreed).
+    """
+    if not presented or not _BYPASS_KEYS:
+        return False
+    matched = False
+    for k in _BYPASS_KEYS:
+        if hmac.compare_digest(presented, k):
+            matched = True
+    return matched
+
+
+class BypassAwareSlowAPI:
+    """ASGI middleware that wraps SlowAPIMiddleware: requests carrying a
+    valid X-Loom-Auth header skip the rate limiter entirely.  All other
+    traffic falls through to slowapi's standard IP-keyed pipeline."""
+
+    def __init__(self, app):
+        # _inner = the slowapi-wrapped pipeline (full app behind a limiter)
+        # _app   = the raw inner app (used when bypass triggers)
+        self._inner = SlowAPIMiddleware(app)
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            for k, v in scope.get("headers", []):
+                if k == b"x-loom-auth":
+                    if _is_bypass_key(v.decode("latin-1").strip()):
+                        return await self._app(scope, receive, send)
+                    break
+        return await self._inner(scope, receive, send)
+
+
+app.add_middleware(BypassAwareSlowAPI)
 
 app.include_router(health.router)
 app.include_router(language.router)

@@ -410,7 +410,7 @@ export interface components {
         AnnotateRequest: {
             /**
              * Text
-             * @description UTF-8 source text to annotate.
+             * @description UTF-8 source text to annotate (≤5000 chars).
              */
             text: string;
             /**
@@ -1089,7 +1089,7 @@ export interface components {
         RomanizeRequest: {
             /**
              * Text
-             * @description UTF-8 source text to romanize.
+             * @description UTF-8 source text to romanize (≤5000 chars).
              */
             text: string;
             /**

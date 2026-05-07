@@ -22,7 +22,13 @@ router = APIRouter(tags=["text"])
 
 
 class RomanizeRequest(BaseModel):
-    text: str = Field(..., description="UTF-8 source text to romanize.")
+    # 5000-char ceiling chosen as defensive cap, not a real limit:
+    # average subtitle event is 50–100 chars, longest plausible monologue
+    # is ~500.  5000 is the "you're trying to abuse this" threshold —
+    # anyone batching paragraphs through a per-event endpoint should
+    # split on the client side instead.  Cap rejects at the FastAPI
+    # validation boundary before the request reaches loom_core.
+    text: str = Field(..., max_length=5000, description="UTF-8 source text to romanize (≤5000 chars).")
     lang_code: str = Field(..., description="BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, ru, hi, he, ar, fa, ur, ...).")
     phonetic_system: Optional[str] = Field(
         None,

@@ -63,14 +63,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# IP-keyed rate limit covering all routes.  A typical episode hits
-# /romanize ~300 times via the client's per-event fan-out, so the daily
-# default of 2000/IP comfortably allows ~6 generations/day per IP — well
-# above any single user's actual demand, well below abuse thresholds.
-# Tighten later if Railway bandwidth shows hot spikes.  Override via
-# LOOM_RATE_LIMIT (e.g. "5000/day" or "100/minute").
-_rate_limit = os.environ.get("LOOM_RATE_LIMIT", "2000/day").strip()
-limiter = Limiter(key_func=get_remote_address, default_limits=[_rate_limit])
+# IP-keyed rate limits.  Two layers stacked:
+#
+#   100/minute   — burst limit.  Stops single-IP flooding (a botnet stress
+#                  test or a misconfigured client spamming retries).  A
+#                  legitimate generation fans out ~300 /romanize calls in
+#                  ~30 seconds (in parallel via Promise.all on the client),
+#                  which spikes briefly above 100/min — but slowapi's
+#                  fixed-window counter resets each minute, so a real
+#                  generation completes within one window.  If we ever see
+#                  legitimate users hitting this, raise to 200/minute.
+#
+#   2000/day     — sustained-abuse cap.  ~6 generations/day per IP, well
+#                  above any plausible single-user demand and well below
+#                  what a scraper would need for "all of Pinyin novels"
+#                  type extraction.
+#
+# Override via LOOM_RATE_LIMIT — comma-separated, all limits applied
+# simultaneously.  Examples:
+#   LOOM_RATE_LIMIT="200/minute,5000/day"   (looser)
+#   LOOM_RATE_LIMIT="60/minute,500/day"     (tighter, abuse mode)
+#   LOOM_RATE_LIMIT="2000/day"              (single limit, no burst control)
+_rate_env = os.environ.get("LOOM_RATE_LIMIT", "100/minute,2000/day").strip()
+_rate_limits = [s.strip() for s in _rate_env.split(",") if s.strip()]
+limiter = Limiter(key_func=get_remote_address, default_limits=_rate_limits)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)

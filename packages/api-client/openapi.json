@@ -848,8 +848,9 @@
         "properties": {
           "text": {
             "type": "string",
+            "maxLength": 5000,
             "title": "Text",
-            "description": "UTF-8 source text to annotate."
+            "description": "UTF-8 source text to annotate (\u22645000 chars)."
           },
           "lang_code": {
             "type": "string",
@@ -2133,8 +2134,9 @@
         "properties": {
           "text": {
             "type": "string",
+            "maxLength": 5000,
             "title": "Text",
-            "description": "UTF-8 source text to romanize."
+            "description": "UTF-8 source text to romanize (\u22645000 chars)."
           },
           "lang_code": {
             "type": "string",

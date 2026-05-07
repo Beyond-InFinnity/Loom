@@ -28,7 +28,8 @@ _VALID_RENDER_MODES = {"ruby", "interlinear", "inline"}
 
 
 class AnnotateRequest(BaseModel):
-    text: str = Field(..., description="UTF-8 source text to annotate.")
+    # See romanize.py for the 5000-char rationale — same defensive cap.
+    text: str = Field(..., max_length=5000, description="UTF-8 source text to annotate (≤5000 chars).")
     lang_code: str = Field(..., description="BCP-47 language tag (ja, zh-Hans, zh-Hant, yue, ko, th, hi, ...).")
     phonetic_system: Optional[str] = Field(
         None,

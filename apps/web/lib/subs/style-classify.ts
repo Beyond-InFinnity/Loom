@@ -29,12 +29,21 @@ import type { SSAEvent } from "./types";
 
 // Style-name patterns that signal a non-dialogue role.  Same regex as
 // loom_core/subs/processing.py to keep the classification consistent
-// across desktop + web.  Word-boundary anchors on \bop\b / \bed\b prevent
-// "stop" / "wedding" / etc from matching.
+// across desktop + web.  Word-boundary anchors on \bop\b / \bed\b
+// prevent "stop" / "wedding" from matching.
+//
+// Last group (staff / comment / note / eyecatch / credit / preview) covers
+// decorative non-dialogue styles common in fansub releases.  Real-world
+// example: DBD-Raws Frieren has a "Staff" style holding a single
+// animated typesetter signature (translator/editor/timer credits) that
+// would otherwise get fanned out to /romanize and emit garbage romaji.
+// `\bcomment\b` and `\bnote\b` use word boundaries so "default-with-
+// commentary" or "footnote_styling" don't false-match.
 const PRESERVE_PATTERNS = new RegExp(
   "sign|screen|title|card|caption|typeset|logo|insert"
     + "|song|lyric|karaoke|kfx|opening|ending"
-    + "|\\bop\\b|op_|_op|\\bed\\b|ed_|_ed",
+    + "|\\bop\\b|op_|_op|\\bed\\b|ed_|_ed"
+    + "|staff|\\bcomment\\b|\\bnote\\b|eyecatch|credit|preview",
   "i",
 );
 

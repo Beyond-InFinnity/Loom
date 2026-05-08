@@ -24,7 +24,16 @@ _VEC_PATH_RE = re.compile(r'\\p\d')
 _PRESERVE_PATTERNS = re.compile(
     r'sign|screen|title|card|caption|typeset|logo|insert'
     r'|song|lyric|karaoke|kfx|opening|ending'
-    r'|\bop\b|op_|_op|\bed\b|ed_|_ed',
+    r'|\bop\b|op_|_op|\bed\b|ed_|_ed'
+    # Decorative / non-dialogue styles common in fansub releases.
+    # `staff` catches typesetter signature blocks (often a single fade-in
+    # event with the translator/editor/timer credits).  `comment` catches
+    # styles used for translator notes / off-screen commentary.  `note`
+    # catches "TL Note" style overlays.  `eyecatch` catches mid-episode
+    # genre markers; `credit` catches recurring credit rolls; `preview`
+    # catches next-episode preview cards.  All would otherwise fall
+    # through to the dialogue role and get fanned out to /romanize.
+    r'|staff|\bcomment\b|\bnote\b|eyecatch|credit|preview',
     re.IGNORECASE,
 )
 # No styles currently default to exclude — 0-event styles still get "exclude".

@@ -12,6 +12,7 @@
 
 import type { SSAEvent } from "../subs/types";
 import type { SSAFile } from "../subs/ssa";
+import { detectAssStyles, iterDialogueEvents } from "../subs/style-classify";
 
 export interface PgsTimelineEvent {
   /** Subtitle event from the source SSAFile, in source order. */
@@ -45,8 +46,12 @@ function stripOverrides(s: string): string {
 }
 
 function toEvents(subs: SSAFile): PgsTimelineEvent[] {
-  return subs.events
-    .filter((e) => e.type !== "Comment")
+  // Filter to dialogue events only — same classifier the .ass generator
+  // uses, so the rasterized .sup and the stitched .ass agree on which
+  // events are "real" content.  Karaoke / signs / typesetting drop out
+  // here (1.5 will render preserved events too via a separate pass).
+  const mapping = detectAssStyles(subs);
+  return iterDialogueEvents(subs, mapping)
     .map((event) => ({ event, plain_text: stripOverrides(event.text) }));
 }
 

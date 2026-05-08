@@ -27,6 +27,7 @@
 
 import { formatAssColor } from "./color";
 import { SSAFile } from "./ssa";
+import { detectAssStyles, iterDialogueEvents, iterPreservedEvents, type StyleInfo } from "./style-classify";
 import type { SSAEvent, SSAStyle, Color } from "./types";
 import { defaultStyle } from "./types";
 import type { LayerKey, LayerStyle, StyleConfig } from "./style-config";
@@ -95,10 +96,20 @@ export function generateAssFile(opts: GenerateAssOptions): string {
     }
   }
 
+  // ── Classify each track's styles ──────────────────────────────
+  // Multi-style fansub releases (Frieren, anything with karaoke/signs)
+  // pack dialogue + signs + opening/ending lyrics into one .ass track.
+  // detectAssStyles returns null for SRT / single-style files (treated
+  // as "all dialogue" downstream); otherwise it tags each style as
+  // dialogue / preserve / exclude.  iterDialogueEvents respects the
+  // tagging so we never fan karaoke or sign text into the romanizer.
+  const nativeStyles = detectAssStyles(native);
+  const targetStyles = detectAssStyles(target);
+
   // ── Emit Bottom from native subs ──────────────────────────────
   if (styles.bottom.enabled) {
     const blur = glowConfigs.get("Bottom");
-    for (const ev of iterDialogueEvents(native)) {
+    for (const ev of iterDialogueEvents(native, nativeStyles)) {
       const copy = cloneEvent(ev);
       copy.style = "Bottom";
       copy.layer = 0;
@@ -112,7 +123,7 @@ export function generateAssFile(opts: GenerateAssOptions): string {
   // ── Emit Top + Romanized from target subs ─────────────────────
   const blurTop = glowConfigs.get("Top");
   const blurRomanized = glowConfigs.get("Romanized");
-  for (const ev of iterDialogueEvents(target)) {
+  for (const ev of iterDialogueEvents(target, targetStyles)) {
     if (styles.top.enabled) {
       const copy = cloneEvent(ev);
       copy.style = "Top";
@@ -134,10 +145,53 @@ export function generateAssFile(opts: GenerateAssOptions): string {
     }
   }
 
-  // TODO(4d-2-followup): preserved styles + detect_ass_styles + opencc + annotation.
-  // Tracked separately; not blocking the core pipeline.
+  // ── Pass preserved events through unchanged ───────────────────
+  // Signs / karaoke / typesetting from BOTH tracks.  Their original
+  // style entries get copied into the output [V4+ Styles] section so
+  // the renderer has everything it needs.  Animation tags survive
+  // intact — libass renders them in the .ass output.  PGS path
+  // currently drops these (timeline.ts filters dialogue-only); v1.5
+  // will render them via stripAnimationTags + a separate raster pass.
+  emitPreservedFrom(native, nativeStyles, stitched);
+  emitPreservedFrom(target, targetStyles, stitched);
 
   return stitched.toAss();
+}
+
+/** Copy preserved events + their style definitions into `stitched`.
+ *  No-op when mapping is null (single-style track, nothing to preserve). */
+function emitPreservedFrom(
+  source: SSAFile,
+  mapping: Map<string, StyleInfo> | null,
+  stitched: SSAFile,
+): void {
+  if (!mapping) return;
+  const preserved = iterPreservedEvents(source, mapping);
+  if (preserved.length === 0) return;
+
+  // Copy the source style entries the preserved events reference, but
+  // only ones we don't already have (Bottom/Top/Romanized claim those
+  // names).  Style-name collision with our reserved layer names skips —
+  // safer than silently overwriting Bottom with a karaoke style.
+  const usedStyles = new Set<string>();
+  for (const ev of preserved) usedStyles.add(ev.style);
+  const reserved = new Set(["Bottom", "Top", "Romanized", "Annotation"]);
+
+  for (const styleName of usedStyles) {
+    if (reserved.has(styleName)) continue;
+    if (stitched.styles.has(styleName)) continue;
+    const sourceStyle = source.styles.get(styleName);
+    if (sourceStyle) stitched.styles.set(styleName, sourceStyle);
+  }
+
+  // Copy events as-is; style name collisions with reserved names get
+  // their .style replaced with "Top" so the event still lands somewhere
+  // visible rather than being dropped silently.
+  for (const ev of preserved) {
+    const copy = cloneEvent(ev);
+    if (reserved.has(copy.style)) copy.style = "Top";
+    stitched.events.push(copy);
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -197,16 +251,6 @@ export function stripAssOverrideTags(text: string): string {
   return text.replace(/\{[^}]*\}/g, "");
 }
 
-/** Iterate dialogue events from an SSAFile.  4d-2 ships a simple
-    pass-through that yields all non-comment events.  When 4d-3 or
-    later ports detect_ass_styles, this is the integration point for
-    style-mapping-aware iteration (dialogue vs preserve vs exclude). */
-function* iterDialogueEvents(subs: SSAFile): Iterable<SSAEvent> {
-  for (const ev of subs.events) {
-    if (ev.type === "Comment") continue;
-    yield ev;
-  }
-}
 
 function cloneEvent(ev: SSAEvent): SSAEvent {
   return { ...ev };

@@ -20,6 +20,7 @@ import { LoomGenerator } from "../../lib/loom-generator";
 import type { ProbeResult, TrackInfo } from "../../lib/ffmpeg/types";
 import { stripAssOverrideTags } from "../../lib/subs/generate-ass";
 import { SSAFile } from "../../lib/subs/ssa";
+import { detectAssStyles, iterDialogueEvents } from "../../lib/subs/style-classify";
 import { defaultStyleConfig } from "../../lib/subs/style-config";
 import type { SupWriterStats } from "../../lib/raster/sup-writer";
 
@@ -151,10 +152,13 @@ export function GeneratorPanel() {
             // Match generateAssFile's exact lookup key: stripAssOverrideTags
             // without trim.  generateAssFile calls romanize(plain) where
             // `plain = stripAssOverrideTags(ev.text)` — keys must agree byte
-            // for byte or the sync map lookup will miss.
+            // for byte or the sync map lookup will miss.  Filter to dialogue
+            // events using the same classifier so karaoke + sign events
+            // don't get fanned out to /romanize (which would burn rate
+            // limit + return junk romaji on already-localized text).
             const uniqueTexts = new Set<string>();
-            for (const ev of targetSubs.events) {
-              if (ev.type === "Comment") continue;
+            const targetMapping = detectAssStyles(targetSubs);
+            for (const ev of iterDialogueEvents(targetSubs, targetMapping)) {
               const plain = stripAssOverrideTags(ev.text);
               if (plain.trim()) uniqueTexts.add(plain);
             }

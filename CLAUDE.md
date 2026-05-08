@@ -4,9 +4,20 @@
 
 > Update this section at the end of every session.
 
-**Current state (end of 2026-05-04 session, mid-step-4d):** **Step 4c fully shipped + 4d at 3/5 substeps done.**  Today's commits in order: `393f5cd` (4d-1 SSAFile parser/serializer), `e58b120` (4d-2 ASS generator port — Bottom + Top, romanized stub), `993dc2b` (4d-3 html2canvas bitmap rasterization).  Yesterday (4c shipped): `2070002` (4c-1 boot + WORKERFS), `ca870c2` (4c-2 FFmpegClient + COEP fix + drop dead health-check), `e876f09` (4c-3 + 4c-4 probe/extract/mux), `6a94cc7` (CLAUDE.md refresh).  All prior work (R1–R6a, R6b-presets/fonts, timing offsets, auto-alignment, R5 Hebrew/Arabic/Persian/Urdu, Step 3c desktop bundling for Linux) remains intact; CI green on Ubuntu / macOS / Windows for the test suite.  All step-4 work lands on `monorepo-restructure` branch (~57 commits ahead of `origin/main`); `monorepo-restructure → main` merge is a separate decision when Connor wants to cut a release.
+**Current state (end of 2026-05-08 session):** **Steps 4d + 4e fully shipped.  Step 4f deployed live.**  The web app is reachable at `https://loom.nerv-analytic.ai` (Vercel, custom domain), the slim API at `https://api.loom.nerv-analytic.ai` (Railway, custom domain via the auto-generated `loom-production-975d.up.railway.app`).  Owner bypass auth is live (Tier A — see Owner Auth Roadmap).  All step-4 work landed on `monorepo-restructure` branch then fast-forward-pushed to `main`; both branches are at `96e6148` (or later — see git log).  Test suite: **609 passing** across 19 files (`loom_core` only; `loom_api` smoke-tested via live cURL).
 
-**🎯 Active focus: Step 4d-4 — PGS `.sup` binary writer port (the long pole).**  Three of five 4d substeps shipped today: parser (4d-1), ASS generator (4d-2), rasterizer (4d-3).  Remaining: 4d-4 (this) + 4d-5 (LoomGenerator wrap + UI polish).  4d-4 ports `loom_core/rasterize/sup_writer.py` to TypeScript: palette quantization (median-cut to 256-color indexed bitmap per region), RLE encoding, PCS/WDS/PDS/ODS/END Display Set assembly, epoch state management (Epoch Start / Acquisition Point every 12 sets / Normal incremental updates / Skip identical frames), reserved palette ranges per object (obj 0 → indices 1–127, obj 1 → 128–254), region splitting (canvas-aware: gap midpoint must be in 25–75% of canvas to allow 2-region split, otherwise single-region fallback).  Consumer is `rasterizeFrames()` from `apps/web/lib/raster/rasterizer.ts` — async iterator yielding one full-frame RGBA per timeline interval; 4d-4 streams them into a `.sup` byte stream.  ~600 lines of dense binary-format code on the Python side; honestly sized as one full session.  4d-5 (UI polish + LoomGenerator wrap) is small after 4d-4 lands.
+**Highlights this session (2026-05-05 → 2026-05-08):**
+- **4d-4 + 4d-5 shipped** (`aa9315d`, `891829b`): PGS `.sup` writer + `LoomGenerator` façade + combined ASS+SUP UI button.  Includes the index-255 palette dropout fix that was masking the JP fill-on-EN-disappear symptom.
+- **4e fully shipped** (`90598c1`, `e317a40`, `1842c59`, `6682c16`): lean text-processing API (`POST /romanize` + `/annotate`), themed apps/web matching nerv-analytic.ai chrome, skinny `/generate` UX shell, romanize wired through `@loom/api-client`.
+- **Phase A deploy prep** (`3efb8be`, `4092c51`): `requirements-web.txt` slim deps, `Procfile`, `railway.json`, `vercel.json`, slowapi limits (100/minute + 2000/day default), 5000-char per-request size cap.
+- **Owner bypass auth Tier A** (`4b51db3`): `LOOM_BYPASS_KEYS` env on Railway + `OwnerKeyBootstrap` component + openapi-fetch middleware injecting `X-Loom-Auth`.  Bypasses slowapi entirely for operator traffic.
+- **Railway builder switch** (`f73f1f3`): `NIXPACKS` → `RAILPACK` after nixpacks detected the monorepo `package.json` and refused to install Python.  Per Railway's own automated build-error diagnosis.
+- **CJK font bundling** (`1af8a9d`): `apps/web/app/globals.css` imports Noto Sans + Noto Sans JP/SC/TC/KR/Thai from Google Fonts; `rasterizer.ts` pre-warms via `document.fonts.load()` before the loop.  Fixed a 30s html2canvas hang on the first Japanese frame.
+- **Rasterizer perf fix** (`e6f2be7`): scoped CSS to `#loom-raster-host` (was leaking `*` reset + `html, body` rules to the page), disposed canvases after `getImageData` (was holding ~16MB GPU+CPU buffers per frame for ~1437 frames = 23GB pinned memory and a hard cliff at frame ~1200), yielded to event loop between frames.
+- **zh-Hant → Zhuyin (`4f9ca8f`) + zh-HK → Jyutping (`229b2f7`):** real bug fixes — get_romanizer was hardcoded to Pinyin for all Chinese variants.  zh-Hant / zh-TW now default to Zhuyin (Bopomofo), zh-HK now defaults to Jyutping (HK = Cantonese in practice).  Explicit `phonetic_system` overrides any default.
+- **Multi-style classifier port** (`e340380`, `96e6148`): `apps/web/lib/subs/style-classify.ts` ports `detectAssStyles` + `iterDialogueEvents` + `iterPreservedEvents` + `stripAnimationTags` from `loom_core`.  Filters karaoke / signs / typesetting out of the romanize fan-out + rasterize timeline.  Verified against real Frieren tracks (DBD-Raws scjp / tcjp + Loom-output) — only ~1051 of 9272 events go to `/romanize` on a polished file.
+
+**🎯 Active focus: Step 4f production verification + Step 4g Streamlit deletion + v1.5 prep.**  Pipeline is deployed and individually-tested but the final "drop a real episode at the public URL, watch it complete end-to-end, mux back, play in mpv" verification is owed.  Once that passes, 4g deletes `loom_app.py` + `app/` + Streamlit-only deps from `requirements.txt`.  v1.5 backlog (PGS preserved-event rendering, /annotate client wiring, concurrent-event merging, SRT crawl-bait skip, speaker-tag toggle) is documented under "Roadmap Beyond Step 4" — not blocking deploy, ships when first user signal arrives.
 
 **Architecture (locked 2026-05-03 — Option B, all-client + romanization API):** browser runs ffmpeg.wasm for video probe/extract/mux + JS ports of ASS generation + PGS rasterization (via html2canvas — see Spike subsection for why not SVG-foreignObject).  Server (`api.loom.nerv-analytic.ai` on Railway) only handles romanization: text-in / text-out, ~100KB request.  Drops backend bandwidth ~99% vs upload-everything; target hosting cost $5/mo flat.  Tradeoffs accepted: ~50MB initial JS bundle (one-time, cached), JS reimplementations of `loom_core/subs/processing.py::generate_ass_file` + `loom_core/rasterize/sup_writer.py` that must track the Python reference (drift risk — single source of truth lives in Python; JS port is a transcription), weak-device fallback to a future server-mode toggle.
 
@@ -15,17 +26,22 @@
 |---|---|---|---|
 | 4a | ✅ `fac632e` | npm workspaces + `apps/web/` Next.js scaffold + `packages/api-client/` from OpenAPI | Foundation. Both apps build, share typed client. |
 | 4b | ✅ `c8b14ee` | PGS-in-browser rasterization spike — `spike/pgs-browser/` | Architecture validated. See "Spike: PGS-in-browser" below for the verdict + the constraint it imposes on 4d. |
-| 4c | ✅ `2070002` `ca870c2` `e876f09` | ffmpeg.wasm wiring: probe / extract / mux via `FFmpegClient` (apps/web/lib/ffmpeg/) + smoke-test page at `/ffmpeg-test` | Video plumbing client-side.  Validated on real MKV (probe parses tracks, extract dumps .srt, mux re-encodes ASS into output and timestamps survive the roundtrip). |
-| 4d-1 | ✅ `393f5cd` | `apps/web/lib/subs/{ssa,types,timestamp,color}.ts` — SSAFile class with fromString/fromAss/fromSrt + toAss + shifted | Pysubs2 minimal-surface port.  Validated on AoT real tracks (Japanese SRT 303 events, English ASS 1262 events + 7 styles, override tags preserved, UTF-8 round-trip OK). |
-| 4d-2 | ✅ `e58b120` | `apps/web/lib/subs/{generate-ass,style-config}.ts` — `generateAssFile()` builds Bottom + Top layered .ass; Romanized only emitted when caller passes a `romanize` fn | Validated by playback in mpv: AoT English-as-native + Japanese-as-target → both layers render in correct positions. |
-| 4d-3 | ✅ `993dc2b` | `apps/web/lib/raster/{timeline,build-html,rasterizer}.ts` — `rasterizeFrames()` async iterator yields RGBA per union-timeline interval via html2canvas | Visually validated via inline PNG previews on the test page; per-event RGBA matches expected layout. |
-| **4d-4** | **🎯 next** | Port `loom_core/rasterize/sup_writer.py` → `apps/web/lib/raster/sup-writer.ts`.  Palette quantization + RLE + Display Set assembly + epoch state + region splitting | Browser-side `.sup` byte stream from `rasterizeFrames()` output. |
-| 4d-5 | 🔲 | `LoomGenerator` class wraps 4d-1..4d-4 behind a single API; UI button "Generate ASS + SUP" downloads both | Subtitle outputs fully client-side, end-to-end. |
-| 4e | 🔲 | Lean romanizer-only API endpoint (server-side) + web app full UX (drop-zone → tracks → editor → preview → generate → download) | Functional locally end-to-end. |
-| 4f | 🔲 | Deploy: Vercel (frontend) + Railway (API) + DNS at Namecheap + IP rate-limit (slowapi, 3/IP/day) + ephemeral storage cleanup cron | Live at `loom.nerv-analytic.ai`. |
-| 4g | 🔲 | Delete Streamlit (`loom_app.py` + `app/`) + update CLAUDE.md + capability matrix | Cleanup. |
+| 4c | ✅ `2070002` `ca870c2` `e876f09` | ffmpeg.wasm wiring: probe / extract / mux via `FFmpegClient` (apps/web/lib/ffmpeg/) + smoke-test page at `/ffmpeg-test` | Video plumbing client-side.  Validated on real MKV. |
+| 4d-1 | ✅ `393f5cd` | `apps/web/lib/subs/{ssa,types,timestamp,color}.ts` — SSAFile class | Pysubs2 minimal-surface port. |
+| 4d-2 | ✅ `e58b120` | `apps/web/lib/subs/{generate-ass,style-config}.ts` — `generateAssFile()` | Bottom + Top + (optional) Romanized .ass output. |
+| 4d-3 | ✅ `993dc2b` | `apps/web/lib/raster/{timeline,build-html,rasterizer}.ts` — `rasterizeFrames()` | html2canvas-based bitmap rasterization. |
+| 4d-4 | ✅ `aa9315d` | `apps/web/lib/raster/{pgs-quantize,pgs-regions,pgs-segments,sup-writer}.ts` — full PGS encoder | `.sup` byte stream from `rasterizeFrames()`.  Includes the index-255 palette fix. |
+| 4d-5 | ✅ `891829b` | `apps/web/lib/loom-generator.ts` — `LoomGenerator` class + "Generate ASS + SUP" UI button | Subtitle outputs fully client-side, end-to-end. |
+| 4e-1 | ✅ `90598c1` | `loom_api/web.py` slim entry + `routes/{romanize,annotate}.py` | Lean text-processing API.  ~100KB per request worst-case. |
+| 4e-2 | ✅ `e317a40` | `apps/web/app/globals.css` + `components/site-{nav,footer}.tsx` | Theme + chrome matched to nerv-analytic.ai. |
+| 4e-3 | ✅ `1842c59` | `apps/web/app/generate/{page,generator-panel}.tsx` | Skinny drop-zone → tracks → generate-and-download UX. |
+| 4e-4 | ✅ `6682c16` | `apps/web/lib/api/{client,romanize}.ts` | `/romanize` wired through `@loom/api-client` into `LoomGenerator`. |
+| 4f | ✅ live | Procfile + railway.json + requirements-web.txt + vercel.json + slowapi rate-limits + Tier-A bypass auth + DNS at Namecheap (`api.loom` + `loom` CNAMEs) | Live at `https://loom.nerv-analytic.ai` and `https://api.loom.nerv-analytic.ai`.  **Production end-to-end verification still owed.** |
+| 4g | 🔲 | Delete Streamlit (`loom_app.py` + `app/`) + drop streamlit/pandas/etc from `requirements.txt` + update CLAUDE.md Project Structure | Cleanup once 4f passes the end-to-end verification. |
 
-**Hosting + domain:** frontend on Vercel as `loom.nerv-analytic.ai`, API on Railway as `api.loom.nerv-analytic.ai`. Namecheap is the registrar — DNS records (CNAME or A) point at the hosts; Connor sets these at deploy time.  Connor must provision Vercel + Railway accounts before 4f.  Auth: none in V1, IP rate-limit via slowapi (3 generations/IP/day budget per the bandwidth math).
+**Hosting + domain (live):** frontend on Vercel as `https://loom.nerv-analytic.ai` (custom domain CNAME → `dfa544d4c362bfd9.vercel-dns-017.com`); API on Railway as `https://api.loom.nerv-analytic.ai` (custom domain CNAME → `xsbnnuf3.up.railway.app`, plus `_railway-verify.api.loom` TXT for SSL).  Namecheap is the registrar.  Cost: $5/mo Railway hobby tier + $0/mo Vercel hobby = $5/mo flat (per the original target).
+
+**Auth + rate limiting (live):** slowapi `100/minute,2000/day` per IP (override via `LOOM_RATE_LIMIT` env), 5000-char `text` field cap on `/romanize` + `/annotate` request models.  Owner bypass via `LOOM_BYPASS_KEYS` env + `X-Loom-Auth` header — see Owner Auth Roadmap section.
 
 **Step 4 deferred follow-ups:**
 - **Desktop backfill onto `@loom/api-client`** — 4a-5 attempt surfaced 9 legitimate type errors (generated types are stricter than hand-written ones — proper literal unions like `phonetic_system`, `null` vs `undefined` distinctions on optional fields).  Needs per-call-site refactor, not a 5-min rewrite.  Drift risk bounded as long as backend changes propagate to `apps/desktop/src/api.ts` + `apps/desktop/src/styles.ts` in the same commit.
@@ -235,6 +251,92 @@ Tier B becomes relevant if we want to attribute generated samples to specific op
 
 ---
 
+## Roadmap Beyond Step 4
+
+**Purpose:** capture every forward-looking item that surfaced during step-4 build-out but didn't ship in v1.  Three buckets — v1.5 follow-ups (the immediate next deltas after the public deploy), v2 (UX expansion that requires real design work), and long-term (deeper architectural moves that wait for a real signal).  Each item lists a trigger ("ship when") so future sessions don't relitigate scope.
+
+### v1.5 — Closing the gaps the survey exposed
+
+These are the items that v1's "skinny scope" intentionally left for the first iteration after deploy.  None block production today, but each is on the critical path to a polished tool.
+
+**1. PGS rendering of preserved events.**  Currently `iterPreservedEvents()` in `apps/web/lib/subs/style-classify.ts` yields signs / karaoke / typesetting events from multi-style fansub tracks.  `generate-ass.ts` copies those events through to the `.ass` output with original styling intact, but the rasterizer (`apps/web/lib/raster/timeline.ts::buildPgsTimeline`) filters them out — so they appear in mpv from the `.ass` track but are missing from the `.sup` bitmap track.
+- **Port `_dedup_preserved_for_pgs`** from `loom_core/subs/processing.py` (lines 453-555) — handles overlapping karaoke compositing layers.  Critical because raw karaoke layers (sweep + shadow + base) all render simultaneously when animation tags are stripped.
+- **Wire `stripAnimationTags()`** (already in `style-classify.ts`) into a separate raster pass.  Render preserved events with motion tags removed; visual-styling tags (font / color / pos / outline / shadow) preserved.
+- **Add second timeline pass** for preserved events.  Lives alongside the dialogue timeline; raster output composites both into one `.sup`.
+- **Ship when:** any production user complains that signs/karaoke don't appear in the muxed output, or before the first 3rd-party demo.  Estimated ~300 LOC.
+
+**2. `/annotate` API client wiring.**  The endpoint exists and works (verified live: `/annotate ja` returns furigana ruby HTML; `/annotate zh-Hant` returns per-character Zhuyin).  No client consumer.  Required for furigana in the `.sup` rasterizer — currently `build-html.ts` renders plain target text, so the bitmap output has no per-character readings.  ASS path uses `\pos()` annotation but only for CJK (the `supports_ass_annotation` gate); non-CJK languages need PGS-rendered annotation.
+- **Add `buildAnnotateMap()`** in `apps/web/lib/api/`, parallel to `buildRomanizeMap()`.  Same fan-out + memo pattern.
+- **Update `build-html.ts`** to accept an optional `annotation_html` parameter and inject it as a third `.layer` div above the Top layer.
+- **Ship when:** v1.5 PGS preserved-event work lands (same code path).  Estimated ~150 LOC.
+
+**3. Concurrent dialogue event merging.**  Python's `_merge_concurrent_target_events()` handles dual-speaker overlapping lines (one character speaking while another's line still on screen).  Web port currently does first-overlap match — picks one, drops the other.  Rare in practice for single-speaker anime but common in dramas / multi-character ensemble work.
+- **Port `_merge_concurrent_target_events`** from `loom_core/subs/processing.py`.  Music-only event filtering (`_is_music_only`) already in scope of the port.
+- **Ship when:** anyone reports dialogue dropouts during ensemble scenes.  Estimated ~100 LOC.
+
+**4. SRT crawl-bait + episode-card skip heuristic.**  Survey caught spam in multiple SRTs: `"For best IPTV provider..."` (DW3 across 5 languages), `"Created and Encoded by Bokutox"` (Gran Torino YIFY), `"=Three-Body=" / "=Episode 1="` (Tencent Three Body title cards).  These get fanned to `/romanize` as dialogue and pollute the Romanized layer.
+- **Heuristic regex skip** for events matching `/(www\.|provider|encoded by|^=.+=$|^\[.+\]$)/i` BEFORE the unique-text collection in `buildRomanizeMap`.
+- **Estimated:** ~10 LOC.  Could ship as a dedicated 4f-followup commit any time.
+
+**5. Speaker-tag stripping toggle.**  Japanese SRTs commonly prepend speaker names: `（アルミン）...`, `(花澤香菜)...`.  Currently the speaker tag survives romanization (`(Arumin)yatsura ni shihai...`).  Generally desirable for following dialogue, but some users may want it stripped.
+- **Add `strip_speaker_tags: bool` to `StyleConfig`** (off by default).
+- **Pre-process target text** in `generateAssFile` and `buildRomanizeMap` to strip leading `(...)` / `（...）` when toggle is on.
+- **Ship when:** UI editor lands (v2) — meaningless without a UI control.  Estimated ~30 LOC.
+
+**6. HI-track auto-detection warning.**  Squid Game's HI Korean track has bracket-tagged sound descriptions (`[흥미로운 음악]`, `[Music]`) interspersed with dialogue.  These count as dialogue events and produce technically-correct-but-noisy romaji.
+- **Heuristic:** if a track has >20% events matching `/^\[.+\]$/`, surface a warning in the track picker UI: "This looks like a hearing-impaired track — sound descriptions will be romanized too.  Pick the non-HI track for cleaner output."
+- **Estimated:** ~50 LOC including UI.  Polish-tier; defer until UI editor.
+
+### v2 — Style editor + live preview
+
+The big v1-deferred bucket.  v1 ships defaults-only generation (`defaultStyleConfig()`); v2 brings the full UI parity with the desktop app's style controls.  All of this is "additional UX surface" rather than new pipeline work — the engine already supports everything below.
+
+**Per-layer style editor** matching the desktop's Section components in `apps/desktop/src/sections/`:
+- Color + opacity per layer (Bottom, Top, Romanized, Annotation)
+- Font family + size per layer (with the FontScanner's missing-glyph warning wired)
+- Outline (toggle + thickness + color + opacity)
+- Shadow (toggle + distance)
+- Glow (toggle + radius + color, emits `\blur`)
+- Top stack position (vertical offset, annotation/romanized gaps)
+
+**Color presets** — 28 presets across classic / cultural / dark / adaptive groups, language-scoped.  Already in `loom_core/color_presets.py`; need API endpoint exposure + UI dropdown.
+
+**Output resolution scaling** — 480p / 720p / 1080p / 1440p / 2160p / Match source.  Server side already handles `_PLAYRES_OPTIONS` + `_scale = target_height / 1080`; client needs a selector.
+
+**Timing offsets** — manual per-track ms shift via `shift_events()`; auto-alignment via `compute_subtitle_offset()`.  Both already in `loom_core/subs/utils.py`.  Needs UI sliders + an "Auto-align" button that fires the histogram pass.
+
+**Live preview pane** — single-frame composite preview at a chosen timestamp.  Backend already has `POST /preview` (`loom_api/routes/preview.py`); web frontend skips it in v1.  Wire it up alongside the style editor so users see changes in real time without running a full generate.
+
+**Ship when:** real users start using the v1 default-styles output and ask for customization.  Until then, "use the desktop app for fine control" is an acceptable answer per memory `project_pgs_web_priority.md`.
+
+### Long-term — Architectural moves
+
+**Web Worker for rasterization.**  Currently `rasterizeFrames()` runs on the main thread; html2canvas + canvas processing block UI for ~1437 frames on a Frieren episode.  We mitigated with `setTimeout(0)` yields in commit `e6f2be7`, but a real fix is moving the whole pipeline into a Web Worker so the main thread stays responsive.  Cost: html2canvas's DOM walker needs the live document, which workers don't have — would need a different rendering path entirely.  Probably the same code shift as the next item.
+
+**Canvas2D direct draw bypassing html2canvas.**  The 4b spike validated html2canvas as the architectural choice — but at the cost of ~0.6% pixel divergence vs native Chromium.  A direct Canvas2D drawer (taking ASS-style text + position math + outline/glow shaders) would be byte-identical and could run in a Web Worker.  Cost: substantial — would reimplement layered text positioning, outline emulation, ruby layout.  ~1500 LOC minimum.  Memory `project_pgs_web_priority.md` documents the tradeoff: this ships only when a user genuinely needs byte-perfect web PGS output AND can't fall back to the desktop bundle.
+
+**Hardening / observability before public announcement.**
+- **Cloudflare in front of Railway** — free-tier WAF + bot detection.  Catches the abuse modes that get past slowapi (rotating IP scraping, especially).  Easy add: change `LOOM_CORS_ORIGINS` + Cloudflare DNS proxy toggle + verify Tier-B Cloudflare Access compatibility.
+- **Sentry (or similar) error tracking** — currently `/generate` failures only surface in the user's browser; we have no aggregated view of production errors.  Add `@sentry/nextjs` to the web app + `sentry-sdk` to the API.
+- **Analytics** — Plausible (privacy-respecting, $9/mo) or Vercel Analytics (free tier).  Tracks `/generate` start/complete rates, language breakdowns, file-size distributions.  Useful signal for prioritizing v1.5 work.
+- **Multi-region Railway** — only relevant if traffic outside the US/EU starts mattering.  Not on the radar yet.
+
+**Ship when:** before the first non-Connor-only public link; or when an outage happens and we realize we can't see it.
+
+### Closing 4f / 4g
+
+**4f production verification (owed).**  We pushed all the deploy fixes (`1af8a9d`, `e6f2be7`, `e340380`, `96e6148`) but the post-fix end-to-end test still owed: drop an AoT episode at the live `loom.nerv-analytic.ai/generate`, watch a successful complete generation, confirm `.ass` + `.sup` download, mux back into source, play in mpv, verify subs render.  This is the canonical "deploy actually works" gate.  Once this passes once, 4f is closed.
+
+**4g Streamlit deletion (not started).**
+- Delete `loom_app.py` + `app/` directory entirely.
+- Update `CLAUDE.md` Project Structure section to drop the Streamlit references.
+- Update Capability Matrix to drop the Streamlit column (it's currently absent — already done).
+- Drop `streamlit`, `pandas`, `pyarrow`, `pydeck`, `altair` from `requirements.txt` (the desktop venv).
+- Verify `apps/desktop` still works without those (uvicorn sidecar shouldn't need any of them).
+- **Ship when:** 4f production verification passes.  Once the web app is reachable + working, the Streamlit prototype's job is done.
+
+---
+
 ## Capability Matrix
 
 **Purpose:** at-a-glance visibility into which features have reached which surfaces. Backend (`loom_core` + `loom_api`) is the single source of truth — frontends call the API, never reimplement engine logic. Frontend rows track UI affordance, not capability (a feature with backend ✅ is callable from any frontend the moment its UI lands).
@@ -246,26 +348,27 @@ Tier B becomes relevant if we want to attribute generated samples to specific op
 | Feature | Engine | API | Desktop | Web | Extension |
 |---|---|---|---|---|---|
 | **Subtitle ingestion** | | | | | |
-| `.srt` / `.ass` / `.ssa` / `.vtt` upload | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| `.srt` / `.ass` / `.ssa` / `.vtt` upload | ✅ | ✅ | ✅ | ✅ | ⏳ |
 | Local file picker (zenity / native) | ✅ | ✅ | ✅ | — | — |
-| External video file scan (MKV tracks) | ✅ | ✅ | ✅ | — | — |
+| External video file scan (MKV tracks) | ✅ | ✅ | ✅ | ✅ | — |
+| Multi-style fansub classifier (signs / OP / ED / staff filtered out) | ✅ | ✅ | ✅ | ✅ | ⏳ |
 | YouTube URL → subtitle pull (yt-dlp) | ⏳ | ⏳ | — | ⏳ | ⏳ |
 | Page-DOM subtitle scrape (YT/Netflix) | — | — | — | — | ⏳ |
 | **Romanization** (engine + API ✅ for all) | | | | | |
-| Chinese (Pinyin / Zhuyin / Jyutping) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Japanese (MeCab + furigana, 3 long-vowel modes) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Korean (RR per-syllable + word-level) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Cyrillic (ru / uk / be / sr / bg / mk / mn) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Thai (paiboon / RTGS / IPA) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Indic (hi / bn / ta / te / gu / pa) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Hebrew | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| Arabic / Persian / Urdu | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Chinese (Pinyin / Zhuyin / Jyutping) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Japanese (MeCab + furigana, 3 long-vowel modes) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Korean (RR per-syllable + word-level) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Cyrillic (ru / uk / be / sr / bg / mk / mn) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Thai (paiboon / RTGS / IPA) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Indic (hi / bn / ta / te / gu / pa) | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Hebrew | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| Arabic / Persian / Urdu | ✅ | ✅ | ✅ | ✅ | ⏳ |
 | **Output generation** | | | | | |
-| `.ass` 3- or 4-layer file | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| `.sup` (PGS) bitmap rasterization | ✅ | ✅ | ✅ | ⏳ | — |
+| `.ass` 3- or 4-layer file | ✅ | ✅ | ✅ | ✅ | ⏳ |
+| `.sup` (PGS) bitmap rasterization | ✅ | ✅ | ✅ | ✅ | — |
 | Live HTML composite preview | ✅ | ✅ | ✅ | ⏳ | ⏳ |
 | Output filename builder | ✅ | ✅ | ✅ | ⏳ | — |
-| MKV mux (ffmpeg subtitle merge) | ✅ | ✅ | ✅ | — | — |
+| MKV mux (ffmpeg subtitle merge) | ✅ | ✅ | ✅ | ✅ | — |
 | **Style customization** | | | | | |
 | Per-layer color / opacity / font / size | ✅ | ✅ | ✅ | ⏳ | ⏳ |
 | Per-layer outline / shadow / glow | ✅ | ✅ | ✅ | ⏳ | ⏳ |
@@ -276,9 +379,14 @@ Tier B becomes relevant if we want to attribute generated samples to specific op
 | Manual offset (per-track ms shift) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
 | Auto-alignment (histogram + fine pass) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
 | **Fonts** | | | | | |
-| Bundled Noto manifest (29 faces) | ✅ | ✅ | ✅ | ⏳ | ⏳ |
-| `@font-face` CSS w/ unicode-range routing | ✅ | ✅ | ✅ | ⏳ | ⏳ |
+| Bundled Noto manifest (29 faces) | ✅ | ✅ | ✅ | 🟡 | ⏳ |
+| `@font-face` CSS w/ unicode-range routing | ✅ | ✅ | ✅ | 🟡 | ⏳ |
 | FontScanner (validate + missing-char warn) | ✅ | ⏳ | ⏳ | ⏳ | ⏳ |
+| **Deployment** | | | | | |
+| Public web URL (`loom.nerv-analytic.ai`) | — | — | — | ✅ | — |
+| Slim text-processing API (`api.loom.nerv-analytic.ai`) | — | ✅ | — | — | — |
+| Rate limiting (slowapi 100/min, 2000/day per IP) | — | ✅ | — | — | — |
+| Owner bypass auth (Tier A: `X-Loom-Auth`) | — | ✅ | — | ✅ | — |
 | **Distribution / packaging** | | | | | |
 | Linux desktop bundle (`.deb` + `.rpm`) | — | — | ✅ | — | — |
 | AppImage | — | — | ⏳ | — | — |

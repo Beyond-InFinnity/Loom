@@ -1,0 +1,195 @@
+import type {
+  CaptionEvent,
+  StreamChangeDetail,
+  StreamStatus,
+} from "./types";
+
+// CaptionStream — playhead-driven active-caption emitter.
+//
+// MAIN-world bridge does all discovery + fetch + parse.  This class
+// just receives a `(targetEvents, nativeEvents)` pair, hooks
+// <video>.timeupdate, and emits "active caption changed" via direct
+// callbacks.
+
+const VIDEO_SELECTOR = "video.html5-main-video";
+const VIDEO_WAIT_TIMEOUT_MS = 10_000;
+
+export interface CaptionStreamCallbacks {
+  onStatusChange?: (status: StreamStatus) => void;
+  onActiveChange?: (detail: StreamChangeDetail) => void;
+}
+
+export interface StartPayload {
+  targetEvents: CaptionEvent[];
+  nativeEvents: CaptionEvent[];
+  targetLang: string;
+  nativeLang: string;
+}
+
+export class CaptionStream {
+  #status: StreamStatus = { kind: "idle" };
+  #targetEvents: CaptionEvent[] = [];
+  #nativeEvents: CaptionEvent[] = [];
+  #currentTarget: CaptionEvent | null = null;
+  #currentNative: CaptionEvent | null = null;
+  #abort: AbortController | null = null;
+  #video: HTMLVideoElement | null = null;
+  #callbacks: CaptionStreamCallbacks;
+
+  constructor(callbacks: CaptionStreamCallbacks = {}) {
+    this.#callbacks = callbacks;
+  }
+
+  get status(): StreamStatus {
+    return this.#status;
+  }
+
+  get currentTarget(): CaptionEvent | null {
+    return this.#currentTarget;
+  }
+
+  get currentNative(): CaptionEvent | null {
+    return this.#currentNative;
+  }
+
+  setCallbacks(callbacks: CaptionStreamCallbacks): void {
+    this.#callbacks = callbacks;
+  }
+
+  /** Begin streaming with already-fetched event lists. */
+  async start(payload: StartPayload): Promise<void> {
+    await this.stop();
+    this.#abort = new AbortController();
+    const signal = this.#abort.signal;
+
+    this.#setStatus({ kind: "detecting" });
+
+    try {
+      this.#targetEvents = payload.targetEvents;
+      this.#nativeEvents = payload.nativeEvents;
+
+      const video = await this.#waitForVideo(signal);
+      if (signal.aborted) return;
+      if (!video) {
+        this.#setStatus({
+          kind: "error",
+          message: "video element not found within 10s",
+        });
+        return;
+      }
+      this.#video = video;
+      video.addEventListener("timeupdate", this.#onTimeUpdate);
+
+      this.#setStatus({
+        kind: "tracking",
+        targetLang: payload.targetLang,
+        nativeLang: payload.nativeLang,
+      });
+
+      this.#tick(video.currentTime);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[Loom] CaptionStream.start threw:", message);
+      this.#setStatus({ kind: "error", message });
+    }
+  }
+
+  setUnsupported(reason: "no-captions" | "no-supported-track"): void {
+    this.stop();
+    this.#setStatus({ kind: "unsupported", reason });
+  }
+
+  setError(message: string): void {
+    this.stop();
+    this.#setStatus({ kind: "error", message });
+  }
+
+  /** Tear down the current cycle.  Idempotent. */
+  async stop(): Promise<void> {
+    this.#abort?.abort();
+    this.#abort = null;
+    if (this.#video) {
+      this.#video.removeEventListener("timeupdate", this.#onTimeUpdate);
+      this.#video = null;
+    }
+    this.#targetEvents = [];
+    this.#nativeEvents = [];
+    if (this.#currentTarget !== null || this.#currentNative !== null) {
+      this.#currentTarget = null;
+      this.#currentNative = null;
+      this.#emitChange();
+    }
+  }
+
+  #setStatus(status: StreamStatus): void {
+    this.#status = status;
+    this.#callbacks.onStatusChange?.(status);
+  }
+
+  #emitChange(): void {
+    const detail: StreamChangeDetail = {
+      target: this.#currentTarget,
+      native: this.#currentNative,
+    };
+    this.#callbacks.onActiveChange?.(detail);
+  }
+
+  #onTimeUpdate = (e: Event): void => {
+    const video = e.currentTarget as HTMLVideoElement;
+    this.#tick(video.currentTime);
+  };
+
+  #tick(currentTimeSeconds: number): void {
+    const t = currentTimeSeconds * 1000;
+    const nextTarget = findActiveAt(this.#targetEvents, t);
+    const nextNative = findActiveAt(this.#nativeEvents, t);
+    if (
+      nextTarget === this.#currentTarget &&
+      nextNative === this.#currentNative
+    ) {
+      return;
+    }
+    this.#currentTarget = nextTarget;
+    this.#currentNative = nextNative;
+    this.#emitChange();
+  }
+
+  async #waitForVideo(signal: AbortSignal): Promise<HTMLVideoElement | null> {
+    const existing = document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR);
+    if (existing) return existing;
+
+    return new Promise<HTMLVideoElement | null>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const video = document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR);
+        if (video) {
+          observer.disconnect();
+          clearTimeout(timeoutId);
+          signal.removeEventListener("abort", abortHandler);
+          resolve(video);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      const timeoutId = setTimeout(() => {
+        observer.disconnect();
+        signal.removeEventListener("abort", abortHandler);
+        resolve(null);
+      }, VIDEO_WAIT_TIMEOUT_MS);
+
+      const abortHandler = () => {
+        observer.disconnect();
+        clearTimeout(timeoutId);
+        resolve(null);
+      };
+      signal.addEventListener("abort", abortHandler);
+    });
+  }
+}
+
+function findActiveAt(events: CaptionEvent[], t: number): CaptionEvent | null {
+  for (const e of events) {
+    if (e.start <= t && t < e.end) return e;
+  }
+  return null;
+}

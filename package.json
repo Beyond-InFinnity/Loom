@@ -6,10 +6,15 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "@webext-core/fake-browser": "1.3.4"
+  },
   "scripts": {
     "build:desktop": "npm --workspace apps/desktop run build",
+    "build:extension": "npm --workspace apps/extension run build",
     "build:web": "npm --workspace apps/web run build",
     "dev:desktop": "npm --workspace apps/desktop run dev",
+    "dev:extension": "npm --workspace apps/extension run dev",
     "dev:web": "npm --workspace apps/web run dev",
     "tauri:build": "npm --workspace apps/desktop run tauri build",
     "tauri:dev": "npm --workspace apps/desktop run tauri dev",

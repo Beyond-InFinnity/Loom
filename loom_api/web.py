@@ -47,7 +47,10 @@ app = FastAPI(
 # Origins allowed to call this API.  Production frontend lives at
 # loom.nerv-analytic.ai; localhost ports cover Vercel preview + local dev.
 # Override via ``LOOM_CORS_ORIGINS`` (comma-separated) when the deploy URL
-# changes or a preview deployment needs ad-hoc access.
+# changes or a preview deployment needs ad-hoc access.  The browser
+# extension (Step 5) ships from a randomized chrome-extension:// or
+# moz-extension:// origin per install, so its origin is whitelisted by
+# regex below — exact-listing every install ID isn't workable.
 _DEFAULT_ORIGINS = [
     "https://loom.nerv-analytic.ai",
     "http://localhost:3000",
@@ -59,6 +62,7 @@ _origins = [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=r"chrome-extension://.*|moz-extension://.*",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],

@@ -1,0 +1,129 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #0e0e12;
+  color: #f0f0f0;
+  width: 340px;
+  min-height: 200px;
+}
+
+.loom-popup {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.loom-popup header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.loom-popup header .subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.loom-popup section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.loom-popup label {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.loom-popup input {
+  background: #1a1a20;
+  border: 1px solid #2a2a32;
+  color: #f0f0f0;
+  padding: 9px 11px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.loom-popup input:focus {
+  outline: none;
+  border-color: #5d5dff;
+  box-shadow: 0 0 0 2px rgba(93, 93, 255, 0.18);
+}
+
+.loom-popup button {
+  background: #5d5dff;
+  color: white;
+  border: none;
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.15s ease;
+}
+
+.loom-popup button:hover:not(:disabled) {
+  background: #6e6eff;
+}
+
+.loom-popup button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.loom-popup .status {
+  margin: 0;
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  word-break: break-all;
+}
+
+.loom-popup .status code {
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.loom-popup .status-on {
+  color: #5dffaa;
+}
+
+.loom-popup .status-off {
+  opacity: 0.6;
+}
+
+.loom-popup .status-ok {
+  color: #5dffaa;
+}
+
+.loom-popup .status-err {
+  color: #ff7a7a;
+}
+
+.loom-popup footer {
+  padding-top: 8px;
+  border-top: 1px solid #1a1a20;
+}
+
+.loom-popup .footnote {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.loom-popup .footnote code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}

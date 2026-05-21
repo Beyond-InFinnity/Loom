@@ -28,7 +28,7 @@
 // ZERO DOM interaction from us — no CC click, no button toggling.  The
 // click is now a genuine fallback.
 
-import { autoPickTrack } from "./auto-pick";
+import { autoPick } from "./auto-pick";
 import { fetchTrackEventsViaSwap } from "./fanout";
 import type { CaptionEvent, CaptionTrack } from "./types";
 
@@ -131,8 +131,16 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     return;
   }
 
-  const target = autoPickTrack(data.tracks);
+  // Auto-pick target + native in one shot.  Target selection ranks
+  // tracks by processing tier (CJK > romanize > Latin > unsupported);
+  // native matches on canonical base language so en / en-US / en-GB
+  // / en-AU / en-IN all qualify when NATIVE_LANG === "en".  See
+  // ./auto-pick.ts header for the full rationale.
+  const { target, native: nativeTrack } = autoPick(data.tracks, NATIVE_LANG);
   if (target === null) {
+    // Every track shares the user's native base language (e.g., an
+    // English-only video for an English user).  Nothing useful to
+    // overlay — surface as unsupported.
     emit({
       videoId: data.videoId,
       status: { kind: "unsupported", reason: "no-supported-track" },
@@ -141,12 +149,6 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     });
     return;
   }
-
-  // Native track: prefer a real en-family track from the tracklist
-  // (lang-swap of the captured pot URL works for any listed track).
-  // Fall back to tlang=en on the target only when no en track exists
-  // (degraded — see tlang anomaly in memory note).
-  const nativeTrack = findNativeTrack(data.tracks);
 
   // Phase 1: rely on YT's natural prefetch.  Background's picker
   // returns null until a pot-bearing URL has been captured.
@@ -252,18 +254,6 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     targetEvents: targetResult.events,
     nativeEvents,
   });
-}
-
-function findNativeTrack(tracks: CaptionTrack[]): CaptionTrack | null {
-  const matches = tracks.filter((t) => normalizeEn(t.languageCode));
-  if (matches.length === 0) return null;
-  const manual = matches.find((t) => t.kind === "manual");
-  return manual ?? matches[0];
-}
-
-function normalizeEn(code: string): boolean {
-  const c = code.toLowerCase();
-  return c === "en" || c.startsWith("en-");
 }
 
 async function pollBackgroundForUrl(

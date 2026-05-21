@@ -111,19 +111,24 @@ function containerStyle(
     gap: compact ? "0" : "8px",
     padding: compact ? "5px 7px" : "6px 12px",
     borderRadius: "999px",
+    // NO backdrop-filter — the pill is permanently mounted on top of
+    // the player, which YT continuously repaints during playback
+    // (progress bar ticks, auto-hiding controls, ad transitions).
+    // backdrop-filter forces a re-blur of underlying pixels on every
+    // frame of underlying paint, saturating the main thread.  Solid
+    // rgba background instead.  See settings-panel.tsx header for the
+    // full rationale.
     background: compact
-      ? "rgba(20, 20, 24, 0.55)"
-      : "rgba(20, 20, 24, 0.92)",
+      ? "rgba(20, 20, 24, 0.75)"
+      : "rgba(20, 20, 24, 0.94)",
     color: "#fff",
     fontFamily: "system-ui, -apple-system, sans-serif",
     fontSize: "12px",
     fontWeight: 500,
     letterSpacing: "0.02em",
-    backdropFilter: "blur(8px)",
-    WebkitBackdropFilter: "blur(8px)",
     boxShadow: open
-      ? `0 2px 12px rgba(0, 0, 0, 0.4), inset 0 0 0 1px ${accent}99`
-      : `0 2px 12px rgba(0, 0, 0, 0.4), inset 0 0 0 1px ${accent}33`,
+      ? `0 2px 12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px ${accent}99`
+      : `0 2px 12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px ${accent}33`,
     pointerEvents: "auto",
     userSelect: "none",
     cursor: "pointer",

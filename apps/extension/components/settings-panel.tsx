@@ -5,6 +5,18 @@ import { classifyLang, type LangSupport } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
 
 // Settings panel — anchored below the pill, top-right of player.
+//
+// PERF LOAD-BEARING: NO backdrop-filter ANYWHERE in this file or in
+// loom-pill.tsx.  The pill is always rendered now (5f-diagnostic
+// change) so it sits permanently on top of the player area, which YT
+// continuously repaints during playback (progress bar tick, controls
+// auto-hide, etc.).  backdrop-filter forces the browser to re-blur
+// the underlying pixels on every frame of underlying paint — Firefox
+// in particular has historically poor backdrop-filter perf.  The net
+// effect was main-thread saturation + page input lag despite the
+// video tag rendering independently on the GPU.  Solid (or near-solid
+// rgba) background instead.
+//
 // Diagnostic surface for 5d/5e.  Sections:
 //
 //   - Native language        Base BCP-47 code auto-pick uses to find
@@ -598,19 +610,26 @@ function panelStyle(): React.CSSProperties {
     top: "52px",
     right: "16px",
     width: "320px",
-    maxHeight: "min(75vh, 640px)",
+    // The shadow host is sized to #movie_player (which has
+    // overflow: hidden), so anything taller than the player gets
+    // clipped at the bottom.  calc(100% - 72px) ensures the panel
+    // never exceeds the player height minus the 52px top offset and
+    // ~20px bottom buffer — fits on default-mode players (~480-720px
+    // tall) without the bottom UI being cut off.
+    maxHeight: "min(75vh, 640px, calc(100% - 72px))",
     overflowY: "auto",
     zIndex: 2147483647,
-    background: "rgba(20, 20, 24, 0.96)",
+    // No backdrop-filter — see file header.  rgba(...) at 0.97 reads
+    // as solid enough on every video without the per-frame blur cost
+    // of compositing the player area underneath.
+    background: "rgba(20, 20, 24, 0.97)",
     color: "#fff",
     borderRadius: "10px",
     padding: "12px",
     fontFamily: "system-ui, -apple-system, sans-serif",
     fontSize: "12px",
     lineHeight: 1.4,
-    boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
+    boxShadow: "0 10px 30px rgba(0, 0, 0, 0.6)",
     border: "1px solid rgba(255, 255, 255, 0.08)",
     pointerEvents: "auto",
     userSelect: "none",

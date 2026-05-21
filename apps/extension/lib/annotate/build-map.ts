@@ -16,9 +16,20 @@
 // and unwind the worker pool gracefully.
 
 import { getApiClient } from "../api-client";
+import { getOwnerKey } from "../owner-key";
 import type { AnnotateMap, AnnotateSpan } from "./types";
 
-const DEFAULT_CONCURRENCY = 10;
+/** 5 instead of 10 — 707-event Chinese videos hammered the slim API
+    enough that we'd hit slowapi's 100/min ceiling instantly without
+    owner-key bypass.  5 is still fast enough for owner-key users
+    (~140s for 707 unique texts at ~10/sec) without making the
+    no-owner-key failure mode catastrophic. */
+const DEFAULT_CONCURRENCY = 5;
+/** Per-request timeout.  Without this, a single hung fetch stalls
+    the entire worker pool — Promise.all waits indefinitely.  10s is
+    well above the slim API's p99 (annotate is ~50-200ms typical;
+    even cold-start Railway is well under 5s). */
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface BuildAnnotateMapOptions {
   /** BCP-47 lang code for the texts being annotated. */
@@ -72,16 +83,45 @@ export async function buildAnnotateMap(
     Math.min(opts.concurrency ?? DEFAULT_CONCURRENCY, total),
   );
 
+  const ownerKey = await getOwnerKey();
+  const ownerKeyPresent = !!ownerKey;
   console.log(
     "[Loom Annotate] start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
     "unique_texts=" + total,
     "concurrency=" + concurrency,
+    "owner_key=" +
+      (ownerKeyPresent
+        ? "set (bypasses rate limit)"
+        : "MISSING — slowapi will rate-limit at 100/min"),
   );
+  if (!ownerKeyPresent && total > 80) {
+    console.warn(
+      "[Loom Annotate] no owner key + " + total + " unique texts.",
+      "Expect 429s after the first ~100 requests.",
+      "Set the owner key via the extension popup to bypass slowapi.",
+    );
+  }
+  const progressEvery = Math.max(20, Math.floor(total / 10));
 
   async function processOne(text: string): Promise<void> {
     if (opts.signal?.aborted) return;
+    // Per-request timeout — combine parent signal (track-switch /
+    // video-nav) with a 10s deadline.  Without this, a single hung
+    // fetch stalls Promise.all forever and the user never sees the
+    // `done` log.  Cleanup the listener + timer in finally.
+    const requestCtrl = new AbortController();
+    const timeoutId = setTimeout(
+      () => requestCtrl.abort(),
+      REQUEST_TIMEOUT_MS,
+    );
+    const parentAbortListener = () => requestCtrl.abort();
+    if (opts.signal) {
+      opts.signal.addEventListener("abort", parentAbortListener, {
+        once: true,
+      });
+    }
     try {
       const { data, error, response } = await client.POST("/annotate", {
         body: {
@@ -90,7 +130,7 @@ export async function buildAnnotateMap(
           phonetic_system: opts.phoneticSystem ?? null,
           opt_in_training: opts.optInTraining ?? false,
         },
-        signal: opts.signal,
+        signal: requestCtrl.signal,
       });
       if (error) {
         const status = response?.status ?? 0;
@@ -125,7 +165,22 @@ export async function buildAnnotateMap(
       }
     } catch (e) {
       const err = e as Error;
-      if (err.name === "AbortError") return;
+      if (err.name === "AbortError") {
+        // Could be parent-signal abort (silent) OR our timeout
+        // (counted as a network error so the user sees it).
+        if (!opts.signal?.aborted) {
+          networkErrors += 1;
+          if (networkErrors <= 3) {
+            console.warn(
+              "[Loom Annotate] /annotate timed out after",
+              REQUEST_TIMEOUT_MS + "ms for",
+              "lang=" + opts.langCode,
+              "text=" + JSON.stringify(text.slice(0, 60)),
+            );
+          }
+        }
+        return;
+      }
       networkErrors += 1;
       if (networkErrors <= 3) {
         console.warn(
@@ -136,7 +191,26 @@ export async function buildAnnotateMap(
         );
       }
     } finally {
+      clearTimeout(timeoutId);
+      if (opts.signal) {
+        opts.signal.removeEventListener("abort", parentAbortListener);
+      }
       done += 1;
+      if (done === total || done % progressEvery === 0) {
+        console.log(
+          "[Loom Annotate] progress " +
+            done +
+            "/" +
+            total +
+            " (" +
+            Math.round((done / total) * 100) +
+            "%)",
+          "ok=" + success,
+          "empty=" + emptySpans,
+          "429=" + rateLimited,
+          "errs=" + (httpErrors + networkErrors),
+        );
+      }
       opts.onProgress?.(done, total);
     }
   }

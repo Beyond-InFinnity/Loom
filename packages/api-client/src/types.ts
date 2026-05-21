@@ -147,6 +147,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/annotate/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Annotate Batch */
+        post: operations["annotate_batch_annotate_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/generate/ass": {
         parameters: {
             query?: never;
@@ -405,6 +422,62 @@ export interface components {
             offset_seconds: number;
             /** Warning */
             warning?: string | null;
+        };
+        /**
+         * AnnotateBatchItem
+         * @description One result entry — same shape as the spans+html fields of
+         *     AnnotateResponse, minus the per-call metadata (lang_code,
+         *     annotation_system_name, render_mode) which is constant across the
+         *     batch and lives at the response root.
+         */
+        AnnotateBatchItem: {
+            /** Spans */
+            spans: components["schemas"]["AnnotateSpan"][];
+            /** Html */
+            html: string;
+        };
+        /** AnnotateBatchRequest */
+        AnnotateBatchRequest: {
+            /**
+             * Texts
+             * @description UTF-8 source texts to annotate.  All texts share the lang/phonetic_system specified at the request level.  Hard caps: ≤2000 entries, each ≤5000 chars.
+             */
+            texts: string[];
+            /**
+             * Lang Code
+             * @description See POST /annotate.
+             */
+            lang_code: string;
+            /**
+             * Phonetic System
+             * @description See POST /annotate.
+             */
+            phonetic_system?: string | null;
+            /**
+             * Render Mode
+             * @description See POST /annotate.
+             */
+            render_mode?: string | null;
+            /**
+             * Opt In Training
+             * @description See POST /annotate.
+             * @default false
+             */
+            opt_in_training: boolean;
+        };
+        /** AnnotateBatchResponse */
+        AnnotateBatchResponse: {
+            /**
+             * Results
+             * @description One entry per input text, same order as the request.  Empty/oversized texts produce {spans: [], html: ''} instead of being dropped, so positional alignment with the request is preserved.
+             */
+            results: components["schemas"]["AnnotateBatchItem"][];
+            /** Lang Code */
+            lang_code: string;
+            /** Annotation System Name */
+            annotation_system_name: string;
+            /** Render Mode */
+            render_mode: string;
         };
         /** AnnotateRequest */
         AnnotateRequest: {
@@ -1812,6 +1885,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnnotateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    annotate_batch_annotate_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotateBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotateBatchResponse"];
                 };
             };
             /** @description Validation Error */

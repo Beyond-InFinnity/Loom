@@ -319,6 +319,47 @@
         }
       }
     },
+    "/annotate/batch": {
+      "post": {
+        "tags": [
+          "text"
+        ],
+        "summary": "Annotate Batch",
+        "operationId": "annotate_batch_annotate_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnotateBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnotateBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/generate/ass": {
       "post": {
         "tags": [
@@ -843,6 +884,114 @@
           "offset_seconds"
         ],
         "title": "AlignResponse"
+      },
+      "AnnotateBatchItem": {
+        "properties": {
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotateSpan"
+            },
+            "type": "array",
+            "title": "Spans"
+          },
+          "html": {
+            "type": "string",
+            "title": "Html"
+          }
+        },
+        "type": "object",
+        "required": [
+          "spans",
+          "html"
+        ],
+        "title": "AnnotateBatchItem",
+        "description": "One result entry \u2014 same shape as the spans+html fields of\nAnnotateResponse, minus the per-call metadata (lang_code,\nannotation_system_name, render_mode) which is constant across the\nbatch and lives at the response root."
+      },
+      "AnnotateBatchRequest": {
+        "properties": {
+          "texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "Texts",
+            "description": "UTF-8 source texts to annotate.  All texts share the lang/phonetic_system specified at the request level.  Hard caps: \u22642000 entries, each \u22645000 chars."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code",
+            "description": "See POST /annotate."
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System",
+            "description": "See POST /annotate."
+          },
+          "render_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Mode",
+            "description": "See POST /annotate."
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "description": "See POST /annotate.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "texts",
+          "lang_code"
+        ],
+        "title": "AnnotateBatchRequest"
+      },
+      "AnnotateBatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotateBatchItem"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "One entry per input text, same order as the request.  Empty/oversized texts produce {spans: [], html: ''} instead of being dropped, so positional alignment with the request is preserved."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code"
+          },
+          "annotation_system_name": {
+            "type": "string",
+            "title": "Annotation System Name"
+          },
+          "render_mode": {
+            "type": "string",
+            "title": "Render Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "lang_code",
+          "annotation_system_name",
+          "render_mode"
+        ],
+        "title": "AnnotateBatchResponse"
       },
       "AnnotateRequest": {
         "properties": {

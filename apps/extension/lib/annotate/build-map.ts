@@ -1,62 +1,56 @@
-// Parallel /annotate fan-out for a list of event texts.
+// Single-shot batch annotation fetch.
 //
-// Mirrors the apps/web/lib/api/romanize.ts::buildRomanizeMap shape:
-// dedup unique texts, fan out one /annotate POST per unique text,
-// build a Map<text, spans>.  Bounded concurrency keeps us polite to
-// the slim API even though owner-key bypass means we're not actually
-// rate-limited.
+// 5d-perf rewrite: replaces the per-text fan-out (one /annotate POST
+// per unique text, fired in waves across the whole video as the
+// rolling window advanced) with a single /annotate/batch request
+// that returns all spans at once.
 //
-// Fail-soft: an individual /annotate failure logs a warning and skips
-// that text.  The map omits the failing entry, the caller falls back
-// to rendering plain base text for those events.  Whole pipeline does
-// NOT throw on partial failure.
+// Why:
+// - Network: 1 POST per track instead of ~500.  Constant trickle
+//   gone; users see one request and silence.
+// - Rate limit: one slot of slowapi's 100/min instead of 500 (which
+//   blew through the limit on long videos without owner-key bypass).
+// - CPU: one React re-render with the populated map instead of ~500
+//   incremental emits.
+// - UX: ~3-4 second startup wait at activation, then never again
+//   until track / phonetic-system change.  User experiences the
+//   wait as part of "Loom warming up" not constant background work.
 //
-// AbortController: pass `signal` from the caller (track-switch,
-// video navigation, or settings change).  In-flight requests cancel
-// and unwind the worker pool gracefully.
+// The per-text fail-soft behavior is preserved: empty texts and
+// texts beyond the server-side cap return `{spans: [], html: ""}`
+// in the result, positionally aligned with the request — they show
+// as plain rendering, not missing entries.
 
 import { getApiClient } from "../api-client";
 import { getOwnerKey } from "../owner-key";
 import type { AnnotateMap, AnnotateSpan } from "./types";
 
-/** 5 instead of 10 — 707-event Chinese videos hammered the slim API
-    enough that we'd hit slowapi's 100/min ceiling instantly without
-    owner-key bypass.  5 is still fast enough for owner-key users
-    (~140s for 707 unique texts at ~10/sec) without making the
-    no-owner-key failure mode catastrophic. */
-const DEFAULT_CONCURRENCY = 5;
-/** Per-request timeout.  Without this, a single hung fetch stalls
-    the entire worker pool — Promise.all waits indefinitely.  10s is
-    well above the slim API's p99 (annotate is ~50-200ms typical;
-    even cold-start Railway is well under 5s). */
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 
 export interface BuildAnnotateMapOptions {
-  /** BCP-47 lang code for the texts being annotated. */
   langCode: string;
-  /** Optional phonetic-system override (pinyin / zhuyin / jyutping /
-      rtgs / paiboon / ipa).  null = backend decides via lang's
-      default. */
   phoneticSystem?: string | null;
-  /** Default false until 5+ archival pipeline lands. */
   optInTraining?: boolean;
-  /** Max in-flight requests.  Default 10. */
-  concurrency?: number;
-  /** Cancellation signal — when aborted, workers stop dequeueing and
-      the function rejects with AbortError. */
   signal?: AbortSignal;
-  /** Progress callback fires after each request resolves (success or
-      failure). */
-  onProgress?: (done: number, total: number) => void;
 }
 
+/** Fetch annotations for every unique text in `texts` in a single
+    /annotate/batch request.  Returns Map<trimmedText, spans>.  On
+    failure (network error, rate limit, etc.) returns an empty Map —
+    overlay falls back to plain rendering until the next attempt.
+
+    AbortController support: pass `signal` to cancel the in-flight
+    request on track-switch / video-nav / settings change.  Internal
+    60s deadline guards against server hangs (Railway cold start +
+    ~3-4s annotation processing for a 700-text batch on the slow
+    end). */
 export async function buildAnnotateMap(
   texts: Iterable<string>,
   opts: BuildAnnotateMapOptions,
 ): Promise<AnnotateMap> {
-  // Dedup: many events repeat short utterances ("Hai.", "そうです.")
-  // and event lists frequently contain blank/placeholder rows.  One
-  // request per unique non-empty string.
+  // Dedup + trim — server processes whatever we send, so smaller =
+  // faster + cheaper.  Filter empty texts; backend returns empty
+  // results for them but no need to ship the round-trip cost.
   const unique = Array.from(
     new Set(
       Array.from(texts)
@@ -64,184 +58,105 @@ export async function buildAnnotateMap(
         .filter((t) => t.length > 0),
     ),
   );
-  const total = unique.length;
+
   const result: AnnotateMap = new Map();
-  if (total === 0) return result;
+  if (unique.length === 0) return result;
 
   const client = getApiClient();
-  const queue = [...unique];
-  let done = 0;
-  // Per-status counters for the end-of-run summary.  Helpful for the
-  // common failure mode: rate limit (429) without owner-key bypass.
-  let success = 0;
-  let emptySpans = 0;
-  let httpErrors = 0;
-  let networkErrors = 0;
-  let rateLimited = 0;
-  const concurrency = Math.max(
-    1,
-    Math.min(opts.concurrency ?? DEFAULT_CONCURRENCY, total),
-  );
-
   const ownerKey = await getOwnerKey();
-  const ownerKeyPresent = !!ownerKey;
   console.log(
-    "[Loom Annotate] start:",
+    "[Loom Annotate] batch start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
-    "unique_texts=" + total,
-    "concurrency=" + concurrency,
-    "owner_key=" +
-      (ownerKeyPresent
-        ? "set (bypasses rate limit)"
-        : "MISSING — slowapi will rate-limit at 100/min"),
+    "unique_texts=" + unique.length,
+    "owner_key=" + (ownerKey ? "set" : "MISSING"),
   );
-  if (!ownerKeyPresent && total > 80) {
-    console.warn(
-      "[Loom Annotate] no owner key + " + total + " unique texts.",
-      "Expect 429s after the first ~100 requests.",
-      "Set the owner key via the extension popup to bypass slowapi.",
-    );
-  }
-  const progressEvery = Math.max(20, Math.floor(total / 10));
 
-  async function processOne(text: string): Promise<void> {
-    if (opts.signal?.aborted) return;
-    // Per-request timeout — combine parent signal (track-switch /
-    // video-nav) with a 10s deadline.  Without this, a single hung
-    // fetch stalls Promise.all forever and the user never sees the
-    // `done` log.  Cleanup the listener + timer in finally.
-    const requestCtrl = new AbortController();
-    const timeoutId = setTimeout(
-      () => requestCtrl.abort(),
-      REQUEST_TIMEOUT_MS,
-    );
-    const parentAbortListener = () => requestCtrl.abort();
-    if (opts.signal) {
-      opts.signal.addEventListener("abort", parentAbortListener, {
-        once: true,
-      });
+  // Per-request timeout combined with parent signal.  Without this,
+  // a server stall could leave the activation in "loading" forever.
+  const requestCtrl = new AbortController();
+  const timeoutId = setTimeout(
+    () => requestCtrl.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
+  const parentAbortListener = () => requestCtrl.abort();
+  if (opts.signal) {
+    opts.signal.addEventListener("abort", parentAbortListener, {
+      once: true,
+    });
+  }
+
+  const t0 = performance.now();
+  try {
+    const { data, error, response } = await client.POST("/annotate/batch", {
+      body: {
+        texts: unique,
+        lang_code: opts.langCode,
+        phonetic_system: opts.phoneticSystem ?? null,
+        opt_in_training: opts.optInTraining ?? false,
+      },
+      signal: requestCtrl.signal,
+    });
+
+    if (error) {
+      const status = response?.status ?? 0;
+      console.warn(
+        "[Loom Annotate] /annotate/batch HTTP " + status,
+        "for lang=" + opts.langCode + " — falling back to plain rendering.",
+        status === 429
+          ? "Rate-limited; set an owner key via the popup to bypass."
+          : "",
+        error,
+      );
+      return result;
     }
-    try {
-      const { data, error, response } = await client.POST("/annotate", {
-        body: {
-          text,
-          lang_code: opts.langCode,
-          phonetic_system: opts.phoneticSystem ?? null,
-          opt_in_training: opts.optInTraining ?? false,
-        },
-        signal: requestCtrl.signal,
-      });
-      if (error) {
-        const status = response?.status ?? 0;
-        if (status === 429) rateLimited += 1;
-        else httpErrors += 1;
-        // Log the first few failures with full context — repeated
-        // failures of the same kind are summarized at end-of-run.
-        if (httpErrors + rateLimited <= 3) {
-          console.warn(
-            "[Loom Annotate] /annotate HTTP " + status,
-            "for lang=" + opts.langCode,
-            "text=" + JSON.stringify(text.slice(0, 60)),
-            error,
-          );
-        }
-        return;
+
+    if (!data || !Array.isArray(data.results)) {
+      console.warn(
+        "[Loom Annotate] /annotate/batch returned malformed response",
+      );
+      return result;
+    }
+
+    // Server result is positionally aligned with the request.  Some
+    // entries may be empty (server-side filtered or oversized) — the
+    // map simply won't have those keys, overlay falls back to plain.
+    for (let i = 0; i < unique.length && i < data.results.length; i++) {
+      const text = unique[i];
+      const item = data.results[i];
+      if (item && Array.isArray(item.spans) && item.spans.length > 0) {
+        result.set(text, item.spans as AnnotateSpan[]);
       }
-      if (data && Array.isArray(data.spans) && data.spans.length > 0) {
-        result.set(text, data.spans as AnnotateSpan[]);
-        success += 1;
-      } else {
-        // 200 OK but no spans — backend has no annotation_func for
-        // this lang, or the text was empty after server-side cleanup.
-        emptySpans += 1;
-        if (emptySpans <= 2) {
-          console.warn(
-            "[Loom Annotate] /annotate returned 0 spans for",
-            "lang=" + opts.langCode,
-            "text=" + JSON.stringify(text.slice(0, 60)),
-          );
-        }
-      }
-    } catch (e) {
-      const err = e as Error;
-      if (err.name === "AbortError") {
-        // Could be parent-signal abort (silent) OR our timeout
-        // (counted as a network error so the user sees it).
-        if (!opts.signal?.aborted) {
-          networkErrors += 1;
-          if (networkErrors <= 3) {
-            console.warn(
-              "[Loom Annotate] /annotate timed out after",
-              REQUEST_TIMEOUT_MS + "ms for",
-              "lang=" + opts.langCode,
-              "text=" + JSON.stringify(text.slice(0, 60)),
-            );
-          }
-        }
-        return;
-      }
-      networkErrors += 1;
-      if (networkErrors <= 3) {
+    }
+
+    const dt = Math.round(performance.now() - t0);
+    console.log(
+      "[Loom Annotate] batch done:",
+      "lang=" + opts.langCode,
+      "requested=" + unique.length,
+      "got_spans=" + result.size,
+      "elapsed=" + dt + "ms",
+    );
+  } catch (e) {
+    const err = e as Error;
+    if (err.name === "AbortError") {
+      if (!opts.signal?.aborted) {
         console.warn(
-          "[Loom Annotate] /annotate threw:",
-          "lang=" + opts.langCode,
-          "text=" + JSON.stringify(text.slice(0, 60)),
-          err.message,
+          "[Loom Annotate] /annotate/batch timed out after",
+          REQUEST_TIMEOUT_MS + "ms for lang=" + opts.langCode,
         );
       }
-    } finally {
-      clearTimeout(timeoutId);
-      if (opts.signal) {
-        opts.signal.removeEventListener("abort", parentAbortListener);
-      }
-      done += 1;
-      if (done === total || done % progressEvery === 0) {
-        console.log(
-          "[Loom Annotate] progress " +
-            done +
-            "/" +
-            total +
-            " (" +
-            Math.round((done / total) * 100) +
-            "%)",
-          "ok=" + success,
-          "empty=" + emptySpans,
-          "429=" + rateLimited,
-          "errs=" + (httpErrors + networkErrors),
-        );
-      }
-      opts.onProgress?.(done, total);
+      return result;
     }
-  }
-
-  async function worker(): Promise<void> {
-    while (queue.length > 0) {
-      if (opts.signal?.aborted) return;
-      const text = queue.shift();
-      if (text === undefined) return;
-      await processOne(text);
-    }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
-
-  console.log(
-    "[Loom Annotate] done:",
-    "lang=" + opts.langCode,
-    "system=" + (opts.phoneticSystem ?? "auto"),
-    "ok=" + success,
-    "empty=" + emptySpans,
-    "429=" + rateLimited,
-    "http_err=" + httpErrors,
-    "net_err=" + networkErrors,
-    "map_size=" + result.size,
-  );
-  if (rateLimited > 0) {
     console.warn(
-      "[Loom Annotate] hit rate limit on " + rateLimited + " requests.",
-      "Set an owner key via the popup (X-Loom-Auth) to bypass slowapi.",
+      "[Loom Annotate] /annotate/batch threw for lang=" + opts.langCode,
+      err.message,
     );
+  } finally {
+    clearTimeout(timeoutId);
+    if (opts.signal) {
+      opts.signal.removeEventListener("abort", parentAbortListener);
+    }
   }
 
   return result;

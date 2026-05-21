@@ -36,7 +36,7 @@ import {
   getCachedAnnotateMap,
   setCachedAnnotateMap,
 } from "../annotate/cache";
-import type { AnnotateMap, AnnotateSpan } from "../annotate/types";
+import type { AnnotateMap } from "../annotate/types";
 
 const MAIN_SOURCE = "loom-main";
 const ISO_SOURCE = "loom-iso";
@@ -183,19 +183,14 @@ let annotationPrefsLoaded = false;
     overlapping fan-outs when the user rapid-fires settings changes. */
 let annotateAbortController: AbortController | null = null;
 
-/** Currently-active target / native events at the playhead.  Updated
-    by caption-context every time CaptionStream's onActiveChange fires.
-    Used by ensureAnnotationsAround to anchor the rolling window. */
-let activeTargetEvent: CaptionEvent | null = null;
-let activeNativeEvent: CaptionEvent | null = null;
-
-/** Rolling-window size for annotation prefetch.  10 events ahead + 2
-    behind = ~12 /annotate POSTs per playhead-boundary crossing on the
-    common case (no cache hits).  Prefetching the whole episode at once
-    (the original 5d behavior) hit slowapi's 100/min ceiling instantly
-    on long videos AND wasted work the user often never watched. */
-const ANNOTATE_WINDOW_AHEAD = 10;
-const ANNOTATE_WINDOW_BEHIND = 2;
+// 5d-perf v3: replaced the rolling-window prefetch with a single
+// /annotate/batch call at track-resolve time.  Rationale: even the
+// rolling window produced a constant trickle of network activity
+// (~1 /annotate POST per dialogue boundary for the entire video) and
+// per-boundary React re-renders churning through the context tree.
+// Single batch trades ~3-4 seconds of startup wait for permanent
+// quiet until the user changes tracks / phonetic system.  See
+// lib/annotate/build-map.ts for the batch wire shape.
 
 /** (videoId :: languageCode :: tlang) → parsed events.  Re-pick is
     instant after the first fetch.  Cleared on video navigation so the
@@ -488,204 +483,142 @@ async function resolveCaptions(): Promise<void> {
     nativeEvents: nativeEvents ?? [],
   });
 
-  // Rolling-window annotation prefetch: caption events render
-  // immediately on the emit above; the FIRST window (~10 events from
-  // the start of the track) populates async via the call below.  As
-  // playhead advances, caption-context calls notifyActiveEvent() on
-  // every dialogue boundary, and that drives further window
-  // prefetches.  Result: ~12 /annotate POSTs per event boundary
-  // crossing instead of ~500 at track-load time.
-  //
-  // We DON'T pass the current active event here — the playhead state
-  // lives in CaptionStream which hasn't started yet at this point.
-  // Stream.start fires its first onActiveChange synchronously inside
-  // CaptionStream.start once the video element is wired up; that
-  // routes to notifyActiveEvent() with the real active event.
-  //
-  // null anchor falls back to idx=0, so the first window covers the
-  // start of the track — handles videos played from t=0.
-  void ensureAnnotationsAround();
+  // 5d-perf v3 (batch): one /annotate/batch POST per layer per
+  // (lang, phonetic_system).  No per-boundary fetches, no rolling
+  // window, no React re-render churn during playback.  The user
+  // experiences a 3-4s startup wait (Railway + pypinyin processing
+  // of ~700 texts on a long episode) then silence for the rest of
+  // the playback session.
+  void fetchAllAnnotationsForLayers(
+    targetEvents,
+    nativeEvents ?? [],
+    effectiveTargetLang,
+    effectiveNativeLang,
+  );
 }
 
-/** Rolling-window annotation prefetch.  Looks up the currently-active
-    target + native events (from module state, updated by
-    notifyActiveEvent), computes a window of ~12 surrounding events,
-    fetches /annotate for any text not already cached, merges the new
-    spans into the cached map, and emits a fresh map reference so
-    React picks up the change.
+/** Fire one /annotate/batch per layer.  Both run in parallel and
+    each emits independently when its layer completes, so a slow
+    native fetch doesn't block target ruby from appearing as soon as
+    target's batch lands.
 
     Called from:
-    - resolveCaptions (initial kickstart — null active events → idx 0)
-    - notifyActiveEvent (every onActiveChange — playhead anchor)
-    - rerunAnnotations (annotation-setting change — re-anchor at
-      current active) */
-async function ensureAnnotationsAround(): Promise<void> {
-  if (!latest || latest.status.kind !== "tracking") return;
-
-  // Abort previous wave.  Partial results saved to cache (via
-  // setCachedAnnotateMap inside fetchLayerWindow) survive the abort,
-  // so the next call picks up from there.
+    - resolveCaptions (initial fetch for the resolved tracks)
+    - rerunAnnotations (annotation toggle / phonetic-system change) */
+async function fetchAllAnnotationsForLayers(
+  targetEvents: CaptionEvent[] | null,
+  nativeEvents: CaptionEvent[],
+  effectiveTargetLang: string,
+  effectiveNativeLang: string,
+): Promise<void> {
+  // Abort previous wave so a track-switch mid-fetch doesn't waste the
+  // outstanding batch.  Both layer fetches share the same signal.
   annotateAbortController?.abort();
   annotateAbortController = new AbortController();
   const signal = annotateAbortController.signal;
-
-  const status = latest.status;
   const videoId = session.videoId ?? "";
 
-  // Both layers fetched in parallel — they share the abort signal so
-  // a single abort cancels both.
-  const [tMap, nMap] = await Promise.all([
-    fetchLayerWindow({
-      events: latest.targetEvents,
-      activeEvent: activeTargetEvent,
+  await Promise.all([
+    fetchLayerAnnotations({
+      events: targetEvents,
       enabled: targetAnnotateEnabled,
-      lang: status.targetLang,
+      lang: effectiveTargetLang,
       phoneticSystem: targetPhoneticSystem,
       videoId,
       signal,
       layerName: "target",
     }),
-    fetchLayerWindow({
-      events: latest.nativeEvents,
-      activeEvent: activeNativeEvent,
+    fetchLayerAnnotations({
+      events: nativeEvents,
       enabled: nativeAnnotateEnabled,
-      lang: status.nativeLang,
+      lang: effectiveNativeLang,
       phoneticSystem: nativePhoneticSystem,
       videoId,
       signal,
       layerName: "native",
     }),
   ]);
-
-  if (signal.aborted) return;
-  if (!latest || latest.status.kind !== "tracking") return;
-
-  // Emit fresh map references (or null when the layer is disabled /
-  // not annotatable / no events).  fetchLayerWindow returns the
-  // appropriate value for each case.
-  emit({
-    ...latest,
-    targetAnnotateMap: tMap,
-    nativeAnnotateMap: nMap,
-  });
 }
 
-interface FetchLayerWindowOpts {
+interface FetchLayerAnnotationsOpts {
   events: CaptionEvent[] | null;
-  activeEvent: CaptionEvent | null;
   enabled: boolean;
   lang: string;
   phoneticSystem: string | null;
   videoId: string;
   signal: AbortSignal;
-  /** "target" / "native" — used only for log labels. */
-  layerName: string;
+  /** "target" / "native" — used for log labels + selecting which
+      field on the payload to update on emit. */
+  layerName: "target" | "native";
 }
 
-/** Compute the rolling window around `activeEvent`, identify texts
-    not already in the cache, fetch them, merge, and return a fresh
-    Map reference.  Returns null when the layer is disabled, the lang
-    isn't annotatable, or there are no events — the caller emits null
-    to clear React state. */
-async function fetchLayerWindow(
-  opts: FetchLayerWindowOpts,
-): Promise<AnnotateMap | null> {
-  if (!opts.enabled) return null;
-  if (!opts.events || opts.events.length === 0) return null;
+/** Fetch annotations for a single layer (target OR native).  Checks
+    cache first; if missing, fires one /annotate/batch with every
+    unique event text.  Emits the payload with the layer's map
+    populated once the batch lands.  No-op when disabled or
+    not annotatable. */
+async function fetchLayerAnnotations(
+  opts: FetchLayerAnnotationsOpts,
+): Promise<void> {
+  if (!opts.enabled) return;
+  if (!opts.events || opts.events.length === 0) return;
 
   const cls = classifyLang(opts.lang);
-  if (cls.processing !== "annotate-romanize") {
-    return null;
-  }
-
-  // Anchor index: find the active event by reference identity.
-  // Fall back to 0 when no active event (initial kickstart, or
-  // playhead is before the first event).
-  let idx = opts.activeEvent ? opts.events.indexOf(opts.activeEvent) : -1;
-  if (idx < 0) idx = 0;
-
-  const start = Math.max(0, idx - ANNOTATE_WINDOW_BEHIND);
-  const end = Math.min(
-    opts.events.length,
-    idx + ANNOTATE_WINDOW_AHEAD + 1,
-  );
-  const slice = opts.events.slice(start, end);
+  if (cls.processing !== "annotate-romanize") return;
 
   const cacheKey = annotateCacheKey(
     opts.videoId,
     opts.lang,
     opts.phoneticSystem,
   );
-  const existing =
-    getCachedAnnotateMap(cacheKey) ?? new Map<string, AnnotateSpan[]>();
 
-  // Skip texts already in cache.  Dedupe + trim to align with
-  // buildAnnotateMap's normalization.
-  const toFetch = Array.from(
-    new Set(
-      slice
-        .map((e) => e.text.trim())
-        .filter((t) => t.length > 0 && !existing.has(t)),
-    ),
-  );
-
-  if (toFetch.length === 0) {
-    // Window fully cached — just hand back a fresh reference to the
-    // existing map so React re-renders with current entries.
-    return new Map(existing);
-  }
-
-  console.log(
-    "[Loom Annotate] window " +
-      opts.layerName +
-      " " +
-      opts.lang +
-      ": idx=" +
-      idx +
-      " slice=[" +
-      start +
-      "," +
-      end +
-      ") fetch=" +
-      toFetch.length +
-      " cached=" +
-      existing.size,
-  );
-
-  try {
-    const fresh = await buildAnnotateMap(toFetch, {
-      langCode: opts.lang,
-      phoneticSystem: opts.phoneticSystem,
-      signal: opts.signal,
-    });
-    if (opts.signal.aborted) return null;
-    for (const [text, spans] of fresh) {
-      existing.set(text, spans);
-    }
-    setCachedAnnotateMap(cacheKey, existing);
-    return new Map(existing);
-  } catch (e) {
-    const err = e as Error;
-    if (err.name === "AbortError") return null;
-    console.warn(
-      "[Loom Annotate] fetchLayerWindow threw:",
-      opts.layerName,
-      err.message,
+  let map = getCachedAnnotateMap(cacheKey);
+  if (!map) {
+    // Cache miss — fire the batch.  buildAnnotateMap already dedups
+    // + trims, so we can hand it the raw events list.
+    console.log(
+      "[Loom Annotate] batch start for layer=" +
+        opts.layerName +
+        " lang=" +
+        opts.lang +
+        " events=" +
+        opts.events.length,
     );
-    return new Map(existing);
+    map = await buildAnnotateMap(
+      opts.events.map((e) => e.text),
+      {
+        langCode: opts.lang,
+        phoneticSystem: opts.phoneticSystem,
+        signal: opts.signal,
+      },
+    );
+    if (opts.signal.aborted) return;
+    if (map.size > 0) {
+      setCachedAnnotateMap(cacheKey, map);
+    }
+  } else {
+    console.log(
+      "[Loom Annotate] cache hit for layer=" +
+        opts.layerName +
+        " lang=" +
+        opts.lang +
+        " map_size=" +
+        map.size,
+    );
   }
-}
 
-/** Update the active-event anchors and trigger a rolling-window
-    fetch.  Called by caption-context on every CaptionStream
-    onActiveChange.  Cheap when the window is fully cached. */
-export function notifyActiveEvent(
-  target: CaptionEvent | null,
-  native: CaptionEvent | null,
-): void {
-  activeTargetEvent = target;
-  activeNativeEvent = native;
-  void ensureAnnotationsAround();
+  if (opts.signal.aborted) return;
+  if (!latest || latest.status.kind !== "tracking") return;
+
+  // Emit fresh reference so React picks up the change.  Only update
+  // this layer's field; preserve the other layer's current map.
+  emit({
+    ...latest,
+    targetAnnotateMap:
+      opts.layerName === "target" ? new Map(map) : latest.targetAnnotateMap,
+    nativeAnnotateMap:
+      opts.layerName === "native" ? new Map(map) : latest.nativeAnnotateMap,
+  });
 }
 
 async function fetchWithCache(
@@ -858,13 +791,15 @@ export function setNativePhoneticSystem(code: string | null): void {
       1. Emit `latest` with the now-stale maps cleared (so the UI
          doesn't show wrong-system annotations during the in-flight
          refetch).
-      2. Kick off ensureAnnotationsAround to fetch a fresh window
-         around the current active event.  Phonetic-system changes
-         get a fresh cache key, so the new map starts empty and
-         populates from the playhead outward (no need to refetch
-         events the user already passed). */
+      2. Kick off a fresh /annotate/batch for whichever layer needs
+         it.  Phonetic-system changes get a fresh cache key — the
+         cache miss triggers a full batch refetch for the new
+         system.  Toggle on with cache hit is instant (no network). */
 function rerunAnnotations(): void {
   if (!latest || latest.status.kind !== "tracking") return;
+  const status = latest.status;
+  const targetEvents = latest.targetEvents;
+  const nativeEvents = latest.nativeEvents ?? [];
   emit({
     ...latest,
     targetAnnotateEnabled,
@@ -874,7 +809,12 @@ function rerunAnnotations(): void {
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
   });
-  void ensureAnnotationsAround();
+  void fetchAllAnnotationsForLayers(
+    targetEvents,
+    nativeEvents,
+    status.targetLang,
+    status.nativeLang,
+  );
 }
 
 async function persistNativeLangPref(code: string): Promise<void> {

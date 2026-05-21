@@ -9,7 +9,6 @@ import {
 } from "react";
 
 import {
-  notifyActiveEvent as discoverNotifyActiveEvent,
   setNativeAnnotateEnabled as discoverSetNativeAnnotateEnabled,
   setNativeLangPref as discoverSetNativeLangPref,
   setNativePhoneticSystem as discoverSetNativePhoneticSystem,
@@ -197,10 +196,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
         onActiveChange: (d) => {
           setTarget(d.target);
           setNative(d.native);
-          // Anchor the rolling annotation window at the current
-          // event boundary.  discover.ts dedups against its cache,
-          // so cheap when the window is already prefetched.
-          discoverNotifyActiveEvent(d.target, d.native);
+          // No annotation-fetch trigger here (5d-perf v3): the
+          // /annotate/batch one-shot at track-resolve time pre-
+          // populates the entire map, so playhead boundaries don't
+          // need to drive any network or cache work.
         },
       }),
     [],

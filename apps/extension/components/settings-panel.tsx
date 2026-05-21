@@ -1,7 +1,7 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { useCaptionStream } from "./caption-context";
-import { classifyLang } from "@/lib/captions/lang-support";
+import { classifyLang, type LangSupport } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
 
 // Settings panel — anchored below the pill, top-right of player.
@@ -18,27 +18,68 @@ import type { CaptionTrack } from "@/lib/captions/types";
 // a previously-fetched track is instant.  tlang= changes always hit
 // the network (different cache key) — first fetch ~200ms.
 
-const LANG_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: "en", label: "English" },
-  { code: "es", label: "Spanish" },
-  { code: "pt", label: "Portuguese" },
-  { code: "fr", label: "French" },
-  { code: "de", label: "German" },
-  { code: "it", label: "Italian" },
-  { code: "nl", label: "Dutch" },
-  { code: "ja", label: "Japanese" },
-  { code: "ko", label: "Korean" },
+interface LangOption {
+  code: string;
+  label: string;
+}
+
+/** All Loom-compatible languages.  Engine romanization for the
+    non-Latin ones (see loom_core/romanize.py); Latin-script ones get
+    native-display only — they still appear because dual-subs is
+    valuable even without transformation.  Chinese is split into three
+    rows because the variants drive different romanization systems
+    (Pinyin / Zhuyin / Jyutping) downstream.  Alphabetized by label so
+    the rendered dropdown order matches reading order. */
+const SUPPORTED_LANGS: LangOption[] = [
+  { code: "ar", label: "Arabic" },
+  { code: "be", label: "Belarusian" },
+  { code: "bn", label: "Bengali" },
+  { code: "bg", label: "Bulgarian" },
+  { code: "yue", label: "Cantonese" },
+  { code: "ca", label: "Catalan" },
   { code: "zh-Hans", label: "Chinese (Simplified)" },
   { code: "zh-Hant", label: "Chinese (Traditional)" },
-  { code: "ru", label: "Russian" },
-  { code: "ar", label: "Arabic" },
-  { code: "hi", label: "Hindi" },
-  { code: "th", label: "Thai" },
-  { code: "vi", label: "Vietnamese" },
-  { code: "tr", label: "Turkish" },
-  { code: "pl", label: "Polish" },
-  { code: "id", label: "Indonesian" },
+  { code: "hr", label: "Croatian" },
+  { code: "cs", label: "Czech" },
+  { code: "da", label: "Danish" },
+  { code: "nl", label: "Dutch" },
+  { code: "en", label: "English" },
+  { code: "fil", label: "Filipino" },
+  { code: "fi", label: "Finnish" },
+  { code: "fr", label: "French" },
+  { code: "gl", label: "Galician" },
+  { code: "de", label: "German" },
+  { code: "gu", label: "Gujarati" },
   { code: "he", label: "Hebrew" },
+  { code: "hi", label: "Hindi" },
+  { code: "hu", label: "Hungarian" },
+  { code: "id", label: "Indonesian" },
+  { code: "it", label: "Italian" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "mk", label: "Macedonian" },
+  { code: "ms", label: "Malay" },
+  { code: "mn", label: "Mongolian" },
+  { code: "no", label: "Norwegian" },
+  { code: "fa", label: "Persian" },
+  { code: "pl", label: "Polish" },
+  { code: "pt", label: "Portuguese" },
+  { code: "pa", label: "Punjabi" },
+  { code: "ro", label: "Romanian" },
+  { code: "ru", label: "Russian" },
+  { code: "sr", label: "Serbian" },
+  { code: "sk", label: "Slovak" },
+  { code: "sl", label: "Slovenian" },
+  { code: "es", label: "Spanish" },
+  { code: "sw", label: "Swahili" },
+  { code: "sv", label: "Swedish" },
+  { code: "ta", label: "Tamil" },
+  { code: "te", label: "Telugu" },
+  { code: "th", label: "Thai" },
+  { code: "tr", label: "Turkish" },
+  { code: "uk", label: "Ukrainian" },
+  { code: "ur", label: "Urdu" },
+  { code: "vi", label: "Vietnamese" },
 ];
 
 // Color swatches optimized for legibility over dark video content.
@@ -52,6 +93,41 @@ const COLOR_SWATCHES = [
   "#ff5c9e",
   "#9b8aff",
 ];
+
+// Webkit/Firefox custom scrollbar styling for LangSelect popovers.
+// Injected once via <style> inside the shadow root.  The .scrolling
+// class is toggled by JS on scroll events (800ms idle debounce) so the
+// scrollbar fades in while the user scrolls and fades out when idle.
+// :hover provides a fallback for mouse-only interaction.
+//
+// Firefox uses scrollbar-color / scrollbar-width.  No native transition
+// support in Firefox for those properties — the class toggle produces
+// an instant cut rather than a fade.  Acceptable degradation.
+const SCROLLBAR_CSS = `
+.loom-langselect-list {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.0) transparent;
+}
+.loom-langselect-list.scrolling,
+.loom-langselect-list:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+.loom-langselect-list::-webkit-scrollbar {
+  width: 6px;
+}
+.loom-langselect-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.loom-langselect-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0);
+  border-radius: 3px;
+  transition: background 400ms ease;
+}
+.loom-langselect-list.scrolling::-webkit-scrollbar-thumb,
+.loom-langselect-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+}
+`;
 
 export interface SettingsPanelProps {
   open: boolean;
@@ -89,9 +165,7 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
   // (loom-overlay-root) for any click inside the shadow tree — so we
   // can't tell pill-clicks from panel-clicks via target alone.
   // composedPath() walks through the shadow boundary so we can check
-  // it against both refs.  Without the pill exemption, clicking the
-  // pill to close would (a) trigger this mousedown → onClose, then (b)
-  // fire the pill's onClick → re-toggle to open.
+  // it against both refs.
   useEffect(() => {
     if (!open) return;
     const handleDown = (e: MouseEvent) => {
@@ -108,6 +182,11 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
 
   return (
     <div ref={panelRef} style={panelStyle()}>
+      {/* Scoped scrollbar styling for nested LangSelect lists.  Lives
+          inside the shadow root via this <style> element; no external
+          stylesheet. */}
+      <style>{SCROLLBAR_CSS}</style>
+
       <div style={headerStyle()}>
         <span>Loom settings</span>
         <button
@@ -121,17 +200,11 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
       </div>
 
       <Section title="Native language (auto-pick base)">
-        <select
+        <LangSelect
           value={nativeLangPref}
-          onChange={(e) => setNativeLangPref(e.target.value)}
-          style={selectStyle()}
-        >
-          {LANG_OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {opt.label} ({opt.code})
-            </option>
-          ))}
-        </select>
+          onChange={(code) => setNativeLangPref(code)}
+          options={SUPPORTED_LANGS}
+        />
         <p style={hintStyle()}>
           Auto-pick matches any regional variant (en → en-US, en-GB, en-AU…).
         </p>
@@ -169,6 +242,145 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
         />
       </Section>
     </div>
+  );
+}
+
+// ---- LangSelect — custom dropdown ----------------------------------
+//
+// Native <select> can't be styled enough to give the fading-scrollbar
+// dropdown look the diagnostic UI needs.  This custom component
+// renders a button trigger + (when open) an inline-expanded list with
+// a max-height set to ~10 items.  Inline rather than position:absolute
+// because the panel's overflow:auto would clip an absolutely-positioned
+// popover; making the dropdown part of the flow lets the panel itself
+// scroll to expose the list when it opens near the bottom.
+
+interface LangSelectProps {
+  /** Current value.  Empty string represents emptyOption when set. */
+  value: string;
+  onChange: (value: string) => void;
+  options: LangOption[];
+  /** When provided, adds a sentinel row at the top with this label;
+      value for that row is "" (empty string).  Used by the
+      "Translate to" selects to model "(no translation)". */
+  emptyOption?: { label: string };
+}
+
+const MAX_ITEMS_VISIBLE = 10;
+const ITEM_HEIGHT_PX = 28;
+const SCROLL_IDLE_TIMEOUT_MS = 800;
+
+function LangSelect({ value, onChange, options, emptyOption }: LangSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [scrolling, setScrolling] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const currentLabel = (() => {
+    if (value === "" && emptyOption) return emptyOption.label;
+    const found = options.find((o) => o.code === value);
+    return found ? `${found.label} (${found.code})` : value || "—";
+  })();
+
+  // Click-outside dismiss — same composedPath trick as the outer panel.
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      const path = e.composedPath();
+      if (buttonRef.current && path.includes(buttonRef.current)) return;
+      if (listRef.current && path.includes(listRef.current)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handle, true);
+    return () => document.removeEventListener("mousedown", handle, true);
+  }, [open]);
+
+  // Scrollbar fade — debounce scroll events.  Class toggle drives the
+  // CSS transition in SCROLLBAR_CSS.
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current;
+    if (!el) return;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      setScrolling(true);
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(
+        () => setScrolling(false),
+        SCROLL_IDLE_TIMEOUT_MS,
+      );
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [open]);
+
+  function pick(code: string): void {
+    onChange(code);
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={selectButtonStyle(open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span style={selectButtonLabelStyle()}>{currentLabel}</span>
+        <span style={chevronStyle(open)}>▾</span>
+      </button>
+      {open && (
+        <div
+          ref={listRef}
+          className={`loom-langselect-list${scrolling ? " scrolling" : ""}`}
+          style={listStyle()}
+          role="listbox"
+        >
+          {emptyOption && (
+            <LangSelectItem
+              label={emptyOption.label}
+              isSelected={value === ""}
+              onClick={() => pick("")}
+            />
+          )}
+          {options.map((opt) => (
+            <LangSelectItem
+              key={opt.code}
+              label={`${opt.label} (${opt.code})`}
+              isSelected={value === opt.code}
+              onClick={() => pick(opt.code)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface LangSelectItemProps {
+  label: string;
+  isSelected: boolean;
+  onClick: () => void;
+}
+
+function LangSelectItem({ label, isSelected, onClick }: LangSelectItemProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={langSelectItemStyle(isSelected)}
+      role="option"
+      aria-selected={isSelected}
+    >
+      <span style={trackRowDotStyle(isSelected)} />
+      <span style={langSelectItemLabelStyle()}>{label}</span>
+    </button>
   );
 }
 
@@ -213,20 +425,14 @@ function LayerSection({
           />
           <div style={translateRowStyle()}>
             <label style={translateLabelStyle()}>Translate to</label>
-            <select
+            <LangSelect
               value={translateTo ?? ""}
-              onChange={(e) =>
-                onPickTranslateTo(e.target.value === "" ? null : e.target.value)
+              onChange={(code) =>
+                onPickTranslateTo(code === "" ? null : code)
               }
-              style={selectStyle()}
-            >
-              <option value="">(no translation)</option>
-              {LANG_OPTIONS.map((opt) => (
-                <option key={opt.code} value={opt.code}>
-                  {opt.label} ({opt.code})
-                </option>
-              ))}
-            </select>
+              options={SUPPORTED_LANGS}
+              emptyOption={{ label: "(no translation)" }}
+            />
           </div>
         </>
       )}
@@ -290,13 +496,34 @@ function TrackList({
             isAuto={!isUserPicked && isSelected}
             onClick={() => onPick(track)}
             primary={track.name}
-            secondary={`${track.languageCode} · ${classification.processing}`}
+            secondary={`${track.languageCode} · ${describeProcessing(classification)}`}
             badge={track.kind === "asr" ? "asr" : "manual"}
           />
         );
       })}
     </div>
   );
+}
+
+/** Short human-readable description of the downstream romanization /
+    annotation system a track will route through.  Chinese variants
+    differentiated by chineseVariant (drives Pinyin vs Zhuyin vs
+    Jyutping), which is the load-bearing distinction for 5d/5e plans. */
+function describeProcessing(c: LangSupport): string {
+  if (c.family === "cjk-han") {
+    if (c.chineseVariant === "simplified") return "Pinyin";
+    if (c.chineseVariant === "traditional") return "Zhuyin";
+    if (c.chineseVariant === "cantonese") return "Jyutping";
+  }
+  if (c.family === "kana") return "Romaji";
+  if (c.family === "hangul") return "RR (Romanization)";
+  if (c.family === "cyrillic") return "Cyrillic translit";
+  if (c.family === "thai") return "Thai translit";
+  if (c.family === "hebrew") return "Hebrew translit";
+  if (c.family === "arabic") return "Arabic translit";
+  if (c.family === "indic") return "IAST";
+  if (c.processing === "native-display") return "Latin (no romanize)";
+  return "no romanizer yet";
 }
 
 interface TrackRowProps {
@@ -429,17 +656,96 @@ function sectionTitleStyle(): React.CSSProperties {
   };
 }
 
-function selectStyle(): React.CSSProperties {
+function selectButtonStyle(open: boolean): React.CSSProperties {
   return {
     width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
     padding: "6px 8px",
     borderRadius: "6px",
-    border: "1px solid rgba(255, 255, 255, 0.12)",
+    border: open
+      ? "1px solid rgba(93, 255, 170, 0.4)"
+      : "1px solid rgba(255, 255, 255, 0.12)",
     background: "rgba(255, 255, 255, 0.06)",
     color: "#fff",
     fontSize: "12px",
     fontFamily: "inherit",
     outline: "none",
+    cursor: "pointer",
+    textAlign: "left",
+    transition: "border-color 120ms ease",
+  };
+}
+
+function selectButtonLabelStyle(): React.CSSProperties {
+  return {
+    flex: "1 1 auto",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+
+function chevronStyle(open: boolean): React.CSSProperties {
+  return {
+    flex: "0 0 auto",
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.5)",
+    transform: open ? "rotate(180deg)" : "rotate(0deg)",
+    transition: "transform 160ms ease",
+  };
+}
+
+function listStyle(): React.CSSProperties {
+  return {
+    marginTop: "4px",
+    // Internal scroll cap at ~10 items.  Each item is 28px (padding +
+    // text) + 4px gap between → ~28px per row; plus 4px top + 4px
+    // bottom padding around the list.
+    maxHeight: `${MAX_ITEMS_VISIBLE * ITEM_HEIGHT_PX + 8}px`,
+    overflowY: "auto",
+    background: "rgba(28, 28, 32, 0.98)",
+    borderRadius: "6px",
+    border: "1px solid rgba(255, 255, 255, 0.1)",
+    padding: "4px",
+    boxShadow: "0 6px 18px rgba(0, 0, 0, 0.4)",
+    pointerEvents: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "1px",
+  };
+}
+
+function langSelectItemStyle(isSelected: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "5px 8px",
+    minHeight: "24px",
+    borderRadius: "4px",
+    border: "1px solid transparent",
+    background: isSelected
+      ? "rgba(93, 255, 170, 0.12)"
+      : "transparent",
+    borderColor: isSelected ? "rgba(93, 255, 170, 0.35)" : "transparent",
+    color: "#fff",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    textAlign: "left",
+    width: "100%",
+  };
+}
+
+function langSelectItemLabelStyle(): React.CSSProperties {
+  return {
+    flex: "1 1 auto",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   };
 }
 

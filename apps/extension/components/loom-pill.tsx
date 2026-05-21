@@ -33,7 +33,14 @@ import type { DiscoveryStatus } from "@/lib/captions/discover";
 // box-shadow accent intensity differs between open / closed (no
 // animation).
 
-export function LoomPill() {
+export interface LoomPillProps {
+  /** Called when the user clicks "Turn off Loom on this tab" in the
+      settings panel.  LoomApp unmounts the active tree in response,
+      reverting to the DormantPill. */
+  onDeactivate: () => void;
+}
+
+export function LoomPill({ onDeactivate }: LoomPillProps) {
   const { status } = useCaptionStream();
   const [open, setOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement | null>(null);
@@ -51,7 +58,12 @@ export function LoomPill() {
         onToggle={handleToggle}
         pillRef={pillRef}
       />
-      <SettingsPanel open={open} onClose={handleClose} pillRef={pillRef} />
+      <SettingsPanel
+        open={open}
+        onClose={handleClose}
+        pillRef={pillRef}
+        onDeactivate={onDeactivate}
+      />
     </>
   );
 }

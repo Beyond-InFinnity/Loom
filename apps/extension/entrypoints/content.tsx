@@ -1,9 +1,6 @@
 import ReactDOM from "react-dom/client";
 
-import { CaptionOverlay } from "@/components/caption-overlay";
-import { CaptionStreamProvider } from "@/components/caption-context";
-import { LoomPill } from "@/components/loom-pill";
-import { installCaptionDiscovery } from "@/lib/captions/discover";
+import { LoomApp } from "@/components/loom-app";
 
 // Content script for YouTube watch pages.
 //
@@ -45,13 +42,14 @@ export default defineContentScript({
   runAt: "document_idle",
 
   async main(ctx) {
-    // Install the caption-discovery message listener IMMEDIATELY,
-    // before awaiting #movie_player.  Race-fix: MAIN's pollForTracks
-    // can complete and postPayload before WXT's shadow-root mount +
-    // React effect chain installs the listener, dropping the
-    // tracklist message into the void.  Installing eagerly here
-    // means the listener is in place from document_idle onward.
-    installCaptionDiscovery();
+    // Per-tab activation (5d-perf): we no longer eagerly install the
+    // caption-discovery message listener here.  LoomApp starts dormant
+    // by default; when the user activates Loom for this tab, the
+    // CaptionStreamProvider's useEffect calls subscribeToCaptions
+    // which installs the listener AND posts request-tracklist to
+    // MAIN.  MAIN caches its latest tracklist in latestPayload and
+    // re-emits on request, so the late-subscribe race from 5c is
+    // already handled at the MAIN side — no eager install needed.
 
     // Inject the host-positioning rule BEFORE the host is appended
     // to the DOM.  Whenever WXT inserts <loom-overlay-root>, the
@@ -83,12 +81,7 @@ export default defineContentScript({
         uiContainer.style.inset = "0";
 
         const root = ReactDOM.createRoot(uiContainer);
-        root.render(
-          <CaptionStreamProvider>
-            <CaptionOverlay />
-            <LoomPill />
-          </CaptionStreamProvider>,
-        );
+        root.render(<LoomApp />);
         return root;
       },
       onRemove: (root) => {

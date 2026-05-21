@@ -155,9 +155,18 @@ export interface SettingsPanelProps {
   /** Ref to the pill button so the click-outside handler can ignore
       pill clicks — the pill's own onClick toggles open/closed state. */
   pillRef: RefObject<HTMLElement | null>;
+  /** Plumbed from LoomApp → LoomPill → here.  "Turn off Loom on this
+      tab" button at the bottom of the panel calls this; LoomApp
+      unmounts the active tree on the next render. */
+  onDeactivate: () => void;
 }
 
-export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
+export function SettingsPanel({
+  open,
+  onClose,
+  pillRef,
+  onDeactivate,
+}: SettingsPanelProps) {
   const {
     tracks,
     selectedTarget,
@@ -314,6 +323,20 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
           onChange={setBottomColor}
         />
       </Section>
+
+      <div style={deactivateRowStyle()}>
+        <button
+          type="button"
+          onClick={onDeactivate}
+          style={deactivateButtonStyle()}
+        >
+          Turn off Loom on this tab
+        </button>
+        <p style={hintStyle()}>
+          Reactivate via the small pill that returns when you turn it
+          off.  Persists across reloads of this tab.
+        </p>
+      </div>
     </div>
   );
 }
@@ -1229,5 +1252,32 @@ function annotateSystemLabelStyle(): React.CSSProperties {
     color: "rgba(255, 255, 255, 0.5)",
     textTransform: "uppercase",
     letterSpacing: "0.06em",
+  };
+}
+
+function deactivateRowStyle(): React.CSSProperties {
+  return {
+    marginTop: "8px",
+    paddingTop: "10px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  };
+}
+
+function deactivateButtonStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    padding: "8px 12px",
+    borderRadius: "6px",
+    border: "1px solid rgba(255, 122, 122, 0.35)",
+    background: "rgba(255, 122, 122, 0.1)",
+    color: "#ff9e9e",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    fontWeight: 500,
+    cursor: "pointer",
+    textAlign: "center",
   };
 }

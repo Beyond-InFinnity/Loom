@@ -213,6 +213,13 @@ function cacheKey(
 let latest: CaptionPayload | null = null;
 const listeners: Set<Listener> = new Set();
 let installed = false;
+/** Per-tab activation gate (5d-perf).  When no React subscribers are
+    attached (LoomApp is dormant), MAIN's tracklist postMessages are
+    silently dropped — no /timedtext fetch, no annotation fan-out, no
+    React state churn.  Goes 0→1 when LoomApp activates, 1→0 when the
+    user clicks "Turn off Loom on this tab".  Window message listener
+    stays attached for the page lifetime; the gate is cheap. */
+let activeSubscriberCount = 0;
 /** Monotonic generation counter — guards async resolves from emitting
     after a newer resolve has superseded them (e.g., user clicks
     rapidly, or video navigation interrupts a fanout). */
@@ -226,6 +233,13 @@ function handleMessage(event: MessageEvent): void {
   const data = event.data as MainTracklist | undefined;
   if (!data || data.source !== MAIN_SOURCE) return;
   if (data.type !== "tracklist") return;
+  // Per-tab activation gate (5d-perf).  When LoomApp is dormant there
+  // are no React subscribers, so we drop MAIN's tracklist on the floor
+  // — no /timedtext fetch, no annotation work.  MAIN caches the
+  // tracklist server-side in its `latestPayload`, so when the user
+  // later activates and subscribeToCaptions sends request-tracklist,
+  // MAIN re-emits and we pick up here.
+  if (activeSubscriberCount === 0) return;
   discoverSession(data).catch((e) => {
     console.error("[Loom] discover.discoverSession threw:", e);
     emit({
@@ -938,14 +952,38 @@ export function installCaptionDiscovery(): void {
 }
 
 /** Subscribe to discovery results.  Listener fires immediately with
-    any latched value (handles late subscribers) then on every update. */
+    any latched value (handles late subscribers) then on every update.
+
+    Per-tab activation gate (5d-perf): the FIRST subscriber flips the
+    activeSubscriberCount 0→1, ungating handleMessage to start
+    processing MAIN's tracklists.  Sends request-tracklist so MAIN
+    re-emits its cached payload (since previous tracklists arriving
+    during dormant state were dropped).  The LAST unsubscribe (count
+    1→0) re-gates handleMessage — dormant state again. */
 export function subscribeToCaptions(listener: Listener): () => void {
   ensureInstalled();
   listeners.add(listener);
+  const wasDormant = activeSubscriberCount === 0;
+  activeSubscriberCount += 1;
   if (latest !== null) {
     listener(latest);
   }
+  if (wasDormant) {
+    // Going active.  Ask MAIN to re-emit its cached tracklist so we
+    // pick up whatever was dropped while dormant.
+    window.postMessage(
+      { source: ISO_SOURCE, type: "request-tracklist" },
+      location.origin,
+    );
+  }
   return () => {
     listeners.delete(listener);
+    activeSubscriberCount = Math.max(0, activeSubscriberCount - 1);
+    if (activeSubscriberCount === 0) {
+      // Going dormant.  Abort any in-flight rolling-window annotation
+      // fetches so they don't continue burning CPU after the user
+      // explicitly turned Loom off.
+      annotateAbortController?.abort();
+    }
   };
 }

@@ -24,14 +24,40 @@ import {
   restoreYtCaptions,
 } from "@/lib/overlay/hide-yt-captions";
 
-// Color preferences live in caption-context (not discover.ts) because
-// they're presentation state, not caption-discovery state.  Persisted
-// to browser.storage.local so they survive page reloads; load is fire-
-// and-forget on mount.
+// Color + position preferences live in caption-context (not discover.ts)
+// because they're presentation state, not caption-discovery state.
+// All persisted to browser.storage.local; load is fire-and-forget on
+// mount, default values render until the storage read lands.
 const STORAGE_KEY_TOP_COLOR = "loom_top_color";
 const STORAGE_KEY_BOTTOM_COLOR = "loom_bottom_color";
+const STORAGE_KEY_TARGET_POSITION = "loom_target_position";
+const STORAGE_KEY_NATIVE_POSITION = "loom_native_position";
 const DEFAULT_TOP_COLOR = "#ffffff";
 const DEFAULT_BOTTOM_COLOR = "#ffffff";
+
+/** Slot a track occupies on screen.
+    - top-1    : top of player, upper line of top zone (visually highest)
+    - top-2    : top of player, lower line of top zone
+    - bottom-1 : bottom of player, upper line of bottom zone
+    - bottom-2 : bottom of player, lower line of bottom zone (visually lowest)
+
+    Solo case (only one track in a zone): the slot-1/slot-2 distinction
+    is irrelevant — flex layout collapses the single layer onto the
+    zone's anchor edge.  See caption-overlay.tsx for the rendering. */
+export type CaptionPosition = "top-1" | "top-2" | "bottom-1" | "bottom-2";
+
+const VALID_POSITIONS: CaptionPosition[] = [
+  "top-1",
+  "top-2",
+  "bottom-1",
+  "bottom-2",
+];
+const DEFAULT_TARGET_POSITION: CaptionPosition = "bottom-1";
+const DEFAULT_NATIVE_POSITION: CaptionPosition = "bottom-2";
+
+function isCaptionPosition(v: unknown): v is CaptionPosition {
+  return typeof v === "string" && (VALID_POSITIONS as string[]).includes(v);
+}
 
 interface CaptionContextValue {
   /** Lifecycle status from discovery — drives the pill + overlay
@@ -65,6 +91,10 @@ interface CaptionContextValue {
   topColor: string;
   bottomColor: string;
 
+  /** Per-track screen position.  See CaptionPosition above.  Persisted. */
+  targetPosition: CaptionPosition;
+  nativePosition: CaptionPosition;
+
   /** Setters wired into discover.ts.  Pass null to revert to
       auto-pick. */
   setTargetTrack: (track: CaptionTrack | null) => void;
@@ -74,6 +104,10 @@ interface CaptionContextValue {
   setNativeLangPref: (code: string) => void;
   setTopColor: (hex: string) => void;
   setBottomColor: (hex: string) => void;
+  /** Position setters auto-swap when the requested slot is already
+      occupied by the other track, so state stays collision-free. */
+  setTargetPosition: (pos: CaptionPosition) => void;
+  setNativePosition: (pos: CaptionPosition) => void;
 }
 
 const CaptionContext = createContext<CaptionContextValue | null>(null);
@@ -100,6 +134,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [nativeLangPref, setNativeLangPrefState] = useState("en");
   const [topColor, setTopColorState] = useState(DEFAULT_TOP_COLOR);
   const [bottomColor, setBottomColorState] = useState(DEFAULT_BOTTOM_COLOR);
+  const [targetPosition, setTargetPositionState] = useState<CaptionPosition>(
+    DEFAULT_TARGET_POSITION,
+  );
+  const [nativePosition, setNativePositionState] = useState<CaptionPosition>(
+    DEFAULT_NATIVE_POSITION,
+  );
 
   const stream = useMemo(
     () =>
@@ -162,22 +202,35 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     };
   }, [stream]);
 
-  // One-shot load of persisted color preferences.  Fire-and-forget;
-  // unpersisted defaults render until the storage read lands.
+  // One-shot load of persisted color + position preferences.  Fire-
+  // and-forget; unpersisted defaults render until the storage read
+  // lands.  Position values are validated against VALID_POSITIONS so a
+  // stale/corrupt entry doesn't poison render — we silently fall back
+  // to the default.
   useEffect(() => {
     void (async () => {
       try {
         const result = await browser.storage.local.get([
           STORAGE_KEY_TOP_COLOR,
           STORAGE_KEY_BOTTOM_COLOR,
+          STORAGE_KEY_TARGET_POSITION,
+          STORAGE_KEY_NATIVE_POSITION,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
+        const tPos = result[STORAGE_KEY_TARGET_POSITION];
+        const nPos = result[STORAGE_KEY_NATIVE_POSITION];
         if (typeof top === "string" && top.length > 0) setTopColorState(top);
         if (typeof bottom === "string" && bottom.length > 0)
           setBottomColorState(bottom);
+        if (isCaptionPosition(tPos) && isCaptionPosition(nPos) && tPos !== nPos) {
+          // Both validated AND non-colliding.  Anything else falls
+          // back to defaults so we never start in a broken state.
+          setTargetPositionState(tPos);
+          setNativePositionState(nPos);
+        }
       } catch (e) {
-        console.warn("[Loom] failed to load color prefs:", e);
+        console.warn("[Loom] failed to load presentation prefs:", e);
       }
     })();
   }, []);
@@ -210,6 +263,51 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       .catch((e) => console.warn("[Loom] failed to persist bottomColor:", e));
   }, []);
 
+  // Position setters use functional setState so they read the latest
+  // sibling-position (the OTHER track's slot) without needing it as a
+  // dep.  When the requested slot is the sibling's current slot, swap
+  // — sibling takes our old slot, we take the requested slot.  Keeps
+  // the {target, native} pair always at two distinct slots.
+  const setTargetPosition = useCallback((pos: CaptionPosition) => {
+    setTargetPositionState((prevTarget) => {
+      setNativePositionState((prevNative) => {
+        const next = prevNative === pos ? prevTarget : prevNative;
+        void browser.storage.local
+          .set({ [STORAGE_KEY_NATIVE_POSITION]: next })
+          .catch((e) =>
+            console.warn("[Loom] failed to persist nativePosition:", e),
+          );
+        return next;
+      });
+      void browser.storage.local
+        .set({ [STORAGE_KEY_TARGET_POSITION]: pos })
+        .catch((e) =>
+          console.warn("[Loom] failed to persist targetPosition:", e),
+        );
+      return pos;
+    });
+  }, []);
+
+  const setNativePosition = useCallback((pos: CaptionPosition) => {
+    setNativePositionState((prevNative) => {
+      setTargetPositionState((prevTarget) => {
+        const next = prevTarget === pos ? prevNative : prevTarget;
+        void browser.storage.local
+          .set({ [STORAGE_KEY_TARGET_POSITION]: next })
+          .catch((e) =>
+            console.warn("[Loom] failed to persist targetPosition:", e),
+          );
+        return next;
+      });
+      void browser.storage.local
+        .set({ [STORAGE_KEY_NATIVE_POSITION]: pos })
+        .catch((e) =>
+          console.warn("[Loom] failed to persist nativePosition:", e),
+        );
+      return pos;
+    });
+  }, []);
+
   const value = useMemo<CaptionContextValue>(
     () => ({
       status,
@@ -226,6 +324,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativeLangPref,
       topColor,
       bottomColor,
+      targetPosition,
+      nativePosition,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -233,6 +333,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeLangPref,
       setTopColor,
       setBottomColor,
+      setTargetPosition,
+      setNativePosition,
     }),
     [
       status,
@@ -249,6 +351,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativeLangPref,
       topColor,
       bottomColor,
+      targetPosition,
+      nativePosition,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -256,6 +360,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeLangPref,
       setTopColor,
       setBottomColor,
+      setTargetPosition,
+      setNativePosition,
     ],
   );
 

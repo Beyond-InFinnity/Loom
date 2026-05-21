@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { useCaptionStream } from "./caption-context";
+import type { CaptionPosition } from "./caption-context";
 import { classifyLang, type LangSupport } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
 
@@ -106,6 +107,13 @@ const COLOR_SWATCHES = [
   "#9b8aff",
 ];
 
+const POSITION_OPTIONS: Array<{ code: CaptionPosition; label: string }> = [
+  { code: "top-1", label: "↑ Top 1" },
+  { code: "top-2", label: "↑ Top 2" },
+  { code: "bottom-1", label: "↓ Bot 1" },
+  { code: "bottom-2", label: "↓ Bot 2" },
+];
+
 // Webkit/Firefox custom scrollbar styling for LangSelect popovers.
 // Injected once via <style> inside the shadow root.  The .scrolling
 // class is toggled by JS on scroll events (800ms idle debounce) so the
@@ -161,6 +169,8 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
     nativeLangPref,
     topColor,
     bottomColor,
+    targetPosition,
+    nativePosition,
     setTargetTrack,
     setNativeTrack,
     setTargetTranslateTo,
@@ -168,6 +178,8 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
     setNativeLangPref,
     setTopColor,
     setBottomColor,
+    setTargetPosition,
+    setNativePosition,
   } = useCaptionStream();
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -244,6 +256,23 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
         allowNullTrack
         nullLabel={`(auto: tlang=${nativeLangPref} when no native track)`}
       />
+
+      <Section title="Position">
+        <PositionRow
+          label="Target"
+          value={targetPosition}
+          onChange={setTargetPosition}
+        />
+        <PositionRow
+          label="Native"
+          value={nativePosition}
+          onChange={setNativePosition}
+        />
+        <p style={hintStyle()}>
+          Slot 1 = upper line in its zone, slot 2 = lower.  Solo in a
+          zone uses the zone's default position.
+        </p>
+      </Section>
 
       <Section title="Colors">
         <ColorRow label="Top" value={topColor} onChange={setTopColor} />
@@ -602,6 +631,33 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
   );
 }
 
+interface PositionRowProps {
+  label: string;
+  value: CaptionPosition;
+  onChange: (pos: CaptionPosition) => void;
+}
+
+function PositionRow({ label, value, onChange }: PositionRowProps) {
+  return (
+    <div style={positionRowStyle()}>
+      <span style={positionLabelStyle()}>{label}</span>
+      <div style={positionButtonsStyle()}>
+        {POSITION_OPTIONS.map((opt) => (
+          <button
+            key={opt.code}
+            type="button"
+            onClick={() => onChange(opt.code)}
+            style={positionButtonStyle(value === opt.code)}
+            aria-pressed={value === opt.code}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---- Styles ---------------------------------------------------------
 
 function panelStyle(): React.CSSProperties {
@@ -946,5 +1002,52 @@ function colorInputStyle(): React.CSSProperties {
     background: "transparent",
     padding: 0,
     cursor: "pointer",
+  };
+}
+
+function positionRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "6px 0",
+  };
+}
+
+function positionLabelStyle(): React.CSSProperties {
+  return {
+    flex: "0 0 50px",
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.75)",
+  };
+}
+
+function positionButtonsStyle(): React.CSSProperties {
+  return {
+    flex: "1 1 auto",
+    display: "flex",
+    gap: "4px",
+    flexWrap: "wrap",
+  };
+}
+
+function positionButtonStyle(isSelected: boolean): React.CSSProperties {
+  return {
+    flex: "1 1 0",
+    minWidth: "48px",
+    padding: "5px 6px",
+    borderRadius: "4px",
+    border: isSelected
+      ? "1px solid rgba(93, 255, 170, 0.45)"
+      : "1px solid rgba(255, 255, 255, 0.12)",
+    background: isSelected
+      ? "rgba(93, 255, 170, 0.15)"
+      : "rgba(255, 255, 255, 0.04)",
+    color: isSelected ? "#5dffaa" : "#fff",
+    fontSize: "11px",
+    fontFamily: "inherit",
+    fontWeight: 500,
+    cursor: "pointer",
+    textAlign: "center",
   };
 }

@@ -28,7 +28,15 @@
 
 import { autoPick } from "./auto-pick";
 import { fetchTrackEventsViaSwap } from "./fanout";
+import { classifyLang } from "./lang-support";
 import type { CaptionEvent, CaptionTrack } from "./types";
+import { buildAnnotateMap } from "../annotate/build-map";
+import {
+  annotateCacheKey,
+  getCachedAnnotateMap,
+  setCachedAnnotateMap,
+} from "../annotate/cache";
+import type { AnnotateMap } from "../annotate/types";
 
 const MAIN_SOURCE = "loom-main";
 const ISO_SOURCE = "loom-iso";
@@ -42,6 +50,17 @@ const PREFETCH_POLL_TIMEOUT_MS = 2000;
 const TRIGGER_POLL_TIMEOUT_MS = 4000;
 const NATIVE_LANG_PREF_STORAGE_KEY = "loom_native_lang_pref";
 const DEFAULT_NATIVE_LANG = "en";
+
+// Annotation prefs — persisted across sessions because they're style
+// preferences, not per-page selections.  Target defaults on (the
+// headline feature for CJK + Korean videos); native defaults off
+// (the user's reading language doesn't need furigana for itself).
+const STORAGE_KEY_TARGET_ANNOTATE_ENABLED = "loom_target_annotate_enabled";
+const STORAGE_KEY_NATIVE_ANNOTATE_ENABLED = "loom_native_annotate_enabled";
+const STORAGE_KEY_TARGET_PHONETIC = "loom_target_phonetic_system";
+const STORAGE_KEY_NATIVE_PHONETIC = "loom_native_phonetic_system";
+const DEFAULT_TARGET_ANNOTATE_ENABLED = true;
+const DEFAULT_NATIVE_ANNOTATE_ENABLED = false;
 
 interface MainTracklist {
   source: typeof MAIN_SOURCE;
@@ -90,6 +109,20 @@ export interface CaptionPayload {
   /** Base BCP-47 code the auto-picker uses for native matching.
       Persisted to browser.storage.local. */
   nativeLangPref: string;
+  /** Per-track annotation enable flag.  Persisted.  When enabled +
+      lang is annotate-romanize, resolveCaptions fans out /annotate
+      and re-emits with targetAnnotateMap populated. */
+  targetAnnotateEnabled: boolean;
+  nativeAnnotateEnabled: boolean;
+  /** Per-track phonetic-system override.  null = backend decides
+      (Hans→Pinyin, Hant→Zhuyin, yue→Jyutping).  Persisted. */
+  targetPhoneticSystem: string | null;
+  nativePhoneticSystem: string | null;
+  /** Annotation span maps keyed by event text.  null when annotation
+      is disabled OR fetch is still in flight; populated by the
+      second-stage emit after buildAnnotateMap completes. */
+  targetAnnotateMap: AnnotateMap | null;
+  nativeAnnotateMap: AnnotateMap | null;
   /** Parsed events for the selected target.  null when not yet
       fetched or fetch failed. */
   targetEvents: CaptionEvent[] | null;
@@ -134,6 +167,21 @@ function emptySession(): Session {
 let session: Session = emptySession();
 let nativeLangPref: string = DEFAULT_NATIVE_LANG;
 let nativeLangPrefLoaded = false;
+
+// Annotation prefs are STYLE preferences (persist across video
+// navigation + page reloads), distinct from per-page Session state.
+// Kept as module-level vars so they survive emptySession() on
+// isNewVideo.  Loaded once during ensureInstalled().
+let targetAnnotateEnabled = DEFAULT_TARGET_ANNOTATE_ENABLED;
+let nativeAnnotateEnabled = DEFAULT_NATIVE_ANNOTATE_ENABLED;
+let targetPhoneticSystem: string | null = null;
+let nativePhoneticSystem: string | null = null;
+let annotationPrefsLoaded = false;
+
+/** AbortController for in-flight annotation fan-outs.  Single shared
+    controller — new fetch cancels the previous, so we don't stack
+    overlapping fan-outs when the user rapid-fires settings changes. */
+let annotateAbortController: AbortController | null = null;
 
 /** (videoId :: languageCode :: tlang) → parsed events.  Re-pick is
     instant after the first fetch.  Cleared on video navigation so the
@@ -411,6 +459,105 @@ async function resolveCaptions(): Promise<void> {
     targetEvents,
     nativeEvents: nativeEvents ?? [],
   });
+
+  // Two-stage emit (5d): captions render immediately on the emit above;
+  // annotation fanout runs asynchronously and re-emits with the maps
+  // populated when it completes.  Generation counter guards stale
+  // emits if a newer resolve supersedes us mid-fetch.
+  void resolveAnnotations(
+    generation,
+    targetEvents,
+    nativeEvents ?? [],
+    effectiveTargetLang,
+    effectiveNativeLang,
+  );
+}
+
+/** Fetch annotation maps for target + native events in parallel and
+    re-emit `latest` with the maps populated.  Called from
+    resolveCaptions after the initial event emit AND from annotation-
+    setter side effects (toggle on, phonetic-system change). */
+async function resolveAnnotations(
+  generation: number,
+  targetEvents: CaptionEvent[] | null,
+  nativeEvents: CaptionEvent[],
+  effectiveTargetLang: string,
+  effectiveNativeLang: string,
+): Promise<void> {
+  // Cancel any prior in-flight fetch.
+  annotateAbortController?.abort();
+  annotateAbortController = new AbortController();
+  const signal = annotateAbortController.signal;
+
+  // Annotation only meaningful when classification is annotate-romanize.
+  // 5d ships CJK + Korean (ja, ko, zh-Hans, zh-Hant, yue).  Other langs
+  // fall through with map=null and overlay renders plain text.
+  const targetClass = classifyLang(effectiveTargetLang);
+  const nativeClass = classifyLang(effectiveNativeLang);
+  const wantTarget =
+    targetAnnotateEnabled &&
+    targetClass.processing === "annotate-romanize" &&
+    !!targetEvents &&
+    targetEvents.length > 0;
+  const wantNative =
+    nativeAnnotateEnabled &&
+    nativeClass.processing === "annotate-romanize" &&
+    nativeEvents.length > 0;
+
+  if (!wantTarget && !wantNative) return;
+
+  const videoId = session.videoId ?? "";
+
+  async function fetchOne(
+    events: CaptionEvent[],
+    lang: string,
+    phoneticSystem: string | null,
+  ): Promise<AnnotateMap | null> {
+    const key = annotateCacheKey(videoId, lang, phoneticSystem);
+    const cached = getCachedAnnotateMap(key);
+    if (cached) return cached;
+    try {
+      const map = await buildAnnotateMap(
+        events.map((e) => e.text),
+        { langCode: lang, phoneticSystem, signal },
+      );
+      if (signal.aborted) return null;
+      setCachedAnnotateMap(key, map);
+      return map;
+    } catch (e) {
+      const err = e as Error;
+      if (err.name === "AbortError") return null;
+      console.warn("[Loom Annotate] resolveAnnotations fetch failed:", err);
+      return null;
+    }
+  }
+
+  const [tMap, nMap] = await Promise.all([
+    wantTarget
+      ? fetchOne(targetEvents!, effectiveTargetLang, targetPhoneticSystem)
+      : Promise.resolve(null),
+    wantNative
+      ? fetchOne(nativeEvents, effectiveNativeLang, nativePhoneticSystem)
+      : Promise.resolve(null),
+  ]);
+
+  if (signal.aborted || generation !== resolveGeneration) return;
+  if (!latest) return;
+
+  console.log(
+    "[Loom Annotate] resolve gen",
+    generation,
+    "target",
+    wantTarget ? `${effectiveTargetLang} → ${tMap?.size ?? 0} entries` : "—",
+    "native",
+    wantNative ? `${effectiveNativeLang} → ${nMap?.size ?? 0} entries` : "—",
+  );
+
+  emit({
+    ...latest,
+    targetAnnotateMap: tMap,
+    nativeAnnotateMap: nMap,
+  });
 }
 
 async function fetchWithCache(
@@ -477,6 +624,12 @@ function buildBasePayload(): CaptionPayload {
     targetTranslateTo: session.targetTranslateTo,
     nativeTranslateTo: session.nativeTranslateTo,
     nativeLangPref,
+    targetAnnotateEnabled,
+    nativeAnnotateEnabled,
+    targetPhoneticSystem,
+    nativePhoneticSystem,
+    targetAnnotateMap: null,
+    nativeAnnotateMap: null,
     targetEvents: null,
     nativeEvents: null,
   };
@@ -531,6 +684,74 @@ export function setNativeLangPref(code: string): void {
   void resolveCaptions();
 }
 
+// ---- Annotation setters (5d) ---------------------------------------
+
+/** Toggle target annotation.  Off → clear the map in the next emit
+    immediately (no re-fetch needed).  On → kick off annotation fetch
+    using cached events; result re-emits when ready. */
+export function setTargetAnnotateEnabled(v: boolean): void {
+  targetAnnotateEnabled = v;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_TARGET_ANNOTATE_ENABLED]: v })
+    .catch((e) => console.warn("[Loom] persist targetAnnotateEnabled:", e));
+  rerunAnnotations();
+}
+
+export function setNativeAnnotateEnabled(v: boolean): void {
+  nativeAnnotateEnabled = v;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_NATIVE_ANNOTATE_ENABLED]: v })
+    .catch((e) => console.warn("[Loom] persist nativeAnnotateEnabled:", e));
+  rerunAnnotations();
+}
+
+/** Override target phonetic system.  null = backend auto.  Triggers
+    annotation re-fetch (different system → different ruby reading). */
+export function setTargetPhoneticSystem(code: string | null): void {
+  targetPhoneticSystem =
+    code === null || code.trim() === "" ? null : code.trim();
+  void browser.storage.local
+    .set({ [STORAGE_KEY_TARGET_PHONETIC]: targetPhoneticSystem ?? "" })
+    .catch((e) => console.warn("[Loom] persist targetPhoneticSystem:", e));
+  rerunAnnotations();
+}
+
+export function setNativePhoneticSystem(code: string | null): void {
+  nativePhoneticSystem =
+    code === null || code.trim() === "" ? null : code.trim();
+  void browser.storage.local
+    .set({ [STORAGE_KEY_NATIVE_PHONETIC]: nativePhoneticSystem ?? "" })
+    .catch((e) => console.warn("[Loom] persist nativePhoneticSystem:", e));
+  rerunAnnotations();
+}
+
+/** Shared re-runner for the four annotation setters.  When the user
+    flips a setting and we're currently tracking, immediately:
+      1. Emit `latest` with the now-stale maps cleared (so the UI
+         doesn't show wrong-system annotations during the in-flight
+         refetch).
+      2. Kick off resolveAnnotations to recompute. */
+function rerunAnnotations(): void {
+  if (!latest || latest.status.kind !== "tracking") return;
+  // Clear maps immediately; resolveAnnotations re-emits when ready.
+  emit({
+    ...latest,
+    targetAnnotateEnabled,
+    nativeAnnotateEnabled,
+    targetPhoneticSystem,
+    nativePhoneticSystem,
+    targetAnnotateMap: null,
+    nativeAnnotateMap: null,
+  });
+  void resolveAnnotations(
+    resolveGeneration,
+    latest.targetEvents,
+    latest.nativeEvents ?? [],
+    latest.status.targetLang,
+    latest.status.nativeLang,
+  );
+}
+
 async function persistNativeLangPref(code: string): Promise<void> {
   try {
     await browser.storage.local.set({ [NATIVE_LANG_PREF_STORAGE_KEY]: code });
@@ -555,12 +776,38 @@ async function loadNativeLangPref(): Promise<void> {
   }
 }
 
+async function loadAnnotationPrefs(): Promise<void> {
+  if (annotationPrefsLoaded) return;
+  annotationPrefsLoaded = true;
+  try {
+    const result = await browser.storage.local.get([
+      STORAGE_KEY_TARGET_ANNOTATE_ENABLED,
+      STORAGE_KEY_NATIVE_ANNOTATE_ENABLED,
+      STORAGE_KEY_TARGET_PHONETIC,
+      STORAGE_KEY_NATIVE_PHONETIC,
+    ]);
+    const tEnabled = result[STORAGE_KEY_TARGET_ANNOTATE_ENABLED];
+    const nEnabled = result[STORAGE_KEY_NATIVE_ANNOTATE_ENABLED];
+    const tPhon = result[STORAGE_KEY_TARGET_PHONETIC];
+    const nPhon = result[STORAGE_KEY_NATIVE_PHONETIC];
+    if (typeof tEnabled === "boolean") targetAnnotateEnabled = tEnabled;
+    if (typeof nEnabled === "boolean") nativeAnnotateEnabled = nEnabled;
+    if (typeof tPhon === "string")
+      targetPhoneticSystem = tPhon.length > 0 ? tPhon : null;
+    if (typeof nPhon === "string")
+      nativePhoneticSystem = nPhon.length > 0 ? nPhon : null;
+  } catch (e) {
+    console.warn("[Loom] failed to load annotation prefs:", e);
+  }
+}
+
 // ---- Subscription API -----------------------------------------------
 
 function ensureInstalled(): void {
   if (installed) return;
   installed = true;
   void loadNativeLangPref();
+  void loadAnnotationPrefs();
   window.addEventListener("message", handleMessage);
   // Race-condition guard (5c): MAIN content script + ISO content
   // script both run at document_idle in undefined order.  If MAIN

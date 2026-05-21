@@ -171,6 +171,10 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
     bottomColor,
     targetPosition,
     nativePosition,
+    targetAnnotateEnabled,
+    nativeAnnotateEnabled,
+    targetPhoneticSystem,
+    nativePhoneticSystem,
     setTargetTrack,
     setNativeTrack,
     setTargetTranslateTo,
@@ -180,6 +184,10 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
     setBottomColor,
     setTargetPosition,
     setNativePosition,
+    setTargetAnnotateEnabled,
+    setNativeAnnotateEnabled,
+    setTargetPhoneticSystem,
+    setNativePhoneticSystem,
   } = useCaptionStream();
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -271,6 +279,30 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
         <p style={hintStyle()}>
           Slot 1 = upper line in its zone, slot 2 = lower.  Solo in a
           zone uses the zone's default position.
+        </p>
+      </Section>
+
+      <Section title="Annotations">
+        <AnnotateRow
+          label="Target"
+          track={selectedTarget}
+          enabled={targetAnnotateEnabled}
+          onToggle={setTargetAnnotateEnabled}
+          phoneticSystem={targetPhoneticSystem}
+          onPickPhoneticSystem={setTargetPhoneticSystem}
+        />
+        <AnnotateRow
+          label="Native"
+          track={selectedNative}
+          enabled={nativeAnnotateEnabled}
+          onToggle={setNativeAnnotateEnabled}
+          phoneticSystem={nativePhoneticSystem}
+          onPickPhoneticSystem={setNativePhoneticSystem}
+        />
+        <p style={hintStyle()}>
+          Per-character readings (furigana, Pinyin/Zhuyin/Jyutping, RR).
+          Only CJK + Korean supported in this build.  Phonetic system
+          only takes effect on Chinese tracks.
         </p>
       </Section>
 
@@ -654,6 +686,85 @@ function PositionRow({ label, value, onChange }: PositionRowProps) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---- AnnotateRow ----------------------------------------------------
+
+interface AnnotateRowProps {
+  label: string;
+  /** Track currently assigned to this layer.  Used to (a) compute
+      whether annotation is meaningful for this track's language, and
+      (b) show a "(not annotatable)" hint when not. */
+  track: CaptionTrack | null;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+  phoneticSystem: string | null;
+  onPickPhoneticSystem: (code: string | null) => void;
+}
+
+/** Phonetic-system options for the annotation dropdown.  "" sentinel
+    represents "Auto" (null on the wire — backend picks the lang's
+    default).  pinyin/zhuyin/jyutping are the meaningful overrides for
+    Chinese variants; selecting them on ja/ko is harmless (backend
+    falls back to default).  Thai's paiboon/rtgs/ipa are deferred
+    until Thai annotation lands. */
+const PHONETIC_SYSTEM_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: "pinyin", label: "Pinyin (Mandarin Simplified default)" },
+  { code: "zhuyin", label: "Zhuyin (Mandarin Traditional default)" },
+  { code: "jyutping", label: "Jyutping (Cantonese)" },
+];
+
+function AnnotateRow({
+  label,
+  track,
+  enabled,
+  onToggle,
+  phoneticSystem,
+  onPickPhoneticSystem,
+}: AnnotateRowProps) {
+  const annotatable = track
+    ? classifyLang(track.languageCode).processing === "annotate-romanize"
+    : false;
+  // Disabled visual state when there's no track yet OR the language
+  // isn't annotatable.  Toggle still functional in case the user
+  // wants to flip it ahead of switching to an annotatable track.
+  const dim = !annotatable;
+
+  return (
+    <div style={annotateRowStyle(dim)}>
+      <div style={annotateHeaderStyle()}>
+        <span style={annotateLabelStyle()}>{label}</span>
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          style={annotateToggleStyle(enabled)}
+          aria-pressed={enabled}
+        >
+          {enabled ? "On" : "Off"}
+        </button>
+      </div>
+      {!annotatable && (
+        <p style={hintStyle()}>
+          {track
+            ? `${track.languageCode}: not annotatable in this build.`
+            : "(pick a track first)"}
+        </p>
+      )}
+      {annotatable && (
+        <div style={annotateSystemRowStyle()}>
+          <span style={annotateSystemLabelStyle()}>Phonetic system</span>
+          <LangSelect
+            value={phoneticSystem ?? ""}
+            onChange={(code) =>
+              onPickPhoneticSystem(code === "" ? null : code)
+            }
+            options={PHONETIC_SYSTEM_OPTIONS}
+            emptyOption={{ label: "Auto (from track language)" }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1049,5 +1160,74 @@ function positionButtonStyle(isSelected: boolean): React.CSSProperties {
     fontWeight: 500,
     cursor: "pointer",
     textAlign: "center",
+  };
+}
+
+function annotateRowStyle(dim: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    padding: "8px",
+    borderRadius: "6px",
+    background: "rgba(255, 255, 255, 0.03)",
+    border: "1px solid rgba(255, 255, 255, 0.06)",
+    marginBottom: "6px",
+    opacity: dim ? 0.65 : 1,
+  };
+}
+
+function annotateHeaderStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+  };
+}
+
+function annotateLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "12px",
+    fontWeight: 500,
+    color: "rgba(255, 255, 255, 0.85)",
+  };
+}
+
+function annotateToggleStyle(enabled: boolean): React.CSSProperties {
+  return {
+    minWidth: "48px",
+    padding: "4px 10px",
+    borderRadius: "999px",
+    border: enabled
+      ? "1px solid rgba(93, 255, 170, 0.45)"
+      : "1px solid rgba(255, 255, 255, 0.18)",
+    background: enabled
+      ? "rgba(93, 255, 170, 0.18)"
+      : "rgba(255, 255, 255, 0.05)",
+    color: enabled ? "#5dffaa" : "rgba(255, 255, 255, 0.6)",
+    fontSize: "11px",
+    fontFamily: "inherit",
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    cursor: "pointer",
+    textTransform: "uppercase",
+  };
+}
+
+function annotateSystemRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  };
+}
+
+function annotateSystemLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.5)",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
   };
 }

@@ -1,5 +1,8 @@
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
+import { AnnotatedText } from "./annotated-text";
+import { classifyLang } from "@/lib/captions/lang-support";
+import type { AnnotateSpan } from "@/lib/annotate/types";
 import { usePlayerScale } from "@/lib/overlay/player-scale";
 
 // CaptionOverlay — dual-subs surface inside #movie_player's shadow root.
@@ -39,11 +42,24 @@ const FONT_STACK =
     8% clears YT's progress bar / controls on the bottom and feels
     natural on the top (where "sign" captions traditionally live). */
 const ZONE_INSET_PCT = 8;
+/** Reading-to-base font ratio for ruby annotations.  Mirrors
+    loom_core/styles.py::annotation_font_ratio — CJK gets 0.5
+    (per-character readings are dense and readable at half-size);
+    Korean RR and other alphabetic scripts get 0.4 (longer readings
+    benefit from being slightly smaller). */
+const ANNOTATION_RATIO_CJK = 0.5;
+const ANNOTATION_RATIO_ALPHABETIC = 0.4;
 
 interface Layer {
   text: string;
   color: string;
   fontSize: number;
+  /** When set, overlay renders the annotated form (per-token <ruby>)
+      using these spans.  null → plain text rendering (no annotation
+      fetched, disabled, or lang not annotatable). */
+  spans?: AnnotateSpan[] | null;
+  /** Reading-to-base font ratio (only used when spans is set). */
+  annotationRatio?: number;
 }
 
 export function CaptionOverlay() {
@@ -55,6 +71,8 @@ export function CaptionOverlay() {
     bottomColor,
     targetPosition,
     nativePosition,
+    targetAnnotateMap,
+    nativeAnnotateMap,
   } = useCaptionStream();
   const scale = usePlayerScale();
 
@@ -62,6 +80,18 @@ export function CaptionOverlay() {
   const topText = target?.text ?? "";
   const bottomText = native?.text ?? "";
   if (!topText && !bottomText) return null;
+
+  // Look up spans for the currently-active event text.  When the
+  // annotation map is null (loading / disabled / not annotatable) OR
+  // doesn't have an entry for this exact text, spans stays undefined
+  // and the layer renders plain.  Matches buildAnnotateMap's dedup
+  // semantics — events with identical text share the same span array.
+  const targetSpans = topText
+    ? targetAnnotateMap?.get(topText.trim()) ?? null
+    : null;
+  const nativeSpans = bottomText
+    ? nativeAnnotateMap?.get(bottomText.trim()) ?? null
+    : null;
 
   // Bucket each track's layer into its assigned slot.  Slot collisions
   // shouldn't happen (setters guarantee it) — if they ever do, the
@@ -77,6 +107,8 @@ export function CaptionOverlay() {
       text: topText,
       color: topColor,
       fontSize: TOP_FONT_PX,
+      spans: targetSpans,
+      annotationRatio: annotationRatioFor(status.targetLang),
     };
   }
   if (bottomText) {
@@ -84,6 +116,8 @@ export function CaptionOverlay() {
       text: bottomText,
       color: bottomColor,
       fontSize: BOTTOM_FONT_PX,
+      spans: nativeSpans,
+      annotationRatio: annotationRatioFor(status.nativeLang),
     };
   }
 
@@ -114,11 +148,32 @@ export function CaptionOverlay() {
 }
 
 function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
+  const hasSpans = layer.spans && layer.spans.length > 0;
   return (
     <div style={layerStyle(layer.fontSize, scale, layer.color)}>
-      {layer.text}
+      {hasSpans ? (
+        <AnnotatedText
+          spans={layer.spans!}
+          baseFontPxScaled={layer.fontSize * scale}
+          annotationRatio={layer.annotationRatio ?? ANNOTATION_RATIO_CJK}
+          color={layer.color}
+        />
+      ) : (
+        layer.text
+      )}
     </div>
   );
+}
+
+/** Pick the reading-to-base font ratio for a language.  Hangul gets
+    the alphabetic ratio (longer per-syllable readings); CJK Han +
+    Kana get the denser CJK ratio.  Defaults to CJK for unknown langs
+    since the annotation pipeline only fires for annotate-romanize
+    languages anyway. */
+function annotationRatioFor(langCode: string): number {
+  const c = classifyLang(langCode);
+  if (c.family === "hangul") return ANNOTATION_RATIO_ALPHABETIC;
+  return ANNOTATION_RATIO_CJK;
 }
 
 function zoneStyle(

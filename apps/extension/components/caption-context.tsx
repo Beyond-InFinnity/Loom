@@ -9,9 +9,13 @@ import {
 } from "react";
 
 import {
+  setNativeAnnotateEnabled as discoverSetNativeAnnotateEnabled,
   setNativeLangPref as discoverSetNativeLangPref,
+  setNativePhoneticSystem as discoverSetNativePhoneticSystem,
   setNativeTrack as discoverSetNativeTrack,
   setNativeTranslateTo as discoverSetNativeTranslateTo,
+  setTargetAnnotateEnabled as discoverSetTargetAnnotateEnabled,
+  setTargetPhoneticSystem as discoverSetTargetPhoneticSystem,
   setTargetTrack as discoverSetTargetTrack,
   setTargetTranslateTo as discoverSetTargetTranslateTo,
   subscribeToCaptions,
@@ -19,6 +23,7 @@ import {
 } from "@/lib/captions/discover";
 import { CaptionStream } from "@/lib/captions/stream";
 import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
+import type { AnnotateMap } from "@/lib/annotate/types";
 import {
   hideYtCaptions,
   restoreYtCaptions,
@@ -95,6 +100,20 @@ interface CaptionContextValue {
   targetPosition: CaptionPosition;
   nativePosition: CaptionPosition;
 
+  /** Per-track annotation enable + phonetic-system override.
+      Persisted by discover.ts. */
+  targetAnnotateEnabled: boolean;
+  nativeAnnotateEnabled: boolean;
+  /** null = backend decides; otherwise pinyin / zhuyin / jyutping
+      (Chinese variants) or rtgs / paiboon / ipa (Thai). */
+  targetPhoneticSystem: string | null;
+  nativePhoneticSystem: string | null;
+  /** Annotation maps keyed by event text.  null while loading or
+      when annotation is disabled.  Consumed by caption-overlay to
+      render <ruby> for the currently-active event. */
+  targetAnnotateMap: AnnotateMap | null;
+  nativeAnnotateMap: AnnotateMap | null;
+
   /** Setters wired into discover.ts.  Pass null to revert to
       auto-pick. */
   setTargetTrack: (track: CaptionTrack | null) => void;
@@ -108,6 +127,11 @@ interface CaptionContextValue {
       occupied by the other track, so state stays collision-free. */
   setTargetPosition: (pos: CaptionPosition) => void;
   setNativePosition: (pos: CaptionPosition) => void;
+  /** Annotation setters — discover.ts persists + re-fetches. */
+  setTargetAnnotateEnabled: (v: boolean) => void;
+  setNativeAnnotateEnabled: (v: boolean) => void;
+  setTargetPhoneticSystem: (code: string | null) => void;
+  setNativePhoneticSystem: (code: string | null) => void;
 }
 
 const CaptionContext = createContext<CaptionContextValue | null>(null);
@@ -140,6 +164,23 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [nativePosition, setNativePositionState] = useState<CaptionPosition>(
     DEFAULT_NATIVE_POSITION,
   );
+  // Annotation state piped from discover.ts payload — discover owns
+  // persistence + the fetch lifecycle; we just mirror for context
+  // consumers.  Setters delegate back into discover via the imported
+  // discoverSet* functions.
+  const [targetAnnotateEnabled, setTargetAnnotateEnabledState] = useState(true);
+  const [nativeAnnotateEnabled, setNativeAnnotateEnabledState] =
+    useState(false);
+  const [targetPhoneticSystem, setTargetPhoneticSystemState] = useState<
+    string | null
+  >(null);
+  const [nativePhoneticSystem, setNativePhoneticSystemState] = useState<
+    string | null
+  >(null);
+  const [targetAnnotateMap, setTargetAnnotateMapState] =
+    useState<AnnotateMap | null>(null);
+  const [nativeAnnotateMap, setNativeAnnotateMapState] =
+    useState<AnnotateMap | null>(null);
 
   const stream = useMemo(
     () =>
@@ -171,6 +212,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTargetTranslateToState(payload.targetTranslateTo);
       setNativeTranslateToState(payload.nativeTranslateTo);
       setNativeLangPrefState(payload.nativeLangPref);
+      setTargetAnnotateEnabledState(payload.targetAnnotateEnabled);
+      setNativeAnnotateEnabledState(payload.nativeAnnotateEnabled);
+      setTargetPhoneticSystemState(payload.targetPhoneticSystem);
+      setNativePhoneticSystemState(payload.nativePhoneticSystem);
+      setTargetAnnotateMapState(payload.targetAnnotateMap);
+      setNativeAnnotateMapState(payload.nativeAnnotateMap);
 
       const s = payload.status;
       if (s.kind === "tracking" && payload.targetEvents) {
@@ -288,6 +335,19 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setTargetAnnotateEnabled = useCallback((v: boolean) => {
+    discoverSetTargetAnnotateEnabled(v);
+  }, []);
+  const setNativeAnnotateEnabled = useCallback((v: boolean) => {
+    discoverSetNativeAnnotateEnabled(v);
+  }, []);
+  const setTargetPhoneticSystem = useCallback((code: string | null) => {
+    discoverSetTargetPhoneticSystem(code);
+  }, []);
+  const setNativePhoneticSystem = useCallback((code: string | null) => {
+    discoverSetNativePhoneticSystem(code);
+  }, []);
+
   const setNativePosition = useCallback((pos: CaptionPosition) => {
     setNativePositionState((prevNative) => {
       setTargetPositionState((prevTarget) => {
@@ -326,6 +386,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       bottomColor,
       targetPosition,
       nativePosition,
+      targetAnnotateEnabled,
+      nativeAnnotateEnabled,
+      targetPhoneticSystem,
+      nativePhoneticSystem,
+      targetAnnotateMap,
+      nativeAnnotateMap,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -335,6 +401,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setBottomColor,
       setTargetPosition,
       setNativePosition,
+      setTargetAnnotateEnabled,
+      setNativeAnnotateEnabled,
+      setTargetPhoneticSystem,
+      setNativePhoneticSystem,
     }),
     [
       status,
@@ -353,6 +423,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       bottomColor,
       targetPosition,
       nativePosition,
+      targetAnnotateEnabled,
+      nativeAnnotateEnabled,
+      targetPhoneticSystem,
+      nativePhoneticSystem,
+      targetAnnotateMap,
+      nativeAnnotateMap,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -362,6 +438,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setBottomColor,
       setTargetPosition,
       setNativePosition,
+      setTargetAnnotateEnabled,
+      setNativeAnnotateEnabled,
+      setTargetPhoneticSystem,
+      setNativePhoneticSystem,
     ],
   );
 

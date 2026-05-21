@@ -68,6 +68,27 @@ export class CaptionStream {
       this.#targetEvents = payload.targetEvents;
       this.#nativeEvents = payload.nativeEvents;
 
+      // Diagnostic: log first 3 events of each stream so we can see
+      // whether parsed times look right when active-event finding fails.
+      console.log(
+        "[Loom Stream] start — target sample:",
+        payload.targetEvents.slice(0, 3).map((e) => ({
+          start: e.start,
+          end: e.end,
+          dur: e.end - e.start,
+          text: e.text.slice(0, 20),
+        })),
+      );
+      console.log(
+        "[Loom Stream] start — native sample:",
+        payload.nativeEvents.slice(0, 3).map((e) => ({
+          start: e.start,
+          end: e.end,
+          dur: e.end - e.start,
+          text: e.text.slice(0, 20),
+        })),
+      );
+
       const video = await this.#waitForVideo(signal);
       if (signal.aborted) return;
       if (!video) {
@@ -79,6 +100,14 @@ export class CaptionStream {
       }
       this.#video = video;
       video.addEventListener("timeupdate", this.#onTimeUpdate);
+      console.log(
+        "[Loom Stream] timeupdate listener attached; video currentTime=",
+        video.currentTime,
+        "paused=",
+        video.paused,
+        "duration=",
+        video.duration,
+      );
 
       this.#setStatus({
         kind: "tracking",
@@ -135,9 +164,10 @@ export class CaptionStream {
     this.#callbacks.onActiveChange?.(detail);
   }
 
-  #onTimeUpdate = (e: Event): void => {
-    const video = e.currentTarget as HTMLVideoElement;
-    this.#tick(video.currentTime);
+  #onTimeUpdate = (): void => {
+    if (this.#video) {
+      this.#tick(this.#video.currentTime);
+    }
   };
 
   #tick(currentTimeSeconds: number): void {

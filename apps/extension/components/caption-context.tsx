@@ -10,6 +10,10 @@ import {
 import { subscribeToCaptions } from "@/lib/captions/discover";
 import { CaptionStream } from "@/lib/captions/stream";
 import type { CaptionEvent, StreamStatus } from "@/lib/captions/types";
+import {
+  hideYtCaptions,
+  restoreYtCaptions,
+} from "@/lib/overlay/hide-yt-captions";
 
 interface CaptionContextValue {
   status: StreamStatus;
@@ -41,6 +45,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeToCaptions((payload) => {
       const s = payload.status;
       if (s.kind === "tracking" && payload.targetEvents) {
+        hideYtCaptions();
         stream.start({
           targetEvents: payload.targetEvents,
           nativeEvents: payload.nativeEvents ?? [],
@@ -48,13 +53,16 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           nativeLang: s.nativeLang,
         });
       } else if (s.kind === "unsupported") {
+        restoreYtCaptions();
         stream.setUnsupported(s.reason);
       } else if (s.kind === "error") {
+        restoreYtCaptions();
         stream.setError(s.message);
       }
     });
     return () => {
       unsubscribe();
+      restoreYtCaptions();
       stream.stop();
     };
   }, [stream]);

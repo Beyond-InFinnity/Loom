@@ -1,26 +1,43 @@
 import ReactDOM from "react-dom/client";
 
+import { CaptionOverlay } from "@/components/caption-overlay";
 import { CaptionStreamProvider } from "@/components/caption-context";
 import { LoomPill } from "@/components/loom-pill";
+import { installCaptionDiscovery } from "@/lib/captions/discover";
 
 // Content script for YouTube watch pages.
 //
-// 5a: mounted a static "Loom active" pill in a shadow root.
-// 5b: wraps the tree in <CaptionStreamProvider> which:
-//   - discovers YT caption tracks from ytInitialPlayerResponse
-//   - auto-picks ja/zh family for v1
-//   - fetches the chosen track + a tlang=en translation in parallel
-//   - hooks <video>.timeupdate to find the active caption each tick
-//   - listens for yt-navigate-finish so SPA navigations re-init cleanly
+// 5c host-positioning saga, final form:
 //
-// LoomPill is now status-aware — its label reflects the stream's
-// lifecycle (detecting → tracking → unsupported / error).  Until 5c
-// renders an overlay, the pill is the only visible 5b signal.
+// WXT's createShadowRootUi by default injects this rule INTO the
+// shadow root:
+//   :host { all: initial !important; }
+// Intent: sandbox the host element from inheriting page CSS.  Side
+// effect: custom-element default `display: inline` + `position: static`
+// stick, and the host renders as a 0×0 inline box — nothing inside
+// can be visible.
 //
-// Shadow-root isolation prevents YouTube's stylesheets from leaking
-// into our DOM (and vice versa).  `position: "inline"` anchored to
-// <body> is the minimal mount — the pill's `position: fixed` styling
-// handles actual placement.
+// We tried three CSS-cascade workarounds, all failed:
+//   (1) host.style.setProperty(..., "important") inline writes
+//   (2) Bumping z-index + isolation:isolate
+//   (3) Document-level stylesheet `loom-overlay-root { ... !important }`
+//
+// The CSS Scoping spec quietly inverts the !important precedence for
+// the SHADOW HOST element: shadow-tree !important beats document-tree
+// !important on the host (this is opposite the usual cascade, which
+// is why we kept losing).  So no exterior CSS — inline or stylesheet —
+// can overpower WXT's reset on the host.
+//
+// Fix: opt out of WXT's reset via `inheritStyles: true`.  This removes
+// the :host{all:initial!important} injection entirely.  After that,
+// inline styles on the host (or a document stylesheet) work normally.
+// Tradeoff: page CSS can inherit into the shadow tree via inheritable
+// properties (color, font, etc.).  Cost is zero here because every
+// caption-rendering element sets its visuals via inline React style.
+
+const ANCHOR_SELECTOR = "#movie_player";
+const ANCHOR_WAIT_TIMEOUT_MS = 15_000;
+const HOST_STYLE_ID = "loom-host-positioning";
 
 export default defineContentScript({
   matches: ["*://*.youtube.com/watch*"],
@@ -28,14 +45,47 @@ export default defineContentScript({
   runAt: "document_idle",
 
   async main(ctx) {
+    // Install the caption-discovery message listener IMMEDIATELY,
+    // before awaiting #movie_player.  Race-fix: MAIN's pollForTracks
+    // can complete and postPayload before WXT's shadow-root mount +
+    // React effect chain installs the listener, dropping the
+    // tracklist message into the void.  Installing eagerly here
+    // means the listener is in place from document_idle onward.
+    installCaptionDiscovery();
+
+    // Inject the host-positioning rule BEFORE the host is appended
+    // to the DOM.  Whenever WXT inserts <loom-overlay-root>, the
+    // browser applies these styles on first computed-style resolution.
+    injectHostPositioningStyle();
+
+    const anchor = await waitForElement(ANCHOR_SELECTOR, ANCHOR_WAIT_TIMEOUT_MS);
+    if (!anchor) {
+      console.warn(
+        "[Loom] #movie_player never appeared within",
+        ANCHOR_WAIT_TIMEOUT_MS,
+        "ms — overlay not mounted",
+      );
+      return;
+    }
+
     const ui = await createShadowRootUi(ctx, {
       name: "loom-overlay-root",
       position: "inline",
-      anchor: "body",
-      onMount: (container) => {
-        const root = ReactDOM.createRoot(container);
+      anchor: ANCHOR_SELECTOR,
+      // Opt out of the :host{all:initial!important} reset — see
+      // file header comment for why this is the load-bearing line.
+      inheritStyles: true,
+      onMount: (uiContainer) => {
+        // uiContainer is inside the shadow root.  Stretch it so the
+        // inner React tree's `position: absolute; inset: 0` children
+        // get a sized containing block.
+        uiContainer.style.position = "absolute";
+        uiContainer.style.inset = "0";
+
+        const root = ReactDOM.createRoot(uiContainer);
         root.render(
           <CaptionStreamProvider>
+            <CaptionOverlay />
             <LoomPill />
           </CaptionStreamProvider>,
         );
@@ -47,5 +97,73 @@ export default defineContentScript({
     });
 
     ui.mount();
+
+    // Verify the host actually picked up our positioning after mount.
+    // Keep this log through 5c shakedown; remove once we've confirmed
+    // captions render across paused + playing + fullscreen states.
+    const host = ui.shadowHost;
+    requestAnimationFrame(() => {
+      const cs = getComputedStyle(host);
+      const r = host.getBoundingClientRect();
+      console.log(
+        "[Loom 5c-verify] host computed style — tag=", host.tagName.toLowerCase(),
+        "position=", cs.position,
+        "display=", cs.display,
+        "z-index=", cs.zIndex,
+        "rect=", Math.round(r.width), "x", Math.round(r.height),
+        "top=", Math.round(r.top),
+      );
+    });
+
+    console.log("[Loom] overlay mounted inside", ANCHOR_SELECTOR);
   },
 });
+
+/** Inject (once) a document-level stylesheet that positions the WXT
+    shadow host `<loom-overlay-root>`.  Idempotent. */
+function injectHostPositioningStyle(): void {
+  if (document.getElementById(HOST_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = HOST_STYLE_ID;
+  style.textContent = `
+loom-overlay-root {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  display: block !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+}
+`;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
+/** Wait for an element matching `selector` to exist in the DOM.
+    Returns the element, or null on timeout.  Mirrors the shape of
+    `CaptionStream.#waitForVideo` in lib/captions/stream.ts. */
+function waitForElement(
+  selector: string,
+  timeoutMs: number,
+): Promise<Element | null> {
+  const existing = document.querySelector(selector);
+  if (existing) return Promise.resolve(existing);
+
+  return new Promise<Element | null>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const found = document.querySelector(selector);
+      if (found) {
+        observer.disconnect();
+        clearTimeout(timeoutId);
+        resolve(found);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    const timeoutId = setTimeout(() => {
+      observer.disconnect();
+      resolve(null);
+    }, timeoutMs);
+  });
+}

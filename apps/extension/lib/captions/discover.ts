@@ -1,39 +1,52 @@
 // Caption discovery — the ISOLATED-world coordinator for the
-// MAIN/background/fanout dance.  This is the "production" path now
-// that the spike (2026-05-20) empirically verified that the pot is
-// session-bound and one captured URL works for all tracks via
-// lang-swap.  See memory/reference_youtube_caption_acquisition_2026.md.
+// MAIN/background/fanout dance.
 //
-// Flow on each YT page / SPA navigation:
-//   1. MAIN (entrypoints/yt-main.content.ts) reads the tracklist via
-//      #movie_player.getPlayerResponse() and toggles CC briefly to
-//      make YT fire a tokenized timedtext request.  Posts a
-//      "tracklist" message via window.postMessage.
-//   2. Background (entrypoints/background.ts) sees the timedtext
-//      request via webRequest and stashes the full URL keyed by
-//      videoId.
-//   3. THIS module receives the tracklist message, polls background
-//      for the captured URL (with timeout), then fans out lang-swap
-//      fetches via lib/captions/fanout.ts.
-//   4. Auto-picks a target track from the configured preferred-langs.
-//      Picks a native (Bottom) track — preferring a native "en" track
-//      if available, falling back to tlang=en on the target as a
-//      last resort (degraded — see tlang anomaly in memory note).
-//   5. Notifies subscribers with the parsed event arrays.  The
-//      React provider (components/caption-context.tsx) is the
-//      primary subscriber and drives the CaptionStream.
+// 5b architecture (verified 2026-05-20): MAIN reads tracklist + clicks
+// CC.  Background captures the pot-bearing timedtext URL via webRequest.
+// ISO polls background, lang-swaps the captured URL to fetch every
+// language's events.
+//
+// 5c refinement (2026-05-20 evening): the spike showed YT fires MULTIPLE
+// timedtext requests per video.  An early page-load PREFETCH carries a
+// pot; the user's manual CC clicks fire later URLs WITHOUT pot.
+// Last-write-wins picked the no-pot URLs and lang-swap returned empty
+// bodies.  Two pieces of the fix live elsewhere — background returns
+// the FIRST pot-bearing URL by firing order (lib/captions/url-picker.ts),
+// and MAIN now posts the tracklist immediately rather than clicking
+// unconditionally.  This module's job is:
+//
+//   1. Receive MAIN's tracklist message.
+//   2. Auto-pick target + native tracks.
+//   3. Poll background for a pot URL (relies on YT's natural prefetch)
+//      for up to ~2000ms.
+//   4. If no pot URL within that window, request a CC trigger from
+//      MAIN via window.postMessage and poll again for ~4000ms.
+//   5. Fan out lang-swap fetches.
+//   6. Notify subscribers.
+//
+// The common case (YT prefetched the captions on page load) involves
+// ZERO DOM interaction from us — no CC click, no button toggling.  The
+// click is now a genuine fallback.
 
 import { autoPickTrack } from "./auto-pick";
 import { fetchTrackEventsViaSwap } from "./fanout";
 import type { CaptionEvent, CaptionTrack } from "./types";
 
-const MESSAGE_SOURCE = "loom-main";
+const MAIN_SOURCE = "loom-main";
+const ISO_SOURCE = "loom-iso";
 const URL_POLL_INTERVAL_MS = 200;
-const URL_POLL_TIMEOUT_MS = 8000;
+/** First-pass poll: rely on YT's natural prefetch.  If the prefetch
+    fired (the common case), the pot URL is captured well before this
+    window expires. */
+const PREFETCH_POLL_TIMEOUT_MS = 2000;
+/** Second-pass poll, after we've asked MAIN to click CC.  Longer
+    because YT's fetch can take 600ms+ to fire after the click, and
+    network latency on top of that. */
+const TRIGGER_POLL_TIMEOUT_MS = 4000;
 const NATIVE_LANG = "en";
 
 interface MainTracklist {
-  source: typeof MESSAGE_SOURCE;
+  source: typeof MAIN_SOURCE;
   type: "tracklist";
   videoId: string | null;
   status: "ok" | "no-tracks-found" | "no-captions" | "no-cc-button";
@@ -63,7 +76,7 @@ function handleMessage(event: MessageEvent): void {
   if (event.source !== window) return;
   if (event.origin !== location.origin) return;
   const data = event.data as MainTracklist | undefined;
-  if (!data || data.source !== MESSAGE_SOURCE) return;
+  if (!data || data.source !== MAIN_SOURCE) return;
   if (data.type !== "tracklist") return;
   processMainMessage(data).catch((e) => {
     console.error("[Loom] discover.processMainMessage threw:", e);
@@ -83,6 +96,7 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     "tracks =",
     data.tracks.length,
   );
+
   if (data.status === "no-tracks-found") {
     emit({
       videoId: data.videoId,
@@ -117,7 +131,6 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     return;
   }
 
-  // Pick a target track from our preferred-lang preference list.
   const target = autoPickTrack(data.tracks);
   if (target === null) {
     emit({
@@ -129,27 +142,45 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
     return;
   }
 
-  // Native track: prefer an actual native "en" track from the
-  // tracklist (lang-swap of the captured URL — known to work).
-  // Fall back to tlang=en on the target track only when no native en
-  // track exists (note tlang anomaly: parser may only extract 1
-  // event for tlang responses — see memory note).
+  // Native track: prefer a real en-family track from the tracklist
+  // (lang-swap of the captured pot URL works for any listed track).
+  // Fall back to tlang=en on the target only when no en track exists
+  // (degraded — see tlang anomaly in memory note).
   const nativeTrack = findNativeTrack(data.tracks);
 
-  // Wait for background to have captured the URL after MAIN's CC click.
-  console.log("[Loom ISO] polling background for URL...");
-  const capturedUrl = await pollBackgroundForUrl(data.videoId);
+  // Phase 1: rely on YT's natural prefetch.  Background's picker
+  // returns null until a pot-bearing URL has been captured.
+  console.log("[Loom ISO] polling for pot URL (prefetch phase, up to",
+    PREFETCH_POLL_TIMEOUT_MS, "ms)...");
+  let capturedUrl = await pollBackgroundForUrl(
+    data.videoId,
+    PREFETCH_POLL_TIMEOUT_MS,
+  );
+
+  if (!capturedUrl) {
+    // Phase 2: ask MAIN to click CC and trigger a fresh YT fetch.
+    console.log(
+      "[Loom ISO] no prefetch pot URL — requesting CC trigger from MAIN",
+    );
+    requestCcTrigger();
+    capturedUrl = await pollBackgroundForUrl(
+      data.videoId,
+      TRIGGER_POLL_TIMEOUT_MS,
+    );
+  }
+
   console.log(
     "[Loom ISO] poll result:",
     capturedUrl ? "URL captured, len=" + capturedUrl.length : "null (timeout)",
   );
+
   if (!capturedUrl) {
     emit({
       videoId: data.videoId,
       status: {
         kind: "error",
         message:
-          "background never captured a timedtext URL — webRequest didn't see YT's fetch",
+          "no pot-bearing timedtext URL captured (prefetch + trigger both failed)",
       },
       targetEvents: null,
       nativeEvents: null,
@@ -224,7 +255,6 @@ async function processMainMessage(data: MainTracklist): Promise<void> {
 }
 
 function findNativeTrack(tracks: CaptionTrack[]): CaptionTrack | null {
-  // Look for any en-family manual track first, then any en-family ASR.
   const matches = tracks.filter((t) => normalizeEn(t.languageCode));
   if (matches.length === 0) return null;
   const manual = matches.find((t) => t.kind === "manual");
@@ -238,9 +268,10 @@ function normalizeEn(code: string): boolean {
 
 async function pollBackgroundForUrl(
   videoId: string | null,
+  timeoutMs: number,
 ): Promise<string | null> {
   if (!videoId) return null;
-  const deadline = Date.now() + URL_POLL_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const reply = (await browser.runtime.sendMessage({
       type: "GET_CAPTURED_URL",
@@ -250,6 +281,15 @@ async function pollBackgroundForUrl(
     await new Promise((resolve) => setTimeout(resolve, URL_POLL_INTERVAL_MS));
   }
   return null;
+}
+
+/** Tell MAIN to click .ytp-subtitles-button.  Used when YT's natural
+    page-load prefetch didn't produce a pot URL — fallback only. */
+function requestCcTrigger(): void {
+  window.postMessage(
+    { source: ISO_SOURCE, type: "trigger-cc" },
+    location.origin,
+  );
 }
 
 function emit(payload: CaptionPayload): void {
@@ -263,6 +303,25 @@ function ensureInstalled(): void {
   if (installed) return;
   installed = true;
   window.addEventListener("message", handleMessage);
+  // Race-condition guard: MAIN content script + ISO content script
+  // both run at document_idle in undefined order.  If MAIN finished
+  // pollForTracks() and posted its tracklist BEFORE this listener was
+  // installed (which happens whenever ISO's waitForElement +
+  // shadow-root mount + React-effect chain is slower than MAIN's
+  // poll), the message is lost.  Ask MAIN to re-emit; MAIN caches
+  // its latest tracklist payload and replays on request.
+  window.postMessage(
+    { source: ISO_SOURCE, type: "request-tracklist" },
+    location.origin,
+  );
+}
+
+/** Install the window.message listener eagerly — call this from
+    content.tsx BEFORE awaiting waitForElement(#movie_player) so the
+    listener is in place by the time MAIN posts.  Safe to call
+    multiple times (idempotent). */
+export function installCaptionDiscovery(): void {
+  ensureInstalled();
 }
 
 /** Subscribe to caption discovery results.  Listener is called

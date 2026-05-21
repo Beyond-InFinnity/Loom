@@ -60,15 +60,30 @@ export async function buildAnnotateMap(
   const client = getApiClient();
   const queue = [...unique];
   let done = 0;
+  // Per-status counters for the end-of-run summary.  Helpful for the
+  // common failure mode: rate limit (429) without owner-key bypass.
+  let success = 0;
+  let emptySpans = 0;
+  let httpErrors = 0;
+  let networkErrors = 0;
+  let rateLimited = 0;
   const concurrency = Math.max(
     1,
     Math.min(opts.concurrency ?? DEFAULT_CONCURRENCY, total),
   );
 
+  console.log(
+    "[Loom Annotate] start:",
+    "lang=" + opts.langCode,
+    "system=" + (opts.phoneticSystem ?? "auto"),
+    "unique_texts=" + total,
+    "concurrency=" + concurrency,
+  );
+
   async function processOne(text: string): Promise<void> {
     if (opts.signal?.aborted) return;
     try {
-      const { data, error } = await client.POST("/annotate", {
+      const { data, error, response } = await client.POST("/annotate", {
         body: {
           text,
           lang_code: opts.langCode,
@@ -78,30 +93,48 @@ export async function buildAnnotateMap(
         signal: opts.signal,
       });
       if (error) {
-        console.warn(
-          "[Loom Annotate] /annotate failed for text:",
-          text.slice(0, 40),
-          error,
-        );
+        const status = response?.status ?? 0;
+        if (status === 429) rateLimited += 1;
+        else httpErrors += 1;
+        // Log the first few failures with full context — repeated
+        // failures of the same kind are summarized at end-of-run.
+        if (httpErrors + rateLimited <= 3) {
+          console.warn(
+            "[Loom Annotate] /annotate HTTP " + status,
+            "for lang=" + opts.langCode,
+            "text=" + JSON.stringify(text.slice(0, 60)),
+            error,
+          );
+        }
         return;
       }
       if (data && Array.isArray(data.spans) && data.spans.length > 0) {
-        // We use the structured spans for React rendering — html field
-        // is ignored (would need dangerouslySetInnerHTML + scoped CSS
-        // for non-ruby modes).
         result.set(text, data.spans as AnnotateSpan[]);
+        success += 1;
+      } else {
+        // 200 OK but no spans — backend has no annotation_func for
+        // this lang, or the text was empty after server-side cleanup.
+        emptySpans += 1;
+        if (emptySpans <= 2) {
+          console.warn(
+            "[Loom Annotate] /annotate returned 0 spans for",
+            "lang=" + opts.langCode,
+            "text=" + JSON.stringify(text.slice(0, 60)),
+          );
+        }
       }
     } catch (e) {
       const err = e as Error;
-      if (err.name === "AbortError") {
-        // Expected on track-switch / video-nav — silent.
-        return;
+      if (err.name === "AbortError") return;
+      networkErrors += 1;
+      if (networkErrors <= 3) {
+        console.warn(
+          "[Loom Annotate] /annotate threw:",
+          "lang=" + opts.langCode,
+          "text=" + JSON.stringify(text.slice(0, 60)),
+          err.message,
+        );
       }
-      console.warn(
-        "[Loom Annotate] /annotate threw for text:",
-        text.slice(0, 40),
-        err.message,
-      );
     } finally {
       done += 1;
       opts.onProgress?.(done, total);
@@ -118,6 +151,24 @@ export async function buildAnnotateMap(
   }
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+  console.log(
+    "[Loom Annotate] done:",
+    "lang=" + opts.langCode,
+    "system=" + (opts.phoneticSystem ?? "auto"),
+    "ok=" + success,
+    "empty=" + emptySpans,
+    "429=" + rateLimited,
+    "http_err=" + httpErrors,
+    "net_err=" + networkErrors,
+    "map_size=" + result.size,
+  );
+  if (rateLimited > 0) {
+    console.warn(
+      "[Loom Annotate] hit rate limit on " + rateLimited + " requests.",
+      "Set an owner key via the popup (X-Loom-Auth) to bypass slowapi.",
+    );
+  }
 
   return result;
 }

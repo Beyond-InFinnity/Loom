@@ -504,6 +504,18 @@ async function resolveAnnotations(
     nativeClass.processing === "annotate-romanize" &&
     nativeEvents.length > 0;
 
+  console.log(
+    "[Loom Annotate] resolveAnnotations:",
+    "target=" + effectiveTargetLang,
+    "(" + targetClass.processing + ", variant=" + targetClass.chineseVariant + ")",
+    "wantTarget=" + wantTarget,
+    "targetEnabled=" + targetAnnotateEnabled,
+    "targetSystem=" + (targetPhoneticSystem ?? "auto"),
+    "| native=" + effectiveNativeLang,
+    "(" + nativeClass.processing + ")",
+    "wantNative=" + wantNative,
+  );
+
   if (!wantTarget && !wantNative) return;
 
   const videoId = session.videoId ?? "";

@@ -93,17 +93,31 @@ export function CaptionOverlay() {
     ? nativeAnnotateMap?.get(bottomText.trim()) ?? null
     : null;
 
-  // Bucket each track's layer into its assigned slot.  Slot collisions
-  // shouldn't happen (setters guarantee it) — if they ever do, the
-  // second write wins and one layer is silently dropped.
-  const slots: Record<CaptionPosition, Layer | null> = {
-    "top-1": null,
-    "top-2": null,
-    "bottom-1": null,
-    "bottom-2": null,
+  // Per-slot state: a slot is "configured" when one of the two layers
+  // (target/native) is assigned to it via the user's position picker,
+  // regardless of whether that layer has text at this instant.
+  // `layer` is non-null only when both configured AND currently has
+  // content.  `reservedFontSize` is the size we'd use for either the
+  // populated layer or an invisible placeholder.
+  const slots: Record<CaptionPosition, SlotState> = {
+    "top-1": defaultSlotState(),
+    "top-2": defaultSlotState(),
+    "bottom-1": defaultSlotState(),
+    "bottom-2": defaultSlotState(),
   };
+
+  // Mark configured slots + their reserved font sizes.  These survive
+  // even when the corresponding layer has no text in this frame —
+  // that's what keeps the sibling slot from "bouncing" to the zone
+  // anchor when both layers are in the same zone but only one has
+  // content.
+  slots[targetPosition].configured = true;
+  slots[targetPosition].reservedFontSize = TOP_FONT_PX;
+  slots[nativePosition].configured = true;
+  slots[nativePosition].reservedFontSize = BOTTOM_FONT_PX;
+
   if (topText) {
-    slots[targetPosition] = {
+    slots[targetPosition].layer = {
       text: topText,
       color: topColor,
       fontSize: TOP_FONT_PX,
@@ -112,7 +126,7 @@ export function CaptionOverlay() {
     };
   }
   if (bottomText) {
-    slots[nativePosition] = {
+    slots[nativePosition].layer = {
       text: bottomText,
       color: bottomColor,
       fontSize: BOTTOM_FONT_PX,
@@ -121,29 +135,121 @@ export function CaptionOverlay() {
     };
   }
 
-  const topZoneHas = slots["top-1"] !== null || slots["top-2"] !== null;
-  const bottomZoneHas =
-    slots["bottom-1"] !== null || slots["bottom-2"] !== null;
-
   return (
     <>
-      {topZoneHas && (
-        <div style={zoneStyle("top", scale)}>
-          {slots["top-1"] && <LayerEl scale={scale} layer={slots["top-1"]} />}
-          {slots["top-2"] && <LayerEl scale={scale} layer={slots["top-2"]} />}
-        </div>
-      )}
-      {bottomZoneHas && (
-        <div style={zoneStyle("bottom", scale)}>
-          {slots["bottom-1"] && (
-            <LayerEl scale={scale} layer={slots["bottom-1"]} />
-          )}
-          {slots["bottom-2"] && (
-            <LayerEl scale={scale} layer={slots["bottom-2"]} />
-          )}
-        </div>
-      )}
+      {renderZone("top", slots, scale)}
+      {renderZone("bottom", slots, scale)}
     </>
+  );
+}
+
+interface SlotState {
+  /** Populated layer for this slot, or null when no text. */
+  layer: Layer | null;
+  /** True when one of the two tracks (target/native) is assigned to
+      this slot via the position picker.  Survives the layer going
+      empty between captions — that's the load-bearing distinction
+      vs `layer !== null`. */
+  configured: boolean;
+  /** Font size for the configured layer.  Used for both the
+      populated layer's actual render AND the placeholder reserve. */
+  reservedFontSize: number;
+}
+
+function defaultSlotState(): SlotState {
+  return {
+    layer: null,
+    configured: false,
+    reservedFontSize: TOP_FONT_PX,
+  };
+}
+
+/** Render one zone (top or bottom) using its two slot states.
+    Slot positions are stable even when the sibling slot's layer
+    drops out — empty slots in a both-configured zone get an
+    invisible placeholder that reserves one line of vertical space,
+    so the visible slot stays at its assigned position. */
+function renderZone(
+  zone: "top" | "bottom",
+  slots: Record<CaptionPosition, SlotState>,
+  scale: number,
+): React.ReactNode {
+  const key1: CaptionPosition = zone === "top" ? "top-1" : "bottom-1";
+  const key2: CaptionPosition = zone === "top" ? "top-2" : "bottom-2";
+  const s1 = slots[key1];
+  const s2 = slots[key2];
+
+  // Zone renders only if at least one of its configured slots has a
+  // populated layer right now.  Both-empty (between captions, or
+  // unsupported) → no zone container, no placeholder either.
+  const anyVisible =
+    (s1.configured && s1.layer !== null) ||
+    (s2.configured && s2.layer !== null);
+  if (!anyVisible) return null;
+
+  // Critical decision: do we reserve placeholder space for the empty
+  // sibling slot?
+  //   - Both slots configured in this zone: YES — the visible slot
+  //     would otherwise fall to the zone anchor, swapping places
+  //     with where its sibling would be.  Placeholder pins it.
+  //   - Only one slot configured: NO placeholder — the other layer
+  //     lives in the OTHER zone, so there's no sibling to "bounce
+  //     against" here.  Single configured slot just renders at the
+  //     zone anchor naturally.
+  const bothConfigured = s1.configured && s2.configured;
+
+  return (
+    <div style={zoneStyle(zone, scale)} key={zone}>
+      <SlotNode state={s1} scale={scale} bothConfigured={bothConfigured} />
+      <SlotNode state={s2} scale={scale} bothConfigured={bothConfigured} />
+    </div>
+  );
+}
+
+function SlotNode({
+  state,
+  scale,
+  bothConfigured,
+}: {
+  state: SlotState;
+  scale: number;
+  bothConfigured: boolean;
+}) {
+  if (!state.configured) return null;
+  if (state.layer !== null) {
+    return <LayerEl scale={scale} layer={state.layer} />;
+  }
+  // Configured but empty.  Reserve space only when the sibling slot
+  // is also configured — see renderZone for the rationale.
+  if (!bothConfigured) return null;
+  return (
+    <LayerPlaceholder
+      fontSize={state.reservedFontSize}
+      scale={scale}
+    />
+  );
+}
+
+/** Invisible 1-line placeholder.  Reserves vertical space equal to
+    one line at `fontSize × scale × line-height` so the sibling slot
+    in the zone keeps its assigned position even when this slot has
+    no content.  nbsp gives the box text content (line-height needs
+    something to apply to); visibility:hidden hides the glyph +
+    outline + shadow without affecting layout. */
+function LayerPlaceholder({
+  fontSize,
+  scale,
+}: {
+  fontSize: number;
+  scale: number;
+}) {
+  return (
+    <div
+      style={{ ...layerStyle(fontSize, scale, "transparent"), visibility: "hidden" }}
+      aria-hidden="true"
+    >
+      {" "}
+    </div>
   );
 }
 

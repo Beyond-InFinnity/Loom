@@ -30,7 +30,7 @@ const FONT_STACK =
 const BOTTOM_OFFSET_PCT = 8;
 
 export function CaptionOverlay() {
-  const { status, target, native } = useCaptionStream();
+  const { status, target, native, topColor, bottomColor } = useCaptionStream();
   const scale = usePlayerScale();
 
   if (status.kind !== "tracking") return null;
@@ -41,10 +41,12 @@ export function CaptionOverlay() {
   return (
     <div style={containerStyle(scale)}>
       {topText && (
-        <div style={layerStyle(TOP_FONT_PX, scale)}>{topText}</div>
+        <div style={layerStyle(TOP_FONT_PX, scale, topColor)}>{topText}</div>
       )}
       {bottomText && (
-        <div style={layerStyle(BOTTOM_FONT_PX, scale)}>{bottomText}</div>
+        <div style={layerStyle(BOTTOM_FONT_PX, scale, bottomColor)}>
+          {bottomText}
+        </div>
       )}
     </div>
   );
@@ -70,12 +72,13 @@ function containerStyle(scale: number): React.CSSProperties {
 function layerStyle(
   fontSizePx: number,
   scale: number,
+  color: string,
 ): React.CSSProperties {
   return {
     fontFamily: FONT_STACK,
     fontSize: `${fontSizePx * scale}px`,
     fontWeight: 500,
-    color: "#fff",
+    color,
     textAlign: "center",
     whiteSpace: "pre-wrap",
     padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,

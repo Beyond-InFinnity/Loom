@@ -11,7 +11,9 @@ import {
 import {
   setNativeLangPref as discoverSetNativeLangPref,
   setNativeTrack as discoverSetNativeTrack,
+  setNativeTranslateTo as discoverSetNativeTranslateTo,
   setTargetTrack as discoverSetTargetTrack,
+  setTargetTranslateTo as discoverSetTargetTranslateTo,
   subscribeToCaptions,
   type DiscoveryStatus,
 } from "@/lib/captions/discover";
@@ -21,6 +23,15 @@ import {
   hideYtCaptions,
   restoreYtCaptions,
 } from "@/lib/overlay/hide-yt-captions";
+
+// Color preferences live in caption-context (not discover.ts) because
+// they're presentation state, not caption-discovery state.  Persisted
+// to browser.storage.local so they survive page reloads; load is fire-
+// and-forget on mount.
+const STORAGE_KEY_TOP_COLOR = "loom_top_color";
+const STORAGE_KEY_BOTTOM_COLOR = "loom_bottom_color";
+const DEFAULT_TOP_COLOR = "#ffffff";
+const DEFAULT_BOTTOM_COLOR = "#ffffff";
 
 interface CaptionContextValue {
   /** Lifecycle status from discovery — drives the pill + overlay
@@ -38,20 +49,31 @@ interface CaptionContextValue {
   /** All caption tracks discovered for the current video.  Empty
       until phase-1 discovery completes. */
   tracks: CaptionTrack[];
-  /** Resolved (override-or-auto) target/native track.  Drives the
-      settings panel's "currently selected" highlight. */
+  /** Resolved (override-or-auto) target/native SOURCE track.  Drives
+      the settings panel's "currently selected" highlight. */
   selectedTarget: CaptionTrack | null;
   selectedNative: CaptionTrack | null;
   isUserPickedTarget: boolean;
   isUserPickedNative: boolean;
+  /** User-set tlang= per layer.  null = no MT. */
+  targetTranslateTo: string | null;
+  nativeTranslateTo: string | null;
   /** Base BCP-47 lang code used for native auto-pick. */
   nativeLangPref: string;
+
+  /** Per-layer text color (hex).  Persisted to browser.storage.local. */
+  topColor: string;
+  bottomColor: string;
 
   /** Setters wired into discover.ts.  Pass null to revert to
       auto-pick. */
   setTargetTrack: (track: CaptionTrack | null) => void;
   setNativeTrack: (track: CaptionTrack | null) => void;
+  setTargetTranslateTo: (code: string | null) => void;
+  setNativeTranslateTo: (code: string | null) => void;
   setNativeLangPref: (code: string) => void;
+  setTopColor: (hex: string) => void;
+  setBottomColor: (hex: string) => void;
 }
 
 const CaptionContext = createContext<CaptionContextValue | null>(null);
@@ -69,7 +91,15 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   );
   const [isUserPickedTarget, setIsUserPickedTarget] = useState(false);
   const [isUserPickedNative, setIsUserPickedNative] = useState(false);
+  const [targetTranslateTo, setTargetTranslateToState] = useState<
+    string | null
+  >(null);
+  const [nativeTranslateTo, setNativeTranslateToState] = useState<
+    string | null
+  >(null);
   const [nativeLangPref, setNativeLangPrefState] = useState("en");
+  const [topColor, setTopColorState] = useState(DEFAULT_TOP_COLOR);
+  const [bottomColor, setBottomColorState] = useState(DEFAULT_BOTTOM_COLOR);
 
   const stream = useMemo(
     () =>
@@ -98,6 +128,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setSelectedNative(payload.selectedNative);
       setIsUserPickedTarget(payload.isUserPickedTarget);
       setIsUserPickedNative(payload.isUserPickedNative);
+      setTargetTranslateToState(payload.targetTranslateTo);
+      setNativeTranslateToState(payload.nativeTranslateTo);
       setNativeLangPrefState(payload.nativeLangPref);
 
       const s = payload.status;
@@ -130,14 +162,52 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     };
   }, [stream]);
 
+  // One-shot load of persisted color preferences.  Fire-and-forget;
+  // unpersisted defaults render until the storage read lands.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await browser.storage.local.get([
+          STORAGE_KEY_TOP_COLOR,
+          STORAGE_KEY_BOTTOM_COLOR,
+        ]);
+        const top = result[STORAGE_KEY_TOP_COLOR];
+        const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
+        if (typeof top === "string" && top.length > 0) setTopColorState(top);
+        if (typeof bottom === "string" && bottom.length > 0)
+          setBottomColorState(bottom);
+      } catch (e) {
+        console.warn("[Loom] failed to load color prefs:", e);
+      }
+    })();
+  }, []);
+
   const setTargetTrack = useCallback((track: CaptionTrack | null) => {
     discoverSetTargetTrack(track);
   }, []);
   const setNativeTrack = useCallback((track: CaptionTrack | null) => {
     discoverSetNativeTrack(track);
   }, []);
+  const setTargetTranslateTo = useCallback((code: string | null) => {
+    discoverSetTargetTranslateTo(code);
+  }, []);
+  const setNativeTranslateTo = useCallback((code: string | null) => {
+    discoverSetNativeTranslateTo(code);
+  }, []);
   const setNativeLangPref = useCallback((code: string) => {
     discoverSetNativeLangPref(code);
+  }, []);
+  const setTopColor = useCallback((hex: string) => {
+    setTopColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TOP_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] failed to persist topColor:", e));
+  }, []);
+  const setBottomColor = useCallback((hex: string) => {
+    setBottomColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_BOTTOM_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] failed to persist bottomColor:", e));
   }, []);
 
   const value = useMemo<CaptionContextValue>(
@@ -151,10 +221,18 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       selectedNative,
       isUserPickedTarget,
       isUserPickedNative,
+      targetTranslateTo,
+      nativeTranslateTo,
       nativeLangPref,
+      topColor,
+      bottomColor,
       setTargetTrack,
       setNativeTrack,
+      setTargetTranslateTo,
+      setNativeTranslateTo,
       setNativeLangPref,
+      setTopColor,
+      setBottomColor,
     }),
     [
       status,
@@ -166,10 +244,18 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       selectedNative,
       isUserPickedTarget,
       isUserPickedNative,
+      targetTranslateTo,
+      nativeTranslateTo,
       nativeLangPref,
+      topColor,
+      bottomColor,
       setTargetTrack,
       setNativeTrack,
+      setTargetTranslateTo,
+      setNativeTranslateTo,
       setNativeLangPref,
+      setTopColor,
+      setBottomColor,
     ],
   );
 

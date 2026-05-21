@@ -69,16 +69,24 @@ export interface CaptionPayload {
       completes; never reset to empty mid-session even if phase 2
       fails — the settings UI needs them to stay visible. */
   tracks: CaptionTrack[];
-  /** Currently selected target track (Top layer).  Either the user
-      override or the auto-pick. */
+  /** Currently selected SOURCE track for the Top layer.  This is the
+      YT track whose pot URL we lang-swap.  Same as the displayed text
+      WHEN targetTranslateTo is null; the displayed text is YT's MT
+      output otherwise. */
   selectedTarget: CaptionTrack | null;
-  /** Currently selected native track (Bottom layer).  null when the
-      tlang fallback is in use OR when no native track exists. */
+  /** Currently selected SOURCE track for the Bottom layer.  null when
+      the implicit tlang fallback is in play (no en-family track →
+      target lang-swap + tlang=nativeLangPref). */
   selectedNative: CaptionTrack | null;
-  /** True when the user manually picked the target via the UI; false
-      when auto-pick chose it.  UI uses this to show "(auto)" badge. */
+  /** True when the user manually picked the source track; false when
+      auto-pick chose it. */
   isUserPickedTarget: boolean;
   isUserPickedNative: boolean;
+  /** User's tlang= override for each layer.  null = no MT.  Display
+      lang of the rendered text is `selectedX.languageCode` when this
+      is null, otherwise this value. */
+  targetTranslateTo: string | null;
+  nativeTranslateTo: string | null;
   /** Base BCP-47 code the auto-picker uses for native matching.
       Persisted to browser.storage.local. */
   nativeLangPref: string;
@@ -98,10 +106,17 @@ interface Session {
   videoId: string | null;
   tracks: CaptionTrack[];
   capturedUrl: string | null;
-  /** User-selected target.  When null, autoPick decides. */
+  /** User-selected source track for the Top layer.  null = auto-pick. */
   targetOverride: CaptionTrack | null;
-  /** User-selected native.  When null, autoPick decides. */
+  /** User-selected source track for the Bottom layer.  null = auto-pick. */
   nativeOverride: CaptionTrack | null;
+  /** User-set tlang= for the Top layer.  null = no translation.
+      Independent of targetOverride: any source track can be translated. */
+  targetTranslateTo: string | null;
+  /** User-set tlang= for the Bottom layer.  null + no en-family native
+      track present → implicit fallback to nativeLangPref (preserves the
+      "no native track? machine-translate target" behavior from 5b). */
+  nativeTranslateTo: string | null;
 }
 
 function emptySession(): Session {
@@ -111,6 +126,8 @@ function emptySession(): Session {
     capturedUrl: null,
     targetOverride: null,
     nativeOverride: null,
+    targetTranslateTo: null,
+    nativeTranslateTo: null,
   };
 }
 
@@ -171,13 +188,8 @@ async function discoverSession(data: MainTracklist): Promise<void> {
   const isNewVideo = data.videoId !== session.videoId;
   if (isNewVideo) {
     eventsCache.clear();
-    session = {
-      videoId: data.videoId,
-      tracks: [],
-      capturedUrl: null,
-      targetOverride: null,
-      nativeOverride: null,
-    };
+    session = emptySession();
+    session.videoId = data.videoId;
   }
 
   if (data.status === "no-tracks-found") {
@@ -281,7 +293,6 @@ async function resolveCaptions(): Promise<void> {
     nativeLangPref,
   );
   const target = session.targetOverride ?? autoTarget;
-  const native = session.nativeOverride ?? autoNative;
 
   if (target === null) {
     emit({
@@ -291,13 +302,37 @@ async function resolveCaptions(): Promise<void> {
     return;
   }
 
+  // Native source resolution.  Three cases:
+  //   1. User picked a track → use it
+  //   2. autoPick found en-family track → use it
+  //   3. Nothing found → implicit fallback: target source + tlang=nativeLangPref
+  //
+  // tlang follows the same precedence: explicit user override beats
+  // implicit fallback.
+  const nativeUserPicked = session.nativeOverride !== null;
+  const nativeSrc: CaptionTrack | null =
+    session.nativeOverride ?? autoNative ?? target;
+  let nativeTlang: string | null = session.nativeTranslateTo;
+  const usingImplicitNativeFallback =
+    !nativeUserPicked && autoNative === null && nativeTlang === null;
+  if (usingImplicitNativeFallback) {
+    nativeTlang = nativeLangPref;
+  }
+
   // Fetch in parallel, but check cache first.
   const videoId = session.videoId ?? "";
-  const useTlangFallback = !native;
-  const targetPromise = fetchWithCache(videoId, session.capturedUrl, target);
-  const nativePromise = native
-    ? fetchWithCache(videoId, session.capturedUrl, native)
-    : fetchWithCache(videoId, session.capturedUrl, target, nativeLangPref);
+  const targetPromise = fetchWithCache(
+    videoId,
+    session.capturedUrl,
+    target,
+    session.targetTranslateTo ?? undefined,
+  );
+  const nativePromise = fetchWithCache(
+    videoId,
+    session.capturedUrl,
+    nativeSrc,
+    nativeTlang ?? undefined,
+  );
 
   const [targetEvents, nativeEvents] = await Promise.all([
     targetPromise,
@@ -317,15 +352,23 @@ async function resolveCaptions(): Promise<void> {
     return;
   }
 
+  const effectiveTargetLang =
+    session.targetTranslateTo ?? target.languageCode;
+  const effectiveNativeLang = nativeTlang ?? nativeSrc.languageCode;
+
   console.log(
     "[Loom ISO] resolve gen",
     generation,
     "target",
     target.languageCode,
+    session.targetTranslateTo
+      ? `→ tlang=${session.targetTranslateTo}`
+      : "(no tlang)",
     "→",
     targetEvents?.length ?? 0,
     "events; native",
-    native?.languageCode ?? `tlang=${nativeLangPref}`,
+    nativeSrc.languageCode,
+    nativeTlang ? `→ tlang=${nativeTlang}` : "(no tlang)",
     "→",
     nativeEvents?.length ?? 0,
     "events",
@@ -342,23 +385,29 @@ async function resolveCaptions(): Promise<void> {
     return;
   }
 
-  if (useTlangFallback && (nativeEvents?.length ?? 0) <= 1) {
+  if (nativeTlang !== null && (nativeEvents?.length ?? 0) <= 1) {
     console.warn(
-      "[Loom] tlang=" + nativeLangPref + " fallback returned only",
+      "[Loom] tlang=" + nativeTlang + " returned only",
       nativeEvents?.length ?? 0,
-      "events; Bottom layer will be degraded",
+      "events; Bottom layer will be degraded (known YT MT anomaly)",
     );
   }
+
+  // selectedNative in the payload is null when the implicit fallback
+  // is in effect (no real native track) so the UI can show "(auto-MT)"
+  // rather than the target-as-source pretense.
+  const payloadSelectedNative = usingImplicitNativeFallback
+    ? null
+    : nativeSrc;
 
   emit({
     ...buildBasePayload(),
     status: {
       kind: "tracking",
-      targetLang: target.languageCode,
-      nativeLang: native
-        ? native.languageCode
-        : `${target.languageCode} → ${nativeLangPref}`,
+      targetLang: effectiveTargetLang,
+      nativeLang: effectiveNativeLang,
     },
+    selectedNative: payloadSelectedNative,
     targetEvents,
     nativeEvents: nativeEvents ?? [],
   });
@@ -425,6 +474,8 @@ function buildBasePayload(): CaptionPayload {
     selectedNative,
     isUserPickedTarget: session.targetOverride !== null,
     isUserPickedNative: session.nativeOverride !== null,
+    targetTranslateTo: session.targetTranslateTo,
+    nativeTranslateTo: session.nativeTranslateTo,
     nativeLangPref,
     targetEvents: null,
     nativeEvents: null,
@@ -451,6 +502,24 @@ export function setTargetTrack(track: CaptionTrack | null): void {
     (which may produce null + trigger tlang fallback). */
 export function setNativeTrack(track: CaptionTrack | null): void {
   session.nativeOverride = track;
+  void resolveCaptions();
+}
+
+/** Set tlang= for the Top layer.  Pass null to clear (no translation).
+    Independent of source-track override — any source can be MT'd into
+    any supported language. */
+export function setTargetTranslateTo(code: string | null): void {
+  session.targetTranslateTo =
+    code === null || code.trim() === "" ? null : code.trim();
+  void resolveCaptions();
+}
+
+/** Set tlang= for the Bottom layer.  Pass null to clear (which falls
+    through to the implicit nativeLangPref fallback when no native
+    track exists, preserving the 5b auto-MT behavior). */
+export function setNativeTranslateTo(code: string | null): void {
+  session.nativeTranslateTo =
+    code === null || code.trim() === "" ? null : code.trim();
   void resolveCaptions();
 }
 

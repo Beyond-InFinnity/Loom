@@ -5,20 +5,20 @@ import { classifyLang } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
 
 // Settings panel — anchored below the pill, top-right of player.
-// Pulls 5f forward as a diagnostic surface for 5d/5e: lets the user
-// override which target track lands in the Top layer and which native
-// track lands in the Bottom layer.  Also exposes the native-language
-// preference (persisted to browser.storage.local) used by auto-pick.
+// Diagnostic surface for 5d/5e.  Sections:
 //
-// Two sections — Target and Native — each a vertical list of the
-// video's discovered tracks.  Currently-selected track highlighted;
-// (auto) badge marks the auto-pick when no user override is set.
-// Manual / ASR distinguished via a small label badge.
+//   - Native language        Base BCP-47 code auto-pick uses to find
+//                            the Bottom layer source.  Persisted.
+//   - Target (Top)           Source-track radio list + tlang dropdown.
+//   - Native (Bottom)        Source-track radio list + tlang dropdown.
+//   - Colors                 Per-layer text color (swatches + custom).
+//                            Persisted.
 //
-// Re-selection is cheap: discover.ts's eventsCache means switching to
-// a previously-fetched track is instant, no network round-trip.
+// Source-track switching uses discover.ts's eventsCache, so re-picking
+// a previously-fetched track is instant.  tlang= changes always hit
+// the network (different cache key) — first fetch ~200ms.
 
-const NATIVE_LANG_OPTIONS: Array<{ code: string; label: string }> = [
+const LANG_OPTIONS: Array<{ code: string; label: string }> = [
   { code: "en", label: "English" },
   { code: "es", label: "Spanish" },
   { code: "pt", label: "Portuguese" },
@@ -28,10 +28,29 @@ const NATIVE_LANG_OPTIONS: Array<{ code: string; label: string }> = [
   { code: "nl", label: "Dutch" },
   { code: "ja", label: "Japanese" },
   { code: "ko", label: "Korean" },
-  { code: "zh", label: "Chinese" },
+  { code: "zh-Hans", label: "Chinese (Simplified)" },
+  { code: "zh-Hant", label: "Chinese (Traditional)" },
   { code: "ru", label: "Russian" },
   { code: "ar", label: "Arabic" },
   { code: "hi", label: "Hindi" },
+  { code: "th", label: "Thai" },
+  { code: "vi", label: "Vietnamese" },
+  { code: "tr", label: "Turkish" },
+  { code: "pl", label: "Polish" },
+  { code: "id", label: "Indonesian" },
+  { code: "he", label: "Hebrew" },
+];
+
+// Color swatches optimized for legibility over dark video content.
+// User can still type any hex via the native color input below.
+const COLOR_SWATCHES = [
+  "#ffffff",
+  "#ffe05c",
+  "#5cffff",
+  "#5cff9e",
+  "#ff9e5c",
+  "#ff5c9e",
+  "#9b8aff",
 ];
 
 export interface SettingsPanelProps {
@@ -49,24 +68,30 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
     selectedNative,
     isUserPickedTarget,
     isUserPickedNative,
+    targetTranslateTo,
+    nativeTranslateTo,
     nativeLangPref,
+    topColor,
+    bottomColor,
     setTargetTrack,
     setNativeTrack,
+    setTargetTranslateTo,
+    setNativeTranslateTo,
     setNativeLangPref,
+    setTopColor,
+    setBottomColor,
   } = useCaptionStream();
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   // Click-outside dismissal.  Tricky inside a shadow root: a document-
   // level mousedown sees event.target retargeted to the shadow HOST
-  // (loom-overlay-root) for any click anywhere inside the shadow tree
-  // — so we can't tell pill-clicks from panel-clicks via target alone.
-  // composedPath() walks through the shadow boundary and returns the
-  // real chain, so we check it against both the panel ref and the pill
-  // ref.  Without the pill exemption, clicking the pill (to toggle
-  // closed) would (a) trigger this mousedown → onClose, then (b) fire
-  // the pill's onClick → toggle to open, net result: panel re-opens
-  // instead of closing.
+  // (loom-overlay-root) for any click inside the shadow tree — so we
+  // can't tell pill-clicks from panel-clicks via target alone.
+  // composedPath() walks through the shadow boundary so we can check
+  // it against both refs.  Without the pill exemption, clicking the
+  // pill to close would (a) trigger this mousedown → onClose, then (b)
+  // fire the pill's onClick → re-toggle to open.
   useEffect(() => {
     if (!open) return;
     const handleDown = (e: MouseEvent) => {
@@ -101,7 +126,7 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
           onChange={(e) => setNativeLangPref(e.target.value)}
           style={selectStyle()}
         >
-          {NATIVE_LANG_OPTIONS.map((opt) => (
+          {LANG_OPTIONS.map((opt) => (
             <option key={opt.code} value={opt.code}>
               {opt.label} ({opt.code})
             </option>
@@ -112,36 +137,104 @@ export function SettingsPanel({ open, onClose, pillRef }: SettingsPanelProps) {
         </p>
       </Section>
 
-      <Section title={`Target (Top) — ${tracks.length} tracks`}>
-        {tracks.length === 0 ? (
-          <p style={hintStyle()}>No tracks discovered yet.</p>
-        ) : (
-          <TrackList
-            tracks={tracks}
-            selected={selectedTarget}
-            isUserPicked={isUserPickedTarget}
-            onPick={setTargetTrack}
-          />
-        )}
-      </Section>
+      <LayerSection
+        title={`Target (Top) — ${tracks.length} tracks`}
+        tracks={tracks}
+        selected={selectedTarget}
+        isUserPicked={isUserPickedTarget}
+        onPickTrack={setTargetTrack}
+        translateTo={targetTranslateTo}
+        onPickTranslateTo={setTargetTranslateTo}
+        allowNullTrack={false}
+      />
 
-      <Section title="Native (Bottom)">
-        {tracks.length === 0 ? (
-          <p style={hintStyle()}>No tracks discovered yet.</p>
-        ) : (
-          <TrackList
-            tracks={tracks}
-            selected={selectedNative}
-            isUserPicked={isUserPickedNative}
-            onPick={setNativeTrack}
-            allowNull
-            nullLabel={`(auto-translate via tlang=${nativeLangPref})`}
-          />
-        )}
+      <LayerSection
+        title="Native (Bottom)"
+        tracks={tracks}
+        selected={selectedNative}
+        isUserPicked={isUserPickedNative}
+        onPickTrack={setNativeTrack}
+        translateTo={nativeTranslateTo}
+        onPickTranslateTo={setNativeTranslateTo}
+        allowNullTrack
+        nullLabel={`(auto: tlang=${nativeLangPref} when no native track)`}
+      />
+
+      <Section title="Colors">
+        <ColorRow label="Top" value={topColor} onChange={setTopColor} />
+        <ColorRow
+          label="Bottom"
+          value={bottomColor}
+          onChange={setBottomColor}
+        />
       </Section>
     </div>
   );
 }
+
+// ---- Layer section --------------------------------------------------
+
+interface LayerSectionProps {
+  title: string;
+  tracks: CaptionTrack[];
+  selected: CaptionTrack | null;
+  isUserPicked: boolean;
+  onPickTrack: (track: CaptionTrack | null) => void;
+  translateTo: string | null;
+  onPickTranslateTo: (code: string | null) => void;
+  allowNullTrack: boolean;
+  nullLabel?: string;
+}
+
+function LayerSection({
+  title,
+  tracks,
+  selected,
+  isUserPicked,
+  onPickTrack,
+  translateTo,
+  onPickTranslateTo,
+  allowNullTrack,
+  nullLabel,
+}: LayerSectionProps) {
+  return (
+    <Section title={title}>
+      {tracks.length === 0 ? (
+        <p style={hintStyle()}>No tracks discovered yet.</p>
+      ) : (
+        <>
+          <TrackList
+            tracks={tracks}
+            selected={selected}
+            isUserPicked={isUserPicked}
+            onPick={onPickTrack}
+            allowNull={allowNullTrack}
+            nullLabel={nullLabel}
+          />
+          <div style={translateRowStyle()}>
+            <label style={translateLabelStyle()}>Translate to</label>
+            <select
+              value={translateTo ?? ""}
+              onChange={(e) =>
+                onPickTranslateTo(e.target.value === "" ? null : e.target.value)
+              }
+              style={selectStyle()}
+            >
+              <option value="">(no translation)</option>
+              {LANG_OPTIONS.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.label} ({opt.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+// ---- Sub-components -------------------------------------------------
 
 interface SectionProps {
   title: string;
@@ -181,7 +274,7 @@ function TrackList({
           isSelected={selected === null}
           isAuto={!isUserPicked && selected === null}
           onClick={() => onPick(null)}
-          primary={nullLabel ?? "(none)"}
+          primary={nullLabel ?? "(auto)"}
           secondary=""
           badge={null}
         />
@@ -224,19 +317,49 @@ function TrackRow({
   badge,
 }: TrackRowProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={trackRowStyle(isSelected)}
-    >
+    <button type="button" onClick={onClick} style={trackRowStyle(isSelected)}>
       <span style={trackRowDotStyle(isSelected)} />
       <span style={trackRowLabelStyle()}>
         <span style={trackPrimaryStyle()}>{primary}</span>
-        {secondary ? <span style={trackSecondaryStyle()}>{secondary}</span> : null}
+        {secondary ? (
+          <span style={trackSecondaryStyle()}>{secondary}</span>
+        ) : null}
       </span>
       {isAuto && <span style={autoBadgeStyle()}>auto</span>}
       {badge && <span style={kindBadgeStyle(badge)}>{badge}</span>}
     </button>
+  );
+}
+
+interface ColorRowProps {
+  label: string;
+  value: string;
+  onChange: (hex: string) => void;
+}
+
+function ColorRow({ label, value, onChange }: ColorRowProps) {
+  return (
+    <div style={colorRowStyle()}>
+      <span style={colorLabelStyle()}>{label}</span>
+      <div style={swatchRowStyle()}>
+        {COLOR_SWATCHES.map((hex) => (
+          <button
+            key={hex}
+            type="button"
+            onClick={() => onChange(hex)}
+            style={swatchStyle(hex, value.toLowerCase() === hex.toLowerCase())}
+            aria-label={`Set ${label} color to ${hex}`}
+          />
+        ))}
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={colorInputStyle()}
+          aria-label={`Custom ${label} color`}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -248,7 +371,7 @@ function panelStyle(): React.CSSProperties {
     top: "52px",
     right: "16px",
     width: "320px",
-    maxHeight: "min(70vh, 560px)",
+    maxHeight: "min(75vh, 640px)",
     overflowY: "auto",
     zIndex: 2147483647,
     background: "rgba(20, 20, 24, 0.96)",
@@ -333,6 +456,24 @@ function trackListStyle(): React.CSSProperties {
     display: "flex",
     flexDirection: "column",
     gap: "2px",
+  };
+}
+
+function translateRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    marginTop: "8px",
+  };
+}
+
+function translateLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.5)",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
   };
 }
 
@@ -426,5 +567,59 @@ function kindBadgeStyle(kind: "manual" | "asr"): React.CSSProperties {
         ? "rgba(93, 138, 255, 0.35)"
         : "rgba(255, 180, 80, 0.35)"
     }`,
+  };
+}
+
+function colorRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "6px 0",
+  };
+}
+
+function colorLabelStyle(): React.CSSProperties {
+  return {
+    flex: "0 0 50px",
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.75)",
+  };
+}
+
+function swatchRowStyle(): React.CSSProperties {
+  return {
+    flex: "1 1 auto",
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    flexWrap: "wrap",
+  };
+}
+
+function swatchStyle(hex: string, isSelected: boolean): React.CSSProperties {
+  return {
+    width: "18px",
+    height: "18px",
+    borderRadius: "50%",
+    border: isSelected
+      ? "2px solid rgba(255, 255, 255, 0.95)"
+      : "1px solid rgba(255, 255, 255, 0.2)",
+    background: hex,
+    cursor: "pointer",
+    padding: 0,
+    boxShadow: isSelected ? "0 0 0 2px rgba(0, 0, 0, 0.4)" : "none",
+  };
+}
+
+function colorInputStyle(): React.CSSProperties {
+  return {
+    width: "22px",
+    height: "22px",
+    border: "1px solid rgba(255, 255, 255, 0.2)",
+    borderRadius: "4px",
+    background: "transparent",
+    padding: 0,
+    cursor: "pointer",
   };
 }

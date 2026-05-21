@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import { useCaptionStream } from "./caption-context";
 import { SettingsPanel } from "./settings-panel";
@@ -8,50 +8,87 @@ import type { DiscoveryStatus } from "@/lib/captions/discover";
 // player area (player-relative, not viewport-relative — lives inside
 // the #movie_player shadow root).
 //
-// 5f-diagnostics: pill is now ALWAYS visible (no longer hides during
-// active dialogue) because it doubles as the open-settings affordance.
-// During active dialogue, the pill shrinks to a compact form so it
-// doesn't compete with the captions visually; click to open the
-// settings panel regardless of state.
+// PERF LOAD-BEARING (5f-perf): the pill MUST NOT depend on `target` or
+// `native` from caption-context, otherwise it re-renders on every
+// dialogue boundary.  Each re-render produced new inline styles that
+// triggered CSS transitions on padding / gap / background / box-shadow
+// — all main-thread paint+layout properties — and the rapid-fire
+// transitions never settled on continuous-dialogue videos.  Combined
+// with the pill not being on its own compositor layer, page input lag
+// climbed to multi-second range.
+//
+// Fix: pill reads ONLY status from context (rare changes — once on
+// discovery, once on track switch).  Compact-mode based on dialogue
+// presence is dropped.  Pill is always the full-form pill.  Slight
+// UX regression (pill is always visible at full size during
+// dialogue) but it's the load-bearing fix for perf.  Pill is also
+// promoted to its own compositor layer via translateZ(0) so YT page
+// repaints don't cascade through it.
+//
+// NO backdrop-filter — see settings-panel.tsx header for the full
+// rationale.
+//
+// NO CSS transitions on layout/paint properties — they triggered
+// continuous main-thread work on rapid state changes.  Only the
+// box-shadow accent intensity differs between open / closed (no
+// animation).
 
 export function LoomPill() {
-  const { status, target, native } = useCaptionStream();
+  const { status } = useCaptionStream();
   const [open, setOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement | null>(null);
 
-  const captionsShowing = !!(target?.text || native?.text);
-  const compact = status.kind === "tracking" && captionsShowing && !open;
-  const { label, tone } = renderStatus(status, compact);
+  // Stable onClose ref so SettingsPanel's click-outside useEffect deps
+  // don't churn on every pill re-render.
+  const handleClose = useCallback(() => setOpen(false), []);
+  const handleToggle = useCallback(() => setOpen((v) => !v), []);
 
   return (
     <>
-      <button
-        ref={pillRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={containerStyle(tone, compact, open)}
-        aria-label="Loom settings"
-        aria-expanded={open}
-      >
-        <span style={dotStyle(tone)} />
-        {!compact && <span>{label}</span>}
-        {compact && <GearIcon />}
-      </button>
-      <SettingsPanel
+      <PillButton
+        status={status}
         open={open}
-        onClose={() => setOpen(false)}
+        onToggle={handleToggle}
         pillRef={pillRef}
       />
+      <SettingsPanel open={open} onClose={handleClose} pillRef={pillRef} />
     </>
   );
 }
 
+// Memoized inner component — re-renders only when status or open
+// changes, not on every dialogue-driven context update.
+const PillButton = memo(function PillButton({
+  status,
+  open,
+  onToggle,
+  pillRef,
+}: {
+  status: DiscoveryStatus;
+  open: boolean;
+  onToggle: () => void;
+  pillRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const { label, tone } = useMemo(() => renderStatus(status), [status]);
+
+  return (
+    <button
+      ref={pillRef}
+      type="button"
+      onClick={onToggle}
+      style={containerStyle(tone, open)}
+      aria-label="Loom settings"
+      aria-expanded={open}
+    >
+      <span style={dotStyle(tone)} />
+      <span>{label}</span>
+    </button>
+  );
+});
+
 type Tone = "neutral" | "active" | "inactive" | "error";
 
-function renderStatus(
-  status: DiscoveryStatus,
-  _compact: boolean,
-): { label: string; tone: Tone } {
+function renderStatus(status: DiscoveryStatus): { label: string; tone: Tone } {
   switch (status.kind) {
     case "idle":
       return { label: "Loom", tone: "neutral" };
@@ -75,31 +112,7 @@ function renderStatus(
   }
 }
 
-function GearIcon() {
-  // Inline SVG so we don't ship an asset file.  Compact-mode glyph.
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
-function containerStyle(
-  tone: Tone,
-  compact: boolean,
-  open: boolean,
-): React.CSSProperties {
+function containerStyle(tone: Tone, open: boolean): React.CSSProperties {
   const accent = toneAccent(tone);
   return {
     position: "absolute",
@@ -108,19 +121,10 @@ function containerStyle(
     zIndex: 2147483647,
     display: "flex",
     alignItems: "center",
-    gap: compact ? "0" : "8px",
-    padding: compact ? "5px 7px" : "6px 12px",
+    gap: "8px",
+    padding: "6px 12px",
     borderRadius: "999px",
-    // NO backdrop-filter — the pill is permanently mounted on top of
-    // the player, which YT continuously repaints during playback
-    // (progress bar ticks, auto-hiding controls, ad transitions).
-    // backdrop-filter forces a re-blur of underlying pixels on every
-    // frame of underlying paint, saturating the main thread.  Solid
-    // rgba background instead.  See settings-panel.tsx header for the
-    // full rationale.
-    background: compact
-      ? "rgba(20, 20, 24, 0.75)"
-      : "rgba(20, 20, 24, 0.94)",
+    background: "rgba(20, 20, 24, 0.94)",
     color: "#fff",
     fontFamily: "system-ui, -apple-system, sans-serif",
     fontSize: "12px",
@@ -133,8 +137,12 @@ function containerStyle(
     userSelect: "none",
     cursor: "pointer",
     border: "none",
-    transition:
-      "padding 120ms ease, background 120ms ease, gap 120ms ease, box-shadow 120ms ease",
+    // Own compositor layer so YT page repaints (progress bar tick,
+    // auto-hiding controls) don't cascade through the pill on the
+    // main thread.  translateZ(0) is the cross-browser standard
+    // promotion hint.
+    transform: "translateZ(0)",
+    willChange: "transform",
   };
 }
 

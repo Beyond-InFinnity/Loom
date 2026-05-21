@@ -120,7 +120,18 @@ export default defineContentScript({
 });
 
 /** Inject (once) a document-level stylesheet that positions the WXT
-    shadow host `<loom-overlay-root>`.  Idempotent. */
+    shadow host `<loom-overlay-root>`.  Idempotent.
+
+    PERF LOAD-BEARING: the `transform: translateZ(0)` + `will-change:
+    transform` promote the host to its own compositor layer.  Without
+    this, every YouTube page repaint (60fps progress bar, auto-hiding
+    controls, ad transitions) cascaded through the entire shadow root
+    on the main thread — pill + overlay paints had to be rasterized
+    alongside YT's own painting work.  Compositor-layer-isolating the
+    host means our shadow tree is composited independently and YT's
+    repaints don't touch our paint surface.  This was the main fix
+    for multi-second input lag observed when the pill was permanently
+    mounted. */
 function injectHostPositioningStyle(): void {
   if (document.getElementById(HOST_STYLE_ID)) return;
   const style = document.createElement("style");
@@ -135,6 +146,9 @@ loom-overlay-root {
   display: block !important;
   pointer-events: none !important;
   z-index: 2147483647 !important;
+  transform: translateZ(0) !important;
+  will-change: transform !important;
+  contain: layout paint style !important;
 }
 `;
   (document.head ?? document.documentElement).appendChild(style);

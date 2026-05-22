@@ -4,6 +4,10 @@ import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
 import { classifyLang, type LangSupport } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
+import {
+  resolveOrthographyVariants,
+  type VariantDescriptor,
+} from "@loom/orthography-tables";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -191,6 +195,12 @@ export function SettingsPanel({
     nativeAnnotateEnabled,
     targetPhoneticSystem,
     nativePhoneticSystem,
+    targetVariantEnabled,
+    nativeVariantEnabled,
+    variantHighlightEnabled,
+    variantColor,
+    variantCleanColor,
+    variantCollapseColor,
     setTargetTrack,
     setNativeTrack,
     setTargetTranslateTo,
@@ -211,6 +221,12 @@ export function SettingsPanel({
     setNativeAnnotateEnabled,
     setTargetPhoneticSystem,
     setNativePhoneticSystem,
+    setTargetVariantEnabled,
+    setNativeVariantEnabled,
+    setVariantHighlightEnabled,
+    setVariantColor,
+    setVariantCleanColor,
+    setVariantCollapseColor,
   } = useCaptionStream();
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -328,6 +344,23 @@ export function SettingsPanel({
           only takes effect on Chinese tracks.
         </p>
       </Section>
+
+      <VariantSection
+        selectedTarget={selectedTarget}
+        selectedNative={selectedNative}
+        targetEnabled={targetVariantEnabled}
+        nativeEnabled={nativeVariantEnabled}
+        highlightEnabled={variantHighlightEnabled}
+        variantColor={variantColor}
+        cleanColor={variantCleanColor}
+        collapseColor={variantCollapseColor}
+        onTargetToggle={setTargetVariantEnabled}
+        onNativeToggle={setNativeVariantEnabled}
+        onHighlightToggle={setVariantHighlightEnabled}
+        onVariantColorChange={setVariantColor}
+        onCleanColorChange={setVariantCleanColor}
+        onCollapseColorChange={setVariantCollapseColor}
+      />
 
       <Section title="Styles">
         <LayerStyleBlock
@@ -927,6 +960,168 @@ function AnnotateRow({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- VariantSection — alternate-orthography ruby ------------------
+//
+// Data-driven gate: the section only renders when at least one of the
+// two active tracks resolves to a registered orthography variant via
+// @loom/orthography-tables.  Today that's exclusively Traditional
+// Chinese; the gate is the same code path that future variants
+// (Japanese kana, Serbian/Kazakh Cyrl↔Latn) will activate when their
+// tables land.
+//
+// Each layer that resolves a variant gets a toggle row.  The highlight
+// + colours below are SHARED across layers (the user expects one
+// consistent visual language for "this character differs in the other
+// orthography").
+
+interface VariantSectionProps {
+  selectedTarget: CaptionTrack | null;
+  selectedNative: CaptionTrack | null;
+  targetEnabled: boolean;
+  nativeEnabled: boolean;
+  highlightEnabled: boolean;
+  variantColor: string;
+  cleanColor: string;
+  collapseColor: string;
+  onTargetToggle: (v: boolean) => void;
+  onNativeToggle: (v: boolean) => void;
+  onHighlightToggle: (v: boolean) => void;
+  onVariantColorChange: (hex: string) => void;
+  onCleanColorChange: (hex: string) => void;
+  onCollapseColorChange: (hex: string) => void;
+}
+
+function VariantSection({
+  selectedTarget,
+  selectedNative,
+  targetEnabled,
+  nativeEnabled,
+  highlightEnabled,
+  variantColor,
+  cleanColor,
+  collapseColor,
+  onTargetToggle,
+  onNativeToggle,
+  onHighlightToggle,
+  onVariantColorChange,
+  onCleanColorChange,
+  onCollapseColorChange,
+}: VariantSectionProps) {
+  const targetVariant = selectedTarget
+    ? resolveOrthographyVariants(selectedTarget.languageCode)[0] ?? null
+    : null;
+  const nativeVariant = selectedNative
+    ? resolveOrthographyVariants(selectedNative.languageCode)[0] ?? null
+    : null;
+  // Gate: no section at all if NEITHER layer has a variant.  Keeps the
+  // panel uncluttered for the 95% case (no Chinese tracks involved).
+  if (!targetVariant && !nativeVariant) return null;
+
+  const anyEnabled = targetEnabled || nativeEnabled;
+  return (
+    <Section title="Alternate orthography">
+      {targetVariant && (
+        <VariantToggleRow
+          label="Target"
+          variant={targetVariant}
+          enabled={targetEnabled}
+          onToggle={onTargetToggle}
+        />
+      )}
+      {nativeVariant && (
+        <VariantToggleRow
+          label="Native"
+          variant={nativeVariant}
+          enabled={nativeEnabled}
+          onToggle={onNativeToggle}
+        />
+      )}
+      {anyEnabled && (
+        <>
+          <div style={annotateRowStyle(false)}>
+            <div style={annotateHeaderStyle()}>
+              <span style={annotateLabelStyle()}>
+                Highlight differing characters
+              </span>
+              <button
+                type="button"
+                onClick={() => onHighlightToggle(!highlightEnabled)}
+                style={annotateToggleStyle(highlightEnabled)}
+                aria-pressed={highlightEnabled}
+              >
+                {highlightEnabled ? "On" : "Off"}
+              </button>
+            </div>
+            <p style={hintStyle()}>
+              Tints the base character so visually-different chars stand
+              out.  Two tiers: clean 1:1 vs forward-collapse (where one
+              simplified form covers several traditional chars — the
+              identity is hidden in simplification).
+            </p>
+          </div>
+          <div style={annotateRowStyle(false)}>
+            <div style={annotateLabelStyle()}>Under-ruby color</div>
+            <ColorRow label="" value={variantColor} onChange={onVariantColorChange} />
+          </div>
+          {highlightEnabled && (
+            <>
+              <div style={annotateRowStyle(false)}>
+                <div style={annotateLabelStyle()}>Highlight: clean 1:1</div>
+                <ColorRow label="" value={cleanColor} onChange={onCleanColorChange} />
+              </div>
+              <div style={annotateRowStyle(false)}>
+                <div style={annotateLabelStyle()}>Highlight: forward-collapse</div>
+                <ColorRow
+                  label=""
+                  value={collapseColor}
+                  onChange={onCollapseColorChange}
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+interface VariantToggleRowProps {
+  label: string;
+  variant: VariantDescriptor;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+}
+
+function VariantToggleRow({
+  label,
+  variant,
+  enabled,
+  onToggle,
+}: VariantToggleRowProps) {
+  return (
+    <div style={annotateRowStyle(false)}>
+      <div style={annotateHeaderStyle()}>
+        <span style={annotateLabelStyle()}>
+          {label}: show {variant.targetLabel} below
+        </span>
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          style={annotateToggleStyle(enabled)}
+          aria-pressed={enabled}
+        >
+          {enabled ? "On" : "Off"}
+        </button>
+      </div>
+      <p style={hintStyle()}>
+        Reading aid for {variant.sourceHint}: each character that
+        differs in {variant.targetHint} renders a small under-ruby of
+        the {variant.targetLabel} form.
+      </p>
     </div>
   );
 }

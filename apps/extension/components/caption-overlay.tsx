@@ -1,7 +1,12 @@
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
 import { AnnotatedText } from "./annotated-text";
-import type { AnnotateSpan } from "@/lib/annotate/types";
+import { buildRichSegments } from "@/lib/orthography/build-segments";
+import type { RichSegment } from "@/lib/orthography/types";
+import {
+  resolveOrthographyVariants,
+  type OrthographyTable,
+} from "@loom/orthography-tables";
 import { usePlayerScale } from "@/lib/overlay/player-scale";
 
 // CaptionOverlay — dual-subs surface inside #movie_player's shadow root.
@@ -48,24 +53,31 @@ const FONT_FAMILY_AUTO = "auto";
 const ZONE_INSET_PCT = 8;
 
 interface Layer {
-  text: string;
+  /** Pre-merged rich segments (plain runs + annotated chars with
+      optional over-ruby reading + optional under-ruby variant form).
+      Built in CaptionOverlay via buildRichSegments() — keeps LayerEl
+      a dumb renderer. */
+  segments: RichSegment[];
   color: string;
   fontSizePx: number;
   /** CSS font-family value, or the "auto" sentinel which resolves to
       DEFAULT_FONT_STACK at render time. */
   fontFamily: string;
-  /** When set, overlay renders the annotated form (per-token <ruby>)
-      using these spans.  null → plain text rendering (no annotation
-      fetched, disabled, or lang not annotatable). */
-  spans?: AnnotateSpan[] | null;
-  /** Reading-to-base font ratio (only used when spans is set). */
-  annotationRatio?: number;
-  /** Color override for the annotation <rt> (distinct from the base
-      text color above).  null → reuse `color`. */
-  annotationColor?: string | null;
-  /** Font family override for the annotation <rt> (distinct from the
-      base text font above).  null/auto → reuse `fontFamily`. */
-  annotationFontFamily?: string | null;
+  /** Reading-to-base font ratio (only used when any segment has a
+      reading or variantForm). */
+  annotationRatio: number;
+  /** Color of the over-ruby <rt> (phonetic reading). */
+  annotationColor: string;
+  /** Font family of the over-ruby <rt>.  null/auto → inherit. */
+  annotationFontFamily: string | null;
+  /** Color of the under-ruby <rt> (alternate-orthography variant). */
+  variantColor: string;
+  /** Font family of the under-ruby <rt>.  null/auto → inherit. */
+  variantFontFamily: string | null;
+  /** Whether tier-A/B base-char highlighting is applied. */
+  variantHighlightEnabled: boolean;
+  variantCleanHighlightColor: string;
+  variantCollapseHighlightColor: string;
 }
 
 function resolveFontFamily(family: string): string {
@@ -79,6 +91,8 @@ export function CaptionOverlay() {
     status,
     target,
     native,
+    selectedTarget,
+    selectedNative,
     topColor,
     bottomColor,
     annotationColor,
@@ -92,6 +106,12 @@ export function CaptionOverlay() {
     nativePosition,
     targetAnnotateMap,
     nativeAnnotateMap,
+    targetVariantEnabled,
+    nativeVariantEnabled,
+    variantHighlightEnabled,
+    variantColor,
+    variantCleanColor,
+    variantCollapseColor,
   } = useCaptionStream();
   const scale = usePlayerScale();
 
@@ -102,15 +122,41 @@ export function CaptionOverlay() {
 
   // Look up spans for the currently-active event text.  When the
   // annotation map is null (loading / disabled / not annotatable) OR
-  // doesn't have an entry for this exact text, spans stays undefined
-  // and the layer renders plain.  Matches buildAnnotateMap's dedup
-  // semantics — events with identical text share the same span array.
+  // doesn't have an entry for this exact text, spans stays null and
+  // buildRichSegments falls through to the table-walk or plain path.
   const targetSpans = topText
     ? targetAnnotateMap?.get(topText.trim()) ?? null
     : null;
   const nativeSpans = bottomText
     ? nativeAnnotateMap?.get(bottomText.trim()) ?? null
     : null;
+
+  // Resolve the orthography variant table for each layer, if any.
+  // Data-driven gate: today only Traditional Chinese tracks resolve;
+  // the resolver consults the registry from @loom/orthography-tables.
+  // null when the user has the variant disabled for this layer OR the
+  // track's lang has no registered variant table.
+  const targetVariantTable = resolveVariantTable(
+    selectedTarget?.languageCode ?? null,
+    targetVariantEnabled,
+  );
+  const nativeVariantTable = resolveVariantTable(
+    selectedNative?.languageCode ?? null,
+    nativeVariantEnabled,
+  );
+
+  // Build the per-layer segment array up-front so LayerEl stays dumb.
+  // Empty rawText short-circuits to [] inside buildRichSegments.
+  const targetSegments = buildRichSegments({
+    spans: targetSpans,
+    rawText: topText,
+    variantTable: targetVariantTable,
+  });
+  const nativeSegments = buildRichSegments({
+    spans: nativeSpans,
+    rawText: bottomText,
+    variantTable: nativeVariantTable,
+  });
 
   // Per-slot state: a slot is "configured" when one of the two layers
   // (target/native) is assigned to it via the user's position picker,
@@ -139,29 +185,37 @@ export function CaptionOverlay() {
 
   if (topText) {
     slots[targetPosition].layer = {
-      text: topText,
+      segments: targetSegments,
       color: topColor,
       fontSizePx: topFontSizePx,
       fontFamily: topFontFamily,
-      spans: targetSpans,
       annotationRatio: annotationFontRatio,
       annotationColor,
       annotationFontFamily,
+      variantColor,
+      variantFontFamily: null,
+      variantHighlightEnabled,
+      variantCleanHighlightColor: variantCleanColor,
+      variantCollapseHighlightColor: variantCollapseColor,
     };
   }
   if (bottomText) {
     slots[nativePosition].layer = {
-      text: bottomText,
+      segments: nativeSegments,
       color: bottomColor,
       fontSizePx: bottomFontSizePx,
       fontFamily: bottomFontFamily,
-      spans: nativeSpans,
       // Native annotations use the SAME ratio + color/family as the
       // target — the panel exposes one set of annotation controls
       // shared across both layers since native is rarely annotated.
       annotationRatio: annotationFontRatio,
       annotationColor,
       annotationFontFamily,
+      variantColor,
+      variantFontFamily: null,
+      variantHighlightEnabled,
+      variantCleanHighlightColor: variantCleanColor,
+      variantCollapseHighlightColor: variantCollapseColor,
     };
   }
 
@@ -295,27 +349,41 @@ function LayerPlaceholder({
 }
 
 function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
-  const hasSpans = layer.spans && layer.spans.length > 0;
   return (
     <div style={layerStyle(layer.fontSizePx, layer.fontFamily, scale, layer.color)}>
-      {hasSpans ? (
-        <AnnotatedText
-          spans={layer.spans!}
-          baseFontPxScaled={layer.fontSizePx * scale}
-          annotationRatio={layer.annotationRatio ?? 0.5}
-          color={layer.annotationColor ?? layer.color}
-          fontFamily={
-            layer.annotationFontFamily &&
-            layer.annotationFontFamily !== FONT_FAMILY_AUTO
-              ? layer.annotationFontFamily
-              : null
-          }
-        />
-      ) : (
-        layer.text
-      )}
+      <AnnotatedText
+        segments={layer.segments}
+        baseFontPxScaled={layer.fontSizePx * scale}
+        annotationRatio={layer.annotationRatio}
+        color={layer.annotationColor}
+        fontFamily={normalizeFontFamily(layer.annotationFontFamily)}
+        variantColor={layer.variantColor}
+        variantFontFamily={normalizeFontFamily(layer.variantFontFamily)}
+        highlightEnabled={layer.variantHighlightEnabled}
+        cleanHighlightColor={layer.variantCleanHighlightColor}
+        collapseHighlightColor={layer.variantCollapseHighlightColor}
+      />
     </div>
   );
+}
+
+/** Map "auto" / null / "" → null (the AnnotatedText "inherit from parent
+    layer" sentinel).  Any other CSS family value passes through. */
+function normalizeFontFamily(family: string | null): string | null {
+  if (!family || family === FONT_FAMILY_AUTO) return null;
+  return family;
+}
+
+/** Returns the variant table for `langCode` when the user has the
+    variant enabled for this layer, else null.  Today only Traditional
+    Chinese lang codes resolve.  See @loom/orthography-tables registry. */
+function resolveVariantTable(
+  langCode: string | null,
+  enabled: boolean,
+): OrthographyTable | null {
+  if (!enabled || !langCode) return null;
+  const variants = resolveOrthographyVariants(langCode);
+  return variants[0]?.table ?? null;
 }
 
 function zoneStyle(

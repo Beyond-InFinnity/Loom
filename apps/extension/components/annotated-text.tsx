@@ -1,65 +1,117 @@
-import type { AnnotateSpan } from "@/lib/annotate/types";
+import type { RichSegment } from "@/lib/orthography/types";
 
-// Renders an annotated caption line as a flow of <ruby> elements
-// (with <rt> readings) interspersed with plain <span> elements for
-// tokens that don't need annotation (punctuation, hiragana on its
-// own in a Japanese sentence, Latin letters embedded in Chinese, etc.).
+// Renders one layer of caption text as a flow of segments.
 //
-// Uses the browser-native <ruby>/<rt> rendering — no custom CSS for
-// positioning, the browser puts the rt above the base.  The rt's
-// font-size is set inline as a fraction of the base font; the user's
-// annotationFontRatio from caption-context drives the actual value
-// (default 0.5, matches loom_core/styles.py::annotation_font_ratio).
+// Each segment is either a plain run (no ruby) or an annotated single
+// token with optional over-ruby (phonetic reading) and/or under-ruby
+// (alternate-orthography form).  The double-sided <ruby> case puts
+// `ruby-position: over` on the reading <rt> and `ruby-position: under`
+// on the variant <rt>; Chromium and Firefox both handle this correctly.
 //
-// Color and fontFamily are passed in from caption-overlay, which
-// reads them from the user's per-layer style settings.  Color
-// defaults to the base text's color; fontFamily defaults to "inherit"
-// (which falls back to the parent layer's CSS).
+// Vertical gap on the under-rt is via `transform: translateY()` — never
+// margin.  Chromium's ruby box model breaks margins on <rt> in subtle
+// ways; the desktop's annotation_gap uses translateY for the same
+// reason on the over side.  See CLAUDE.md Style System note.
+//
+// Highlight tiers re-color the BASE glyph when the segment is in the
+// orthography table:
+//   - "clean" → cleanHighlightColor (default cyan: 1:1 mapping, the
+//     reader of the target orthography could uniquely recover this).
+//   - "collapse" → collapseHighlightColor (default amber: forward-
+//     collapse merge case, identity is hidden in simplification).
+// Highlight is suppressed entirely when highlightEnabled is false, OR
+// when the segment has no variantForm (reading-only annotated chars
+// stay at their normal color).
 
 interface AnnotatedTextProps {
-  spans: AnnotateSpan[];
+  segments: RichSegment[];
   /** Base layer font size in CSS px (already scaled by usePlayerScale). */
   baseFontPxScaled: number;
   /** Ratio of reading font to base font (0.2–1.0). */
   annotationRatio: number;
-  /** Color applied to the <rt> reading.  Pass the base layer's color
-      for traditional ruby; pass a distinct value to give annotations
-      a different hue (e.g., yellow furigana over white kanji). */
+  /** Color applied to the over-ruby <rt> (phonetic reading). */
   color: string;
-  /** CSS font-family for the <rt>.  When null, the <rt> inherits
-      whatever font the parent <ruby> / surrounding layer is using
-      (the base text's font). */
+  /** CSS font-family for the over-ruby <rt>.  When null, inherits. */
   fontFamily: string | null;
+  /** Color applied to the under-ruby <rt> (orthography variant). */
+  variantColor: string;
+  /** CSS font-family for the under-ruby <rt>.  When null, inherits. */
+  variantFontFamily: string | null;
+  /** When false, all `highlightTier` values render as default text
+   *  color — only the under-rt is added.  Lets the user keep the
+   *  under-ruby line visible without colorising the base text. */
+  highlightEnabled: boolean;
+  /** Base-text color for clean-tier highlighted segments. */
+  cleanHighlightColor: string;
+  /** Base-text color for collapse-tier highlighted segments. */
+  collapseHighlightColor: string;
+  /** Downward translate for the under-rt — keeps space between the
+   *  rt baseline and whatever sits below the layer (other slot in
+   *  the same zone, or YT chrome).  In CSS px @ scale. */
+  underRtTranslateYPx?: number;
 }
 
 export function AnnotatedText({
-  spans,
+  segments,
   baseFontPxScaled,
   annotationRatio,
   color,
   fontFamily,
+  variantColor,
+  variantFontFamily,
+  highlightEnabled,
+  cleanHighlightColor,
+  collapseHighlightColor,
+  underRtTranslateYPx = 2,
 }: AnnotatedTextProps) {
   const rtFontPx = baseFontPxScaled * annotationRatio;
   return (
     <>
-      {spans.map((span, i) => {
-        if (span.reading) {
-          return (
-            <ruby key={i}>
-              {span.base}
-              <rt style={rtStyle(rtFontPx, color, fontFamily)}>
-                {span.reading}
-              </rt>
-            </ruby>
-          );
+      {segments.map((seg, i) => {
+        if (seg.kind === "plain") {
+          return <span key={i}>{seg.text}</span>;
         }
-        return <span key={i}>{span.base}</span>;
+        const baseColor =
+          highlightEnabled && seg.variantForm
+            ? seg.highlightTier === "collapse"
+              ? collapseHighlightColor
+              : seg.highlightTier === "clean"
+                ? cleanHighlightColor
+                : undefined
+            : undefined;
+        const baseEl = baseColor ? (
+          <span style={{ color: baseColor }}>{seg.base}</span>
+        ) : (
+          seg.base
+        );
+        return (
+          <ruby key={i}>
+            {baseEl}
+            {seg.reading && (
+              <rt style={overRtStyle(rtFontPx, color, fontFamily)}>
+                {seg.reading}
+              </rt>
+            )}
+            {seg.variantForm && (
+              <rt
+                style={underRtStyle(
+                  rtFontPx,
+                  variantColor,
+                  variantFontFamily,
+                  underRtTranslateYPx,
+                )}
+              >
+                {seg.variantForm}
+              </rt>
+            )}
+          </ruby>
+        );
       })}
     </>
   );
 }
 
-function rtStyle(
+function overRtStyle(
   fontPx: number,
   color: string,
   fontFamily: string | null,
@@ -67,15 +119,28 @@ function rtStyle(
   const base: React.CSSProperties = {
     fontSize: `${fontPx}px`,
     color,
-    // Slight letter-spacing on small ruby text for legibility over
-    // varied video backgrounds.
     letterSpacing: "0.02em",
-    // <rt> inherits font-weight from the parent; ensure consistent
-    // weight even if the parent's was changed.
     fontWeight: 500,
+    rubyPosition: "over",
   };
-  if (fontFamily) {
-    base.fontFamily = fontFamily;
-  }
+  if (fontFamily) base.fontFamily = fontFamily;
+  return base;
+}
+
+function underRtStyle(
+  fontPx: number,
+  color: string,
+  fontFamily: string | null,
+  translateYPx: number,
+): React.CSSProperties {
+  const base: React.CSSProperties = {
+    fontSize: `${fontPx}px`,
+    color,
+    letterSpacing: "0.02em",
+    fontWeight: 500,
+    rubyPosition: "under",
+    transform: `translateY(${translateYPx}px)`,
+  };
+  if (fontFamily) base.fontFamily = fontFamily;
   return base;
 }

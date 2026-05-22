@@ -46,6 +46,16 @@ const STORAGE_KEY_ANNOTATION_FONT_FAMILY = "loom_annotation_font_family";
 const STORAGE_KEY_TOP_FONT_SIZE = "loom_top_font_size_px";
 const STORAGE_KEY_BOTTOM_FONT_SIZE = "loom_bottom_font_size_px";
 const STORAGE_KEY_ANNOTATION_FONT_RATIO = "loom_annotation_font_ratio";
+// Alternate-orthography (under-ruby) layer.  Per-layer enable so the
+// user can turn on under-ruby for their learning lang without polluting
+// the native layer.  Highlight + colors are SHARED across layers so a
+// "what does this color mean" affordance stays consistent visually.
+const STORAGE_KEY_TARGET_VARIANT_ENABLED = "loom_target_variant_enabled";
+const STORAGE_KEY_NATIVE_VARIANT_ENABLED = "loom_native_variant_enabled";
+const STORAGE_KEY_VARIANT_HIGHLIGHT = "loom_variant_highlight_enabled";
+const STORAGE_KEY_VARIANT_COLOR = "loom_variant_color";
+const STORAGE_KEY_VARIANT_CLEAN_COLOR = "loom_variant_clean_color";
+const STORAGE_KEY_VARIANT_COLLAPSE_COLOR = "loom_variant_collapse_color";
 const DEFAULT_TOP_COLOR = "#ffffff";
 const DEFAULT_BOTTOM_COLOR = "#ffffff";
 const DEFAULT_ANNOTATION_COLOR = "#ffffff";
@@ -59,6 +69,9 @@ const DEFAULT_BOTTOM_FONT_SIZE_PX = 48;
     loom_core/styles.py::annotation_font_ratio).  0.5 for CJK ruby,
     0.4 for alphabetic.  User can override per-track. */
 const DEFAULT_ANNOTATION_FONT_RATIO = 0.5;
+const DEFAULT_VARIANT_COLOR = "#ffffff";
+const DEFAULT_VARIANT_CLEAN_COLOR = "#5cffff";       // soft cyan — 1:1 mapping
+const DEFAULT_VARIANT_COLLAPSE_COLOR = "#ffcc5c";   // soft amber — forward-collapse
 
 /** Slot a track occupies on screen.
     - top-1    : top of player, upper line of top zone (visually highest)
@@ -150,6 +163,21 @@ interface CaptionContextValue {
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
 
+  /** Per-layer alternate-orthography enable.  Resolves to under-ruby
+      rendering (e.g. zh-Hant base + zh-Hans below) when the layer's
+      lang has a registered variant table.  Persisted. */
+  targetVariantEnabled: boolean;
+  nativeVariantEnabled: boolean;
+  /** When true (default), in-table base chars are coloured by tier
+      (clean vs collapse).  When false, only the under-rt renders. */
+  variantHighlightEnabled: boolean;
+  /** Colors — shared across layers for visual consistency.
+      `variantColor` is the under-rt; the two highlight colors are
+      applied to the BASE glyph at render time. */
+  variantColor: string;
+  variantCleanColor: string;
+  variantCollapseColor: string;
+
   /** Setters wired into discover.ts.  Pass null to revert to
       auto-pick. */
   setTargetTrack: (track: CaptionTrack | null) => void;
@@ -175,6 +203,14 @@ interface CaptionContextValue {
   setNativeAnnotateEnabled: (v: boolean) => void;
   setTargetPhoneticSystem: (code: string | null) => void;
   setNativePhoneticSystem: (code: string | null) => void;
+  /** Alternate-orthography setters.  Per-layer enable; shared highlight
+      + colors. */
+  setTargetVariantEnabled: (v: boolean) => void;
+  setNativeVariantEnabled: (v: boolean) => void;
+  setVariantHighlightEnabled: (v: boolean) => void;
+  setVariantColor: (hex: string) => void;
+  setVariantCleanColor: (hex: string) => void;
+  setVariantCollapseColor: (hex: string) => void;
 }
 
 const CaptionContext = createContext<CaptionContextValue | null>(null);
@@ -241,6 +277,17 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     useState<AnnotateMap | null>(null);
   const [nativeAnnotateMap, setNativeAnnotateMapState] =
     useState<AnnotateMap | null>(null);
+  const [targetVariantEnabled, setTargetVariantEnabledState] = useState(false);
+  const [nativeVariantEnabled, setNativeVariantEnabledState] = useState(false);
+  const [variantHighlightEnabled, setVariantHighlightEnabledState] =
+    useState(true);
+  const [variantColor, setVariantColorState] = useState(DEFAULT_VARIANT_COLOR);
+  const [variantCleanColor, setVariantCleanColorState] = useState(
+    DEFAULT_VARIANT_CLEAN_COLOR,
+  );
+  const [variantCollapseColor, setVariantCollapseColorState] = useState(
+    DEFAULT_VARIANT_COLLAPSE_COLOR,
+  );
 
   const stream = useMemo(
     () =>
@@ -333,6 +380,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_TOP_FONT_SIZE,
           STORAGE_KEY_BOTTOM_FONT_SIZE,
           STORAGE_KEY_ANNOTATION_FONT_RATIO,
+          STORAGE_KEY_TARGET_VARIANT_ENABLED,
+          STORAGE_KEY_NATIVE_VARIANT_ENABLED,
+          STORAGE_KEY_VARIANT_HIGHLIGHT,
+          STORAGE_KEY_VARIANT_COLOR,
+          STORAGE_KEY_VARIANT_CLEAN_COLOR,
+          STORAGE_KEY_VARIANT_COLLAPSE_COLOR,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
@@ -372,6 +425,24 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setBottomFontSizePxState(bSize);
         if (typeof aRatio === "number" && aRatio >= 0.2 && aRatio <= 1.0)
           setAnnotationFontRatioState(aRatio);
+        // Variant prefs — booleans validated as actual booleans (avoid
+        // truthy-coercion of stale "true"/"false" strings); colors
+        // accept any non-empty string (the native color input will
+        // validate format at the UI layer).
+        const tVar = result[STORAGE_KEY_TARGET_VARIANT_ENABLED];
+        const nVar = result[STORAGE_KEY_NATIVE_VARIANT_ENABLED];
+        const vHigh = result[STORAGE_KEY_VARIANT_HIGHLIGHT];
+        if (typeof tVar === "boolean") setTargetVariantEnabledState(tVar);
+        if (typeof nVar === "boolean") setNativeVariantEnabledState(nVar);
+        if (typeof vHigh === "boolean") setVariantHighlightEnabledState(vHigh);
+        const vCol = result[STORAGE_KEY_VARIANT_COLOR];
+        const vClean = result[STORAGE_KEY_VARIANT_CLEAN_COLOR];
+        const vColl = result[STORAGE_KEY_VARIANT_COLLAPSE_COLOR];
+        if (typeof vCol === "string" && vCol.length > 0) setVariantColorState(vCol);
+        if (typeof vClean === "string" && vClean.length > 0)
+          setVariantCleanColorState(vClean);
+        if (typeof vColl === "string" && vColl.length > 0)
+          setVariantCollapseColorState(vColl);
       } catch (e) {
         console.warn("[Loom] failed to load presentation prefs:", e);
       }
@@ -480,6 +551,43 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setTargetVariantEnabled = useCallback((v: boolean) => {
+    setTargetVariantEnabledState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TARGET_VARIANT_ENABLED]: v })
+      .catch((e) => console.warn("[Loom] persist targetVariantEnabled:", e));
+  }, []);
+  const setNativeVariantEnabled = useCallback((v: boolean) => {
+    setNativeVariantEnabledState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_NATIVE_VARIANT_ENABLED]: v })
+      .catch((e) => console.warn("[Loom] persist nativeVariantEnabled:", e));
+  }, []);
+  const setVariantHighlightEnabled = useCallback((v: boolean) => {
+    setVariantHighlightEnabledState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_VARIANT_HIGHLIGHT]: v })
+      .catch((e) => console.warn("[Loom] persist variantHighlightEnabled:", e));
+  }, []);
+  const setVariantColor = useCallback((hex: string) => {
+    setVariantColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_VARIANT_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] persist variantColor:", e));
+  }, []);
+  const setVariantCleanColor = useCallback((hex: string) => {
+    setVariantCleanColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_VARIANT_CLEAN_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] persist variantCleanColor:", e));
+  }, []);
+  const setVariantCollapseColor = useCallback((hex: string) => {
+    setVariantCollapseColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_VARIANT_COLLAPSE_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] persist variantCollapseColor:", e));
+  }, []);
+
   const setTargetAnnotateEnabled = useCallback((v: boolean) => {
     discoverSetTargetAnnotateEnabled(v);
   }, []);
@@ -544,6 +652,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetVariantEnabled,
+      nativeVariantEnabled,
+      variantHighlightEnabled,
+      variantColor,
+      variantCleanColor,
+      variantCollapseColor,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -564,6 +678,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeAnnotateEnabled,
       setTargetPhoneticSystem,
       setNativePhoneticSystem,
+      setTargetVariantEnabled,
+      setNativeVariantEnabled,
+      setVariantHighlightEnabled,
+      setVariantColor,
+      setVariantCleanColor,
+      setVariantCollapseColor,
     }),
     [
       status,
@@ -595,6 +715,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetVariantEnabled,
+      nativeVariantEnabled,
+      variantHighlightEnabled,
+      variantColor,
+      variantCleanColor,
+      variantCollapseColor,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -615,6 +741,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeAnnotateEnabled,
       setTargetPhoneticSystem,
       setNativePhoneticSystem,
+      setTargetVariantEnabled,
+      setNativeVariantEnabled,
+      setVariantHighlightEnabled,
+      setVariantColor,
+      setVariantCleanColor,
+      setVariantCollapseColor,
     ],
   );
 

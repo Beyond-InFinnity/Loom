@@ -14,22 +14,42 @@ import type { RichSegment } from "@/lib/orthography/types";
 // ruby-position values.  Chrome behaves similarly in older versions.
 //
 // Workaround that works on Firefox MV2 + Chromium today: NEST the
-// rubies.  The OUTER <ruby> carries the under-rt; its base is the
-// INNER <ruby>, which carries its own (default-over) rt for the
-// phonetic reading.  Each <ruby> has exactly one <rt>, so the per-rt
-// position is unambiguous.
+// rubies.  Each <ruby> has exactly one <rt>, so the per-rt position
+// is unambiguous from the browser's perspective.
 //
-//   <ruby>                          <!-- outer: provides under-rt -->
-//     <ruby>                        <!-- inner: provides over-rt  -->
+//   <ruby>                          <!-- outer: variantForm rt    -->
+//     <ruby>                        <!-- inner: reading rt        -->
 //       {base}
 //       <rt>{reading}</rt>          <!-- default over             -->
 //     </ruby>
 //     <rt style="ruby-position: under">{variantForm}</rt>
 //   </ruby>
 //
-// Single-side cases use a plain <ruby> with one <rt> (no nesting).
+// OBSERVED RENDERED ORDER on Firefox MV2 (2026-05-23):
 //
-// Vertical gap on the under-rt is via `transform: translateY()`, not
+//     variantForm       ← outer rt, visually at the TOP
+//     reading           ← inner rt, above the inner base
+//     {base}            ← the Traditional char
+//
+// I.e. Firefox renders the outer rt ABOVE the inner ruby block
+// regardless of its `ruby-position: under` style — the per-rt
+// position is honoured for FLAT single-rt rubies (the panel preview
+// component is one) but inverted/ignored when an rt sits at the
+// outer level of a nested ruby.  We're keeping the result as a
+// happy accident: the auxiliary Simplified form floats at the top
+// where it reads as supplementary info, while the Traditional
+// stays in its natural reading position with Pinyin annotating it
+// directly above.  Pedagogically nicer than the original spec
+// intent of "Simplified below the Traditional."
+//
+// Single-side cases use a flat <ruby> with one <rt> (no nesting).
+// In those cases `ruby-position: under` IS honoured by Firefox,
+// which is why the panel preview correctly shows Simplified below
+// the Traditional — that preview uses single-rt rubies, not
+// nested.  Don't be confused if you tweak the preview and see
+// different behaviour from the live overlay.
+//
+// Vertical gap on the rt is via `transform: translateY()`, not
 // margin — Chromium's ruby box model breaks margins on <rt>; the
 // desktop's annotation_gap uses translateY for the same reason on
 // the over side.  See CLAUDE.md Style System note.

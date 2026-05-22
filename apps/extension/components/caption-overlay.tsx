@@ -1,7 +1,6 @@
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
 import { AnnotatedText } from "./annotated-text";
-import { classifyLang } from "@/lib/captions/lang-support";
 import type { AnnotateSpan } from "@/lib/annotate/types";
 import { usePlayerScale } from "@/lib/overlay/player-scale";
 
@@ -29,37 +28,50 @@ import { usePlayerScale } from "@/lib/overlay/player-scale";
 // sibling track already occupies.
 
 // All sizes are in CSS px @ 1080p reference; multiplied by usePlayerScale
-// at render time.
-const TOP_FONT_PX = 52;
-const BOTTOM_FONT_PX = 48;
+// at render time.  Default constants below are kept for backwards
+// compatibility — the Layer values now come from caption-context so
+// users can override per layer via the settings panel.
 const OUTLINE_PX = 2.5;
 const SHADOW_OFFSET_PX = 1.5;
 const LAYER_GAP_PX = 4;
 const HORIZONTAL_PADDING_PX = 12;
-const FONT_STACK =
+/** Default font stack — used when a layer's fontFamily is the "auto"
+    sentinel.  Listed in order Noto-JP → Noto-SC/TC/KR → Noto-Thai →
+    Noto-Sans (Latin) → system-ui; browser picks the first installed
+    family that has a glyph for each char. */
+const DEFAULT_FONT_STACK =
   "'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans KR', 'Noto Sans Thai', 'Noto Sans', system-ui, -apple-system, sans-serif";
+const FONT_FAMILY_AUTO = "auto";
 /** Distance of each zone's anchor from the corresponding player edge.
     8% clears YT's progress bar / controls on the bottom and feels
     natural on the top (where "sign" captions traditionally live). */
 const ZONE_INSET_PCT = 8;
-/** Reading-to-base font ratio for ruby annotations.  Mirrors
-    loom_core/styles.py::annotation_font_ratio — CJK gets 0.5
-    (per-character readings are dense and readable at half-size);
-    Korean RR and other alphabetic scripts get 0.4 (longer readings
-    benefit from being slightly smaller). */
-const ANNOTATION_RATIO_CJK = 0.5;
-const ANNOTATION_RATIO_ALPHABETIC = 0.4;
 
 interface Layer {
   text: string;
   color: string;
-  fontSize: number;
+  fontSizePx: number;
+  /** CSS font-family value, or the "auto" sentinel which resolves to
+      DEFAULT_FONT_STACK at render time. */
+  fontFamily: string;
   /** When set, overlay renders the annotated form (per-token <ruby>)
       using these spans.  null → plain text rendering (no annotation
       fetched, disabled, or lang not annotatable). */
   spans?: AnnotateSpan[] | null;
   /** Reading-to-base font ratio (only used when spans is set). */
   annotationRatio?: number;
+  /** Color override for the annotation <rt> (distinct from the base
+      text color above).  null → reuse `color`. */
+  annotationColor?: string | null;
+  /** Font family override for the annotation <rt> (distinct from the
+      base text font above).  null/auto → reuse `fontFamily`. */
+  annotationFontFamily?: string | null;
+}
+
+function resolveFontFamily(family: string): string {
+  return family === FONT_FAMILY_AUTO || family.length === 0
+    ? DEFAULT_FONT_STACK
+    : family;
 }
 
 export function CaptionOverlay() {
@@ -69,6 +81,13 @@ export function CaptionOverlay() {
     native,
     topColor,
     bottomColor,
+    annotationColor,
+    topFontFamily,
+    bottomFontFamily,
+    annotationFontFamily,
+    topFontSizePx,
+    bottomFontSizePx,
+    annotationFontRatio,
     targetPosition,
     nativePosition,
     targetAnnotateMap,
@@ -112,26 +131,37 @@ export function CaptionOverlay() {
   // anchor when both layers are in the same zone but only one has
   // content.
   slots[targetPosition].configured = true;
-  slots[targetPosition].reservedFontSize = TOP_FONT_PX;
+  slots[targetPosition].reservedFontSize = topFontSizePx;
+  slots[targetPosition].reservedFontFamily = topFontFamily;
   slots[nativePosition].configured = true;
-  slots[nativePosition].reservedFontSize = BOTTOM_FONT_PX;
+  slots[nativePosition].reservedFontSize = bottomFontSizePx;
+  slots[nativePosition].reservedFontFamily = bottomFontFamily;
 
   if (topText) {
     slots[targetPosition].layer = {
       text: topText,
       color: topColor,
-      fontSize: TOP_FONT_PX,
+      fontSizePx: topFontSizePx,
+      fontFamily: topFontFamily,
       spans: targetSpans,
-      annotationRatio: annotationRatioFor(status.targetLang),
+      annotationRatio: annotationFontRatio,
+      annotationColor,
+      annotationFontFamily,
     };
   }
   if (bottomText) {
     slots[nativePosition].layer = {
       text: bottomText,
       color: bottomColor,
-      fontSize: BOTTOM_FONT_PX,
+      fontSizePx: bottomFontSizePx,
+      fontFamily: bottomFontFamily,
       spans: nativeSpans,
-      annotationRatio: annotationRatioFor(status.nativeLang),
+      // Native annotations use the SAME ratio + color/family as the
+      // target — the panel exposes one set of annotation controls
+      // shared across both layers since native is rarely annotated.
+      annotationRatio: annotationFontRatio,
+      annotationColor,
+      annotationFontFamily,
     };
   }
 
@@ -154,13 +184,18 @@ interface SlotState {
   /** Font size for the configured layer.  Used for both the
       populated layer's actual render AND the placeholder reserve. */
   reservedFontSize: number;
+  /** Font family for the configured layer — kept on the slot state
+      so the placeholder uses the same line-height as the populated
+      layer would.  "auto" sentinel resolves to DEFAULT_FONT_STACK. */
+  reservedFontFamily: string;
 }
 
 function defaultSlotState(): SlotState {
   return {
     layer: null,
     configured: false,
-    reservedFontSize: TOP_FONT_PX,
+    reservedFontSize: 52,
+    reservedFontFamily: FONT_FAMILY_AUTO,
   };
 }
 
@@ -225,6 +260,7 @@ function SlotNode({
   return (
     <LayerPlaceholder
       fontSize={state.reservedFontSize}
+      fontFamily={state.reservedFontFamily}
       scale={scale}
     />
   );
@@ -238,14 +274,19 @@ function SlotNode({
     outline + shadow without affecting layout. */
 function LayerPlaceholder({
   fontSize,
+  fontFamily,
   scale,
 }: {
   fontSize: number;
+  fontFamily: string;
   scale: number;
 }) {
   return (
     <div
-      style={{ ...layerStyle(fontSize, scale, "transparent"), visibility: "hidden" }}
+      style={{
+        ...layerStyle(fontSize, fontFamily, scale, "transparent"),
+        visibility: "hidden",
+      }}
       aria-hidden="true"
     >
       {" "}
@@ -256,30 +297,25 @@ function LayerPlaceholder({
 function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
   const hasSpans = layer.spans && layer.spans.length > 0;
   return (
-    <div style={layerStyle(layer.fontSize, scale, layer.color)}>
+    <div style={layerStyle(layer.fontSizePx, layer.fontFamily, scale, layer.color)}>
       {hasSpans ? (
         <AnnotatedText
           spans={layer.spans!}
-          baseFontPxScaled={layer.fontSize * scale}
-          annotationRatio={layer.annotationRatio ?? ANNOTATION_RATIO_CJK}
-          color={layer.color}
+          baseFontPxScaled={layer.fontSizePx * scale}
+          annotationRatio={layer.annotationRatio ?? 0.5}
+          color={layer.annotationColor ?? layer.color}
+          fontFamily={
+            layer.annotationFontFamily &&
+            layer.annotationFontFamily !== FONT_FAMILY_AUTO
+              ? layer.annotationFontFamily
+              : null
+          }
         />
       ) : (
         layer.text
       )}
     </div>
   );
-}
-
-/** Pick the reading-to-base font ratio for a language.  Hangul gets
-    the alphabetic ratio (longer per-syllable readings); CJK Han +
-    Kana get the denser CJK ratio.  Defaults to CJK for unknown langs
-    since the annotation pipeline only fires for annotate-romanize
-    languages anyway. */
-function annotationRatioFor(langCode: string): number {
-  const c = classifyLang(langCode);
-  if (c.family === "hangul") return ANNOTATION_RATIO_ALPHABETIC;
-  return ANNOTATION_RATIO_CJK;
 }
 
 function zoneStyle(
@@ -315,11 +351,12 @@ function zoneStyle(
 
 function layerStyle(
   fontSizePx: number,
+  fontFamily: string,
   scale: number,
   color: string,
 ): React.CSSProperties {
   return {
-    fontFamily: FONT_STACK,
+    fontFamily: resolveFontFamily(fontFamily),
     fontSize: `${fontSizePx * scale}px`,
     fontWeight: 500,
     color,

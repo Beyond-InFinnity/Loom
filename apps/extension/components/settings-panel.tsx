@@ -178,6 +178,13 @@ export function SettingsPanel({
     nativeLangPref,
     topColor,
     bottomColor,
+    annotationColor,
+    topFontFamily,
+    bottomFontFamily,
+    annotationFontFamily,
+    topFontSizePx,
+    bottomFontSizePx,
+    annotationFontRatio,
     targetPosition,
     nativePosition,
     targetAnnotateEnabled,
@@ -191,6 +198,13 @@ export function SettingsPanel({
     setNativeLangPref,
     setTopColor,
     setBottomColor,
+    setAnnotationColor,
+    setTopFontFamily,
+    setBottomFontFamily,
+    setAnnotationFontFamily,
+    setTopFontSizePx,
+    setBottomFontSizePx,
+    setAnnotationFontRatio,
     setTargetPosition,
     setNativePosition,
     setTargetAnnotateEnabled,
@@ -315,13 +329,42 @@ export function SettingsPanel({
         </p>
       </Section>
 
-      <Section title="Colors">
-        <ColorRow label="Top" value={topColor} onChange={setTopColor} />
-        <ColorRow
+      <Section title="Styles">
+        <LayerStyleBlock
           label="Bottom"
-          value={bottomColor}
-          onChange={setBottomColor}
+          color={bottomColor}
+          onColorChange={setBottomColor}
+          fontFamily={bottomFontFamily}
+          onFontFamilyChange={setBottomFontFamily}
+          sizeMode="px"
+          sizeValue={bottomFontSizePx}
+          onSizeChange={setBottomFontSizePx}
         />
+        <LayerStyleBlock
+          label="Top"
+          color={topColor}
+          onColorChange={setTopColor}
+          fontFamily={topFontFamily}
+          onFontFamilyChange={setTopFontFamily}
+          sizeMode="px"
+          sizeValue={topFontSizePx}
+          onSizeChange={setTopFontSizePx}
+        />
+        <LayerStyleBlock
+          label="Annotation"
+          color={annotationColor}
+          onColorChange={setAnnotationColor}
+          fontFamily={annotationFontFamily}
+          onFontFamilyChange={setAnnotationFontFamily}
+          sizeMode="ratio"
+          sizeValue={annotationFontRatio}
+          onSizeChange={setAnnotationFontRatio}
+        />
+        <p style={hintStyle()}>
+          Annotation size is a ratio of the Top size (0.5 = half).
+          Romanization layer styling lands when 5e wires in the
+          secondary phonetic line.
+        </p>
       </Section>
 
       <div style={deactivateRowStyle()}>
@@ -663,7 +706,7 @@ interface ColorRowProps {
 function ColorRow({ label, value, onChange }: ColorRowProps) {
   return (
     <div style={colorRowStyle()}>
-      <span style={colorLabelStyle()}>{label}</span>
+      {label && <span style={colorLabelStyle()}>{label}</span>}
       <div style={swatchRowStyle()}>
         {COLOR_SWATCHES.map((hex) => (
           <button
@@ -671,7 +714,7 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
             type="button"
             onClick={() => onChange(hex)}
             style={swatchStyle(hex, value.toLowerCase() === hex.toLowerCase())}
-            aria-label={`Set ${label} color to ${hex}`}
+            aria-label={`Set color to ${hex}`}
           />
         ))}
         <input
@@ -679,7 +722,103 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           style={colorInputStyle()}
-          aria-label={`Custom ${label} color`}
+          aria-label="Custom color"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---- LayerStyleBlock ------------------------------------------------
+//
+// Self-contained styling controls for one caption layer (Bottom, Top,
+// or Annotation).  Mirrors the desktop's per-layer style sections.
+// Three rows: color (swatches + custom input), font family (the
+// scrollable LangSelect dropdown reused as a generic option picker),
+// font size (number input).  Annotation uses sizeMode="ratio" — the
+// size is expressed as a fraction of the Top layer's size, matching
+// loom_core/styles.py::annotation_font_ratio convention.
+
+/** Font options offered in every layer's family dropdown.  "auto" =
+    the cross-script Noto-fallback stack (the same one the overlay
+    has always used).  The rest are well-known faces that ship with
+    most modern OSes OR are common enough that even when absent the
+    browser's fallback chain produces something legible.  CSS values
+    are full font-family strings so they're applied verbatim. */
+const FONT_FAMILY_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: "auto", label: "Auto (Noto + system fallback)" },
+  { code: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
+  { code: "'Noto Sans SC', sans-serif", label: "Noto Sans SC (Simplified)" },
+  { code: "'Noto Sans TC', sans-serif", label: "Noto Sans TC (Traditional)" },
+  { code: "'Noto Sans KR', sans-serif", label: "Noto Sans KR" },
+  { code: "'Noto Sans Thai', sans-serif", label: "Noto Sans Thai" },
+  { code: "'Noto Serif JP', serif", label: "Noto Serif JP" },
+  { code: "'Noto Serif', serif", label: "Noto Serif" },
+  { code: "sans-serif", label: "System sans-serif" },
+  { code: "serif", label: "System serif" },
+  { code: "monospace", label: "System monospace" },
+  { code: "Arial, sans-serif", label: "Arial" },
+  { code: "Helvetica, sans-serif", label: "Helvetica" },
+  { code: "Georgia, serif", label: "Georgia" },
+  { code: "'Times New Roman', serif", label: "Times New Roman" },
+  { code: "'Courier New', monospace", label: "Courier New" },
+];
+
+interface LayerStyleBlockProps {
+  label: string;
+  color: string;
+  onColorChange: (hex: string) => void;
+  fontFamily: string;
+  onFontFamilyChange: (family: string) => void;
+  /** "px" = absolute pixel size at 1080p reference; "ratio" =
+      fraction of the Top layer's size (only used for Annotation). */
+  sizeMode: "px" | "ratio";
+  sizeValue: number;
+  onSizeChange: (value: number) => void;
+}
+
+function LayerStyleBlock({
+  label,
+  color,
+  onColorChange,
+  fontFamily,
+  onFontFamilyChange,
+  sizeMode,
+  sizeValue,
+  onSizeChange,
+}: LayerStyleBlockProps) {
+  const sizeLabel = sizeMode === "px" ? "Size (px)" : "Size (ratio of Top)";
+  const sizeMin = sizeMode === "px" ? 12 : 0.2;
+  const sizeMax = sizeMode === "px" ? 120 : 1.0;
+  const sizeStep = sizeMode === "px" ? 1 : 0.05;
+  return (
+    <div style={layerStyleBlockStyle()}>
+      <div style={layerStyleHeaderStyle()}>{label}</div>
+      <div style={layerStyleRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>Color</span>
+        <ColorRow label="" value={color} onChange={onColorChange} />
+      </div>
+      <div style={layerStyleRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>Font</span>
+        <LangSelect
+          value={fontFamily}
+          onChange={(code) => onFontFamilyChange(code)}
+          options={FONT_FAMILY_OPTIONS}
+        />
+      </div>
+      <div style={layerStyleRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>{sizeLabel}</span>
+        <input
+          type="number"
+          value={sizeValue}
+          min={sizeMin}
+          max={sizeMax}
+          step={sizeStep}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value);
+            if (!Number.isNaN(v)) onSizeChange(v);
+          }}
+          style={numberInputStyle()}
         />
       </div>
     </div>
@@ -1279,5 +1418,58 @@ function deactivateButtonStyle(): React.CSSProperties {
     fontWeight: 500,
     cursor: "pointer",
     textAlign: "center",
+  };
+}
+
+function layerStyleBlockStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    padding: "8px",
+    borderRadius: "6px",
+    background: "rgba(255, 255, 255, 0.03)",
+    border: "1px solid rgba(255, 255, 255, 0.06)",
+    marginBottom: "6px",
+  };
+}
+
+function layerStyleHeaderStyle(): React.CSSProperties {
+  return {
+    fontSize: "12px",
+    fontWeight: 500,
+    color: "rgba(255, 255, 255, 0.85)",
+    marginBottom: "2px",
+  };
+}
+
+function layerStyleRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "3px",
+  };
+}
+
+function layerStyleRowLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.5)",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+  };
+}
+
+function numberInputStyle(): React.CSSProperties {
+  return {
+    width: "80px",
+    padding: "6px 8px",
+    borderRadius: "6px",
+    border: "1px solid rgba(255, 255, 255, 0.12)",
+    background: "rgba(255, 255, 255, 0.06)",
+    color: "#fff",
+    fontSize: "12px",
+    fontFamily: "inherit",
+    outline: "none",
   };
 }

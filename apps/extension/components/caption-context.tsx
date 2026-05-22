@@ -35,10 +35,30 @@ import {
 // mount, default values render until the storage read lands.
 const STORAGE_KEY_TOP_COLOR = "loom_top_color";
 const STORAGE_KEY_BOTTOM_COLOR = "loom_bottom_color";
+const STORAGE_KEY_ANNOTATION_COLOR = "loom_annotation_color";
 const STORAGE_KEY_TARGET_POSITION = "loom_target_position";
 const STORAGE_KEY_NATIVE_POSITION = "loom_native_position";
+// Per-layer typography (added when desktop's StyleConfig was ported
+// piecemeal — color first, then font family + size).  All persisted.
+const STORAGE_KEY_TOP_FONT_FAMILY = "loom_top_font_family";
+const STORAGE_KEY_BOTTOM_FONT_FAMILY = "loom_bottom_font_family";
+const STORAGE_KEY_ANNOTATION_FONT_FAMILY = "loom_annotation_font_family";
+const STORAGE_KEY_TOP_FONT_SIZE = "loom_top_font_size_px";
+const STORAGE_KEY_BOTTOM_FONT_SIZE = "loom_bottom_font_size_px";
+const STORAGE_KEY_ANNOTATION_FONT_RATIO = "loom_annotation_font_ratio";
 const DEFAULT_TOP_COLOR = "#ffffff";
 const DEFAULT_BOTTOM_COLOR = "#ffffff";
+const DEFAULT_ANNOTATION_COLOR = "#ffffff";
+/** "auto" sentinel means use the overlay's default cross-script
+    Noto-fallback FONT_STACK from caption-overlay.tsx.  Any other
+    string is a CSS font-family value used verbatim. */
+const DEFAULT_FONT_FAMILY = "auto";
+const DEFAULT_TOP_FONT_SIZE_PX = 52;
+const DEFAULT_BOTTOM_FONT_SIZE_PX = 48;
+/** Annotation font is sized as a fraction of the TOP font (matches
+    loom_core/styles.py::annotation_font_ratio).  0.5 for CJK ruby,
+    0.4 for alphabetic.  User can override per-track. */
+const DEFAULT_ANNOTATION_FONT_RATIO = 0.5;
 
 /** Slot a track occupies on screen.
     - top-1    : top of player, upper line of top zone (visually highest)
@@ -95,6 +115,22 @@ interface CaptionContextValue {
   /** Per-layer text color (hex).  Persisted to browser.storage.local. */
   topColor: string;
   bottomColor: string;
+  /** Color of the annotation reading (<rt> in ruby).  Distinct from
+      topColor so the user can e.g. have white kanji + soft-yellow
+      furigana without dragging colors together. */
+  annotationColor: string;
+  /** Per-layer font family.  "auto" sentinel = the cross-script
+      Noto-fallback stack; any other string is verbatim CSS. */
+  topFontFamily: string;
+  bottomFontFamily: string;
+  annotationFontFamily: string;
+  /** Per-layer font size.  Top + Bottom in absolute CSS pixels at
+      1080p reference (scaled by usePlayerScale at render time);
+      annotation as a ratio of the TOP layer's size (matches the
+      desktop's annotation_font_ratio convention). */
+  topFontSizePx: number;
+  bottomFontSizePx: number;
+  annotationFontRatio: number;
 
   /** Per-track screen position.  See CaptionPosition above.  Persisted. */
   targetPosition: CaptionPosition;
@@ -123,6 +159,13 @@ interface CaptionContextValue {
   setNativeLangPref: (code: string) => void;
   setTopColor: (hex: string) => void;
   setBottomColor: (hex: string) => void;
+  setAnnotationColor: (hex: string) => void;
+  setTopFontFamily: (family: string) => void;
+  setBottomFontFamily: (family: string) => void;
+  setAnnotationFontFamily: (family: string) => void;
+  setTopFontSizePx: (px: number) => void;
+  setBottomFontSizePx: (px: number) => void;
+  setAnnotationFontRatio: (ratio: number) => void;
   /** Position setters auto-swap when the requested slot is already
       occupied by the other track, so state stays collision-free. */
   setTargetPosition: (pos: CaptionPosition) => void;
@@ -158,6 +201,23 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [nativeLangPref, setNativeLangPrefState] = useState("en");
   const [topColor, setTopColorState] = useState(DEFAULT_TOP_COLOR);
   const [bottomColor, setBottomColorState] = useState(DEFAULT_BOTTOM_COLOR);
+  const [annotationColor, setAnnotationColorState] = useState(
+    DEFAULT_ANNOTATION_COLOR,
+  );
+  const [topFontFamily, setTopFontFamilyState] = useState(DEFAULT_FONT_FAMILY);
+  const [bottomFontFamily, setBottomFontFamilyState] =
+    useState(DEFAULT_FONT_FAMILY);
+  const [annotationFontFamily, setAnnotationFontFamilyState] =
+    useState(DEFAULT_FONT_FAMILY);
+  const [topFontSizePx, setTopFontSizePxState] = useState(
+    DEFAULT_TOP_FONT_SIZE_PX,
+  );
+  const [bottomFontSizePx, setBottomFontSizePxState] = useState(
+    DEFAULT_BOTTOM_FONT_SIZE_PX,
+  );
+  const [annotationFontRatio, setAnnotationFontRatioState] = useState(
+    DEFAULT_ANNOTATION_FONT_RATIO,
+  );
   const [targetPosition, setTargetPositionState] = useState<CaptionPosition>(
     DEFAULT_TARGET_POSITION,
   );
@@ -264,22 +324,54 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
         const result = await browser.storage.local.get([
           STORAGE_KEY_TOP_COLOR,
           STORAGE_KEY_BOTTOM_COLOR,
+          STORAGE_KEY_ANNOTATION_COLOR,
           STORAGE_KEY_TARGET_POSITION,
           STORAGE_KEY_NATIVE_POSITION,
+          STORAGE_KEY_TOP_FONT_FAMILY,
+          STORAGE_KEY_BOTTOM_FONT_FAMILY,
+          STORAGE_KEY_ANNOTATION_FONT_FAMILY,
+          STORAGE_KEY_TOP_FONT_SIZE,
+          STORAGE_KEY_BOTTOM_FONT_SIZE,
+          STORAGE_KEY_ANNOTATION_FONT_RATIO,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
+        const ann = result[STORAGE_KEY_ANNOTATION_COLOR];
         const tPos = result[STORAGE_KEY_TARGET_POSITION];
         const nPos = result[STORAGE_KEY_NATIVE_POSITION];
         if (typeof top === "string" && top.length > 0) setTopColorState(top);
         if (typeof bottom === "string" && bottom.length > 0)
           setBottomColorState(bottom);
+        if (typeof ann === "string" && ann.length > 0)
+          setAnnotationColorState(ann);
         if (isCaptionPosition(tPos) && isCaptionPosition(nPos) && tPos !== nPos) {
           // Both validated AND non-colliding.  Anything else falls
           // back to defaults so we never start in a broken state.
           setTargetPositionState(tPos);
           setNativePositionState(nPos);
         }
+        // Font family — any non-empty string is acceptable as a CSS
+        // font-family value.  Defaults guarantee at least DEFAULT_FONT_FAMILY.
+        const tFont = result[STORAGE_KEY_TOP_FONT_FAMILY];
+        const bFont = result[STORAGE_KEY_BOTTOM_FONT_FAMILY];
+        const aFont = result[STORAGE_KEY_ANNOTATION_FONT_FAMILY];
+        if (typeof tFont === "string" && tFont.length > 0)
+          setTopFontFamilyState(tFont);
+        if (typeof bFont === "string" && bFont.length > 0)
+          setBottomFontFamilyState(bFont);
+        if (typeof aFont === "string" && aFont.length > 0)
+          setAnnotationFontFamilyState(aFont);
+        // Font sizes — defensive numeric clamps so a stored garbage
+        // value can't render a 1-px or 10,000-px overlay.
+        const tSize = result[STORAGE_KEY_TOP_FONT_SIZE];
+        const bSize = result[STORAGE_KEY_BOTTOM_FONT_SIZE];
+        const aRatio = result[STORAGE_KEY_ANNOTATION_FONT_RATIO];
+        if (typeof tSize === "number" && tSize >= 12 && tSize <= 120)
+          setTopFontSizePxState(tSize);
+        if (typeof bSize === "number" && bSize >= 12 && bSize <= 120)
+          setBottomFontSizePxState(bSize);
+        if (typeof aRatio === "number" && aRatio >= 0.2 && aRatio <= 1.0)
+          setAnnotationFontRatioState(aRatio);
       } catch (e) {
         console.warn("[Loom] failed to load presentation prefs:", e);
       }
@@ -312,6 +404,55 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     void browser.storage.local
       .set({ [STORAGE_KEY_BOTTOM_COLOR]: hex })
       .catch((e) => console.warn("[Loom] failed to persist bottomColor:", e));
+  }, []);
+  const setAnnotationColor = useCallback((hex: string) => {
+    setAnnotationColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ANNOTATION_COLOR]: hex })
+      .catch((e) =>
+        console.warn("[Loom] failed to persist annotationColor:", e),
+      );
+  }, []);
+  const setTopFontFamily = useCallback((family: string) => {
+    setTopFontFamilyState(family);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TOP_FONT_FAMILY]: family })
+      .catch((e) => console.warn("[Loom] persist topFontFamily:", e));
+  }, []);
+  const setBottomFontFamily = useCallback((family: string) => {
+    setBottomFontFamilyState(family);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_BOTTOM_FONT_FAMILY]: family })
+      .catch((e) => console.warn("[Loom] persist bottomFontFamily:", e));
+  }, []);
+  const setAnnotationFontFamily = useCallback((family: string) => {
+    setAnnotationFontFamilyState(family);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ANNOTATION_FONT_FAMILY]: family })
+      .catch((e) => console.warn("[Loom] persist annotationFontFamily:", e));
+  }, []);
+  const setTopFontSizePx = useCallback((px: number) => {
+    // Defensive clamp — UI should already constrain, but a stray
+    // setState from a custom integration shouldn't break layout.
+    const clamped = Math.max(12, Math.min(120, px));
+    setTopFontSizePxState(clamped);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TOP_FONT_SIZE]: clamped })
+      .catch((e) => console.warn("[Loom] persist topFontSizePx:", e));
+  }, []);
+  const setBottomFontSizePx = useCallback((px: number) => {
+    const clamped = Math.max(12, Math.min(120, px));
+    setBottomFontSizePxState(clamped);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_BOTTOM_FONT_SIZE]: clamped })
+      .catch((e) => console.warn("[Loom] persist bottomFontSizePx:", e));
+  }, []);
+  const setAnnotationFontRatio = useCallback((ratio: number) => {
+    const clamped = Math.max(0.2, Math.min(1.0, ratio));
+    setAnnotationFontRatioState(clamped);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ANNOTATION_FONT_RATIO]: clamped })
+      .catch((e) => console.warn("[Loom] persist annotationFontRatio:", e));
   }, []);
 
   // Position setters use functional setState so they read the latest
@@ -388,6 +529,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativeLangPref,
       topColor,
       bottomColor,
+      annotationColor,
+      topFontFamily,
+      bottomFontFamily,
+      annotationFontFamily,
+      topFontSizePx,
+      bottomFontSizePx,
+      annotationFontRatio,
       targetPosition,
       nativePosition,
       targetAnnotateEnabled,
@@ -403,6 +551,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeLangPref,
       setTopColor,
       setBottomColor,
+      setAnnotationColor,
+      setTopFontFamily,
+      setBottomFontFamily,
+      setAnnotationFontFamily,
+      setTopFontSizePx,
+      setBottomFontSizePx,
+      setAnnotationFontRatio,
       setTargetPosition,
       setNativePosition,
       setTargetAnnotateEnabled,
@@ -425,6 +580,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativeLangPref,
       topColor,
       bottomColor,
+      annotationColor,
+      topFontFamily,
+      bottomFontFamily,
+      annotationFontFamily,
+      topFontSizePx,
+      bottomFontSizePx,
+      annotationFontRatio,
       targetPosition,
       nativePosition,
       targetAnnotateEnabled,
@@ -440,6 +602,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativeLangPref,
       setTopColor,
       setBottomColor,
+      setAnnotationColor,
+      setTopFontFamily,
+      setBottomFontFamily,
+      setAnnotationFontFamily,
+      setTopFontSizePx,
+      setBottomFontSizePx,
+      setAnnotationFontRatio,
       setTargetPosition,
       setNativePosition,
       setTargetAnnotateEnabled,

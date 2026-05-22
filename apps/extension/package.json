@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@loom/api-client": "*",
+    "@loom/orthography-tables": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

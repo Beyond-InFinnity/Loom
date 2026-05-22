@@ -1,0 +1,19 @@
+{
+  "name": "@loom/orthography-tables",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "build": "tsx scripts/build-zh-hant-to-hans.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "~5.8.3"
+  }
+}

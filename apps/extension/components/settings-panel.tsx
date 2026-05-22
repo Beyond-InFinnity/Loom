@@ -966,17 +966,21 @@ function AnnotateRow({
 
 // ---- VariantSection — alternate-orthography ruby ------------------
 //
-// Data-driven gate: the section only renders when at least one of the
-// two active tracks resolves to a registered orthography variant via
-// @loom/orthography-tables.  Today that's exclusively Traditional
-// Chinese; the gate is the same code path that future variants
-// (Japanese kana, Serbian/Kazakh Cyrl↔Latn) will activate when their
-// tables land.
+// Section is ALWAYS visible — same UX shape as AnnotateRow (which
+// stays mounted but dims + explains itself when the active track's
+// language isn't supported).  This way the feature is discoverable
+// on every video; users see what's possible without having to load a
+// Chinese video first.
 //
-// Each layer that resolves a variant gets a toggle row.  The highlight
-// + colours below are SHARED across layers (the user expects one
-// consistent visual language for "this character differs in the other
-// orthography").
+// Data-driven gate: each per-layer row resolves its toggle's enabled
+// state via @loom/orthography-tables.  When a layer's track has a
+// registered variant (today: Traditional Chinese only), its toggle is
+// live + the row carries variant-specific copy.  Otherwise the row
+// dims, the toggle is read-only, and a hint explains why.
+//
+// Shared controls (highlight + colours) appear only when at least
+// one layer is actually enabled — no point exposing color pickers
+// for a feature that has nothing to paint yet.
 
 interface VariantSectionProps {
   selectedTarget: CaptionTrack | null;
@@ -1017,29 +1021,30 @@ function VariantSection({
   const nativeVariant = selectedNative
     ? resolveOrthographyVariants(selectedNative.languageCode)[0] ?? null
     : null;
-  // Gate: no section at all if NEITHER layer has a variant.  Keeps the
-  // panel uncluttered for the 95% case (no Chinese tracks involved).
-  if (!targetVariant && !nativeVariant) return null;
 
-  const anyEnabled = targetEnabled || nativeEnabled;
+  // Effective-enabled: a toggle only counts when its track ALSO has a
+  // variant.  Stops a stale "on" toggle from claiming the feature is
+  // active when the user has since switched to a non-Chinese track.
+  const targetEffective = targetEnabled && !!targetVariant;
+  const nativeEffective = nativeEnabled && !!nativeVariant;
+  const anyEnabled = targetEffective || nativeEffective;
+
   return (
     <Section title="Alternate orthography">
-      {targetVariant && (
-        <VariantToggleRow
-          label="Target"
-          variant={targetVariant}
-          enabled={targetEnabled}
-          onToggle={onTargetToggle}
-        />
-      )}
-      {nativeVariant && (
-        <VariantToggleRow
-          label="Native"
-          variant={nativeVariant}
-          enabled={nativeEnabled}
-          onToggle={onNativeToggle}
-        />
-      )}
+      <VariantToggleRow
+        label="Target"
+        track={selectedTarget}
+        variant={targetVariant}
+        enabled={targetEnabled}
+        onToggle={onTargetToggle}
+      />
+      <VariantToggleRow
+        label="Native"
+        track={selectedNative}
+        variant={nativeVariant}
+        enabled={nativeEnabled}
+        onToggle={onNativeToggle}
+      />
       {anyEnabled && (
         <>
           <div style={annotateRowStyle(false)}>
@@ -1091,23 +1096,33 @@ function VariantSection({
 
 interface VariantToggleRowProps {
   label: string;
-  variant: VariantDescriptor;
+  track: CaptionTrack | null;
+  /** Resolved variant for this track's language, or null when no
+   *  variant applies (e.g. English, Japanese, Simplified Chinese). */
+  variant: VariantDescriptor | null;
   enabled: boolean;
   onToggle: (v: boolean) => void;
 }
 
 function VariantToggleRow({
   label,
+  track,
   variant,
   enabled,
   onToggle,
 }: VariantToggleRowProps) {
+  // Dim when there's no resolvable variant for this track — same
+  // visual convention AnnotateRow uses for non-annotatable langs.
+  // Toggle stays interactive so the user can flip it ahead of
+  // switching to a track that DOES support it.
+  const dim = !variant;
+  const labelText = variant
+    ? `${label}: show ${variant.targetLabel} below`
+    : `${label}: alternate orthography`;
   return (
-    <div style={annotateRowStyle(false)}>
+    <div style={annotateRowStyle(dim)}>
       <div style={annotateHeaderStyle()}>
-        <span style={annotateLabelStyle()}>
-          {label}: show {variant.targetLabel} below
-        </span>
+        <span style={annotateLabelStyle()}>{labelText}</span>
         <button
           type="button"
           onClick={() => onToggle(!enabled)}
@@ -1117,11 +1132,19 @@ function VariantToggleRow({
           {enabled ? "On" : "Off"}
         </button>
       </div>
-      <p style={hintStyle()}>
-        Reading aid for {variant.sourceHint}: each character that
-        differs in {variant.targetHint} renders a small under-ruby of
-        the {variant.targetLabel} form.
-      </p>
+      {variant ? (
+        <p style={hintStyle()}>
+          Reading aid for {variant.sourceHint}: each character that
+          differs in {variant.targetHint} renders a small under-ruby of
+          the {variant.targetLabel} form.
+        </p>
+      ) : (
+        <p style={hintStyle()}>
+          {track
+            ? `${track.languageCode}: no orthography variant in this build. Today only Traditional Chinese (zh-Hant / zh-TW / zh-HK / zh-MO / yue) is supported.`
+            : "(pick a track first)"}
+        </p>
+      )}
     </div>
   );
 }

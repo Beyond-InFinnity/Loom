@@ -636,6 +636,21 @@ async function fetchWithCache(
     eventsCache.set(key, result.events);
     return result.events;
   }
+  // Empty/error path — surface the actual reason instead of letting
+  // the caller log a bare "→ 0 events" with no context.  This is the
+  // load-bearing diagnostic for "video looked fine but neither layer
+  // had captions": HTTP error code, pot-rejection, parse failure, or
+  // the URL just doesn't carry to this track's lang via swap.
+  console.warn(
+    "[Loom Fetch]",
+    "0 events for",
+    track.languageCode + (tlang ? `→tlang=${tlang}` : ""),
+    "kind=" + track.kind,
+    "status=" + (result.status ?? "n/a"),
+    "bodyLen=" + result.bodyLength,
+    "error=" + (result.error ?? "(no error string)"),
+    "url=" + result.url,
+  );
   return result.events;
 }
 

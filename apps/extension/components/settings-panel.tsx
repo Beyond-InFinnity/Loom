@@ -1059,7 +1059,7 @@ function VariantSection({
           <div style={layerStyleRowStyle()}>
             <div style={variantInlineLabelRowStyle()}>
               <span style={layerStyleRowLabelStyle()}>
-                Tint differing chars
+                Color-code differing chars
               </span>
               <button
                 type="button"
@@ -1080,12 +1080,14 @@ function VariantSection({
           {highlightEnabled && (
             <>
               <div style={layerStyleRowStyle()}>
-                <span style={layerStyleRowLabelStyle()}>Clean tint (1:1)</span>
+                <span style={layerStyleRowLabelStyle()}>
+                  Distinct char color
+                </span>
                 <ColorRow label="" value={cleanColor} onChange={onCleanColorChange} />
               </div>
               <div style={layerStyleRowStyle()}>
                 <span style={layerStyleRowLabelStyle()}>
-                  Forward-collapse tint
+                  Merged char color
                 </span>
                 <ColorRow
                   label=""
@@ -1097,12 +1099,15 @@ function VariantSection({
           )}
 
           <p style={hintStyle()}>
-            <strong style={variantHintStrongStyle()}>Clean</strong> = 1:1
-            mapping; reader of the target orthography can uniquely
-            recover the source char.{" "}
-            <strong style={variantHintStrongStyle()}>Forward-collapse</strong>{" "}
-            = multiple source chars share one target form — the identity
-            is hidden in simplification.
+            <strong style={variantHintStrongStyle()}>Distinct:</strong> the
+            Traditional char has its own unique Simplified form
+            (語 → 语).  Someone reading the Simplified could tell which
+            Traditional was meant.
+            <br />
+            <strong style={variantHintStrongStyle()}>Merged:</strong> several
+            Traditional chars share the same Simplified form
+            (髮 and 發 both → 发).  The original is lost — that's where
+            simplification throws away information.
           </p>
         </div>
       )}
@@ -1113,11 +1118,13 @@ function VariantSection({
 // ---- VariantPreview — inline live demo --------------------------
 //
 // Tiny ruby render showing the user EXACTLY what their color choices
-// produce.  Uses the same <ruby> shape the overlay does, with one clean
-// and one collapse example.  The chars are picked deliberately:
-//   - 語 → 语 (clean 1:1)
-//   - 髮 → 发 (collapse — 髮/發 both → 发)
-// Sizes/spacing dialed down to fit inside the panel without dominating.
+// produce.  Two examples, each labeled with its case so the cyan-vs-
+// amber color choice maps unambiguously to a concept.  Examples:
+//   - "Distinct"  → 語 → 语 (clean 1:1; no other trad char → 语)
+//   - "Merged"    → 髮 → 发 (forward-collapse; 髮 AND 發 both → 发)
+//                   Right side surfaces the "+ 發" remainder so the
+//                   user can see the merging visually, not just hear
+//                   about it in the hint.
 
 interface VariantPreviewProps {
   variantColor: string;
@@ -1136,36 +1143,52 @@ function VariantPreview({
     <div style={variantPreviewStyle()}>
       <span style={variantPreviewLabelStyle()}>Preview</span>
       <div style={variantPreviewContentStyle()}>
-        <ruby>
-          <span style={{ color: highlightEnabled ? cleanColor : "#fff" }}>
-            語
-          </span>
-          <rt
-            style={{
-              fontSize: "11px",
-              color: variantColor,
-              rubyPosition: "under",
-              transform: "translateY(2px)",
-            }}
-          >
-            语
-          </rt>
-        </ruby>
-        <ruby>
-          <span style={{ color: highlightEnabled ? collapseColor : "#fff" }}>
-            髮
-          </span>
-          <rt
-            style={{
-              fontSize: "11px",
-              color: variantColor,
-              rubyPosition: "under",
-              transform: "translateY(2px)",
-            }}
-          >
-            发
-          </rt>
-        </ruby>
+        <div style={variantPreviewColumnStyle()}>
+          <span style={variantPreviewCaseLabelStyle()}>Distinct</span>
+          <ruby>
+            <span style={{ color: highlightEnabled ? cleanColor : "#fff" }}>
+              語
+            </span>
+            <rt
+              style={{
+                fontSize: "11px",
+                color: variantColor,
+                rubyPosition: "under",
+                transform: "translateY(2px)",
+              }}
+            >
+              语
+            </rt>
+          </ruby>
+        </div>
+        <div style={variantPreviewColumnStyle()}>
+          <span style={variantPreviewCaseLabelStyle()}>Merged</span>
+          <div style={variantPreviewMergeRowStyle()}>
+            <ruby>
+              <span style={{ color: highlightEnabled ? collapseColor : "#fff" }}>
+                髮
+              </span>
+              <rt
+                style={{
+                  fontSize: "11px",
+                  color: variantColor,
+                  rubyPosition: "under",
+                  transform: "translateY(2px)",
+                }}
+              >
+                发
+              </rt>
+            </ruby>
+            <span style={variantPreviewPlusStyle()}>+</span>
+            <span
+              style={{
+                color: highlightEnabled ? collapseColor : "#fff",
+              }}
+            >
+              發
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1780,15 +1803,51 @@ function variantPreviewLabelStyle(): React.CSSProperties {
 function variantPreviewContentStyle(): React.CSSProperties {
   return {
     display: "flex",
-    justifyContent: "center",
+    justifyContent: "space-around",
     alignItems: "flex-end",
-    gap: "18px",
+    gap: "12px",
     fontSize: "26px",
     fontFamily:
       "'Noto Sans TC', 'Noto Sans JP', 'Noto Sans SC', system-ui, sans-serif",
     lineHeight: 1.6,
     paddingTop: "4px",
     paddingBottom: "2px",
+  };
+}
+
+function variantPreviewColumnStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "2px",
+  };
+}
+
+function variantPreviewCaseLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "9px",
+    color: "rgba(255, 255, 255, 0.55)",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    fontFamily: "system-ui, -apple-system, sans-serif",
+  };
+}
+
+function variantPreviewMergeRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: "8px",
+  };
+}
+
+function variantPreviewPlusStyle(): React.CSSProperties {
+  return {
+    fontSize: "16px",
+    color: "rgba(255, 255, 255, 0.4)",
+    fontFamily: "system-ui, -apple-system, sans-serif",
+    alignSelf: "center",
   };
 }
 

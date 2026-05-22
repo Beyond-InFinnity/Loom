@@ -1046,11 +1046,20 @@ function VariantSection({
         onToggle={onNativeToggle}
       />
       {anyEnabled && (
-        <>
-          <div style={annotateRowStyle(false)}>
-            <div style={annotateHeaderStyle()}>
-              <span style={annotateLabelStyle()}>
-                Highlight differing characters
+        <div style={layerStyleBlockStyle()}>
+          <div style={layerStyleHeaderStyle()}>Highlight &amp; colors</div>
+
+          <VariantPreview
+            variantColor={variantColor}
+            cleanColor={cleanColor}
+            collapseColor={collapseColor}
+            highlightEnabled={highlightEnabled}
+          />
+
+          <div style={layerStyleRowStyle()}>
+            <div style={variantInlineLabelRowStyle()}>
+              <span style={layerStyleRowLabelStyle()}>
+                Tint differing chars
               </span>
               <button
                 type="button"
@@ -1061,25 +1070,23 @@ function VariantSection({
                 {highlightEnabled ? "On" : "Off"}
               </button>
             </div>
-            <p style={hintStyle()}>
-              Tints the base character so visually-different chars stand
-              out.  Two tiers: clean 1:1 vs forward-collapse (where one
-              simplified form covers several traditional chars — the
-              identity is hidden in simplification).
-            </p>
           </div>
-          <div style={annotateRowStyle(false)}>
-            <div style={annotateLabelStyle()}>Under-ruby color</div>
+
+          <div style={layerStyleRowStyle()}>
+            <span style={layerStyleRowLabelStyle()}>Under-ruby color</span>
             <ColorRow label="" value={variantColor} onChange={onVariantColorChange} />
           </div>
+
           {highlightEnabled && (
             <>
-              <div style={annotateRowStyle(false)}>
-                <div style={annotateLabelStyle()}>Highlight: clean 1:1</div>
+              <div style={layerStyleRowStyle()}>
+                <span style={layerStyleRowLabelStyle()}>Clean tint (1:1)</span>
                 <ColorRow label="" value={cleanColor} onChange={onCleanColorChange} />
               </div>
-              <div style={annotateRowStyle(false)}>
-                <div style={annotateLabelStyle()}>Highlight: forward-collapse</div>
+              <div style={layerStyleRowStyle()}>
+                <span style={layerStyleRowLabelStyle()}>
+                  Forward-collapse tint
+                </span>
                 <ColorRow
                   label=""
                   value={collapseColor}
@@ -1088,9 +1095,79 @@ function VariantSection({
               </div>
             </>
           )}
-        </>
+
+          <p style={hintStyle()}>
+            <strong style={variantHintStrongStyle()}>Clean</strong> = 1:1
+            mapping; reader of the target orthography can uniquely
+            recover the source char.{" "}
+            <strong style={variantHintStrongStyle()}>Forward-collapse</strong>{" "}
+            = multiple source chars share one target form — the identity
+            is hidden in simplification.
+          </p>
+        </div>
       )}
     </Section>
+  );
+}
+
+// ---- VariantPreview — inline live demo --------------------------
+//
+// Tiny ruby render showing the user EXACTLY what their color choices
+// produce.  Uses the same <ruby> shape the overlay does, with one clean
+// and one collapse example.  The chars are picked deliberately:
+//   - 語 → 语 (clean 1:1)
+//   - 髮 → 发 (collapse — 髮/發 both → 发)
+// Sizes/spacing dialed down to fit inside the panel without dominating.
+
+interface VariantPreviewProps {
+  variantColor: string;
+  cleanColor: string;
+  collapseColor: string;
+  highlightEnabled: boolean;
+}
+
+function VariantPreview({
+  variantColor,
+  cleanColor,
+  collapseColor,
+  highlightEnabled,
+}: VariantPreviewProps) {
+  return (
+    <div style={variantPreviewStyle()}>
+      <span style={variantPreviewLabelStyle()}>Preview</span>
+      <div style={variantPreviewContentStyle()}>
+        <ruby>
+          <span style={{ color: highlightEnabled ? cleanColor : "#fff" }}>
+            語
+          </span>
+          <rt
+            style={{
+              fontSize: "11px",
+              color: variantColor,
+              rubyPosition: "under",
+              transform: "translateY(2px)",
+            }}
+          >
+            语
+          </rt>
+        </ruby>
+        <ruby>
+          <span style={{ color: highlightEnabled ? collapseColor : "#fff" }}>
+            髮
+          </span>
+          <rt
+            style={{
+              fontSize: "11px",
+              color: variantColor,
+              rubyPosition: "under",
+              transform: "translateY(2px)",
+            }}
+          >
+            发
+          </rt>
+        </ruby>
+      </div>
+    </div>
   );
 }
 
@@ -1675,6 +1752,59 @@ function layerStyleRowLabelStyle(): React.CSSProperties {
     color: "rgba(255, 255, 255, 0.5)",
     textTransform: "uppercase",
     letterSpacing: "0.06em",
+  };
+}
+
+function variantPreviewStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    padding: "10px 8px",
+    borderRadius: "6px",
+    background: "rgba(0, 0, 0, 0.35)",
+    border: "1px solid rgba(255, 255, 255, 0.05)",
+    marginBottom: "6px",
+  };
+}
+
+function variantPreviewLabelStyle(): React.CSSProperties {
+  return {
+    fontSize: "9px",
+    color: "rgba(255, 255, 255, 0.4)",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  };
+}
+
+function variantPreviewContentStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-end",
+    gap: "18px",
+    fontSize: "26px",
+    fontFamily:
+      "'Noto Sans TC', 'Noto Sans JP', 'Noto Sans SC', system-ui, sans-serif",
+    lineHeight: 1.6,
+    paddingTop: "4px",
+    paddingBottom: "2px",
+  };
+}
+
+function variantInlineLabelRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+  };
+}
+
+function variantHintStrongStyle(): React.CSSProperties {
+  return {
+    color: "rgba(255, 255, 255, 0.65)",
+    fontWeight: 600,
   };
 }
 

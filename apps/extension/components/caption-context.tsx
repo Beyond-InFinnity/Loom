@@ -24,6 +24,8 @@ import {
 import { CaptionStream } from "@/lib/captions/stream";
 import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
 import type { AnnotateMap } from "@/lib/annotate/types";
+import { fetchPresetCatalog } from "@/lib/presets/fetch";
+import type { Preset, PresetCatalog } from "@/lib/presets/types";
 import {
   hideYtCaptions,
   restoreYtCaptions,
@@ -56,6 +58,7 @@ const STORAGE_KEY_VARIANT_HIGHLIGHT = "loom_variant_highlight_enabled";
 const STORAGE_KEY_VARIANT_COLOR = "loom_variant_color";
 const STORAGE_KEY_VARIANT_CLEAN_COLOR = "loom_variant_clean_color";
 const STORAGE_KEY_VARIANT_COLLAPSE_COLOR = "loom_variant_collapse_color";
+const STORAGE_KEY_ACTIVE_PRESET = "loom_active_preset_id";
 const DEFAULT_TOP_COLOR = "#ffffff";
 const DEFAULT_BOTTOM_COLOR = "#ffffff";
 const DEFAULT_ANNOTATION_COLOR = "#ffffff";
@@ -162,6 +165,18 @@ interface CaptionContextValue {
       render <ruby> for the currently-active event. */
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
+
+  /** Color preset catalog fetched from /styles/presets for the current
+      target lang.  null while loading or on fetch failure (UI shows
+      "no presets" placeholder). */
+  presetCatalog: PresetCatalog | null;
+  /** id of the most-recently applied preset, persisted so the dropdown
+      remembers selection across reloads.  Empty string = none / custom. */
+  activePresetId: string;
+  /** Apply a preset's colors to the per-layer color state.  Only writes
+      Bottom / Top / Annotation today; Romanized is ignored until 5e. */
+  applyPreset: (preset: Preset) => void;
+  setActivePresetId: (id: string) => void;
 
   /** Per-layer alternate-orthography enable.  Resolves to under-ruby
       rendering (e.g. zh-Hant base + zh-Hans below) when the layer's
@@ -288,6 +303,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [variantCollapseColor, setVariantCollapseColorState] = useState(
     DEFAULT_VARIANT_COLLAPSE_COLOR,
   );
+  const [presetCatalog, setPresetCatalog] = useState<PresetCatalog | null>(
+    null,
+  );
+  const [activePresetId, setActivePresetIdState] = useState<string>("");
 
   const stream = useMemo(
     () =>
@@ -386,6 +405,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_VARIANT_COLOR,
           STORAGE_KEY_VARIANT_CLEAN_COLOR,
           STORAGE_KEY_VARIANT_COLLAPSE_COLOR,
+          STORAGE_KEY_ACTIVE_PRESET,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
@@ -443,10 +463,70 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setVariantCleanColorState(vClean);
         if (typeof vColl === "string" && vColl.length > 0)
           setVariantCollapseColorState(vColl);
+        const ap = result[STORAGE_KEY_ACTIVE_PRESET];
+        if (typeof ap === "string") setActivePresetIdState(ap);
       } catch (e) {
         console.warn("[Loom] failed to load presentation prefs:", e);
       }
     })();
+  }, []);
+
+  // Preset catalog fetch — re-runs whenever the active target track's
+  // language changes (so a zh-Hant track gets cultural-Chinese presets,
+  // a ja track gets Ukiyo-e/NERV/etc., a fr/en/de track gets universal
+  // presets only).  AbortController cancels the in-flight fetch on
+  // rapid track-switching so we don't write stale catalogs over fresh.
+  useEffect(() => {
+    const lang = selectedTarget?.languageCode ?? "";
+    const ctrl = new AbortController();
+    void (async () => {
+      const catalog = await fetchPresetCatalog({ lang, signal: ctrl.signal });
+      if (!ctrl.signal.aborted && catalog) {
+        setPresetCatalog(catalog);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [selectedTarget?.languageCode]);
+
+  const setActivePresetId = useCallback((id: string) => {
+    setActivePresetIdState(id);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ACTIVE_PRESET]: id })
+      .catch((e) => console.warn("[Loom] persist activePresetId:", e));
+  }, []);
+
+  // applyPreset — writes Bottom / Top / Annotation colors from the
+  // preset's layers in one atomic batch.  Each setter persists
+  // independently, but functionally they all land in this frame.
+  // Romanized is ignored until 5e wires it in; opacity / outline /
+  // glow fields are present in the wire shape but the extension
+  // hasn't surfaced UI for those, so they're dropped silently.
+  const applyPreset = useCallback((preset: Preset) => {
+    const bottom = preset.layers["Bottom"]?.color;
+    const top = preset.layers["Top"]?.color;
+    const annotation = preset.layers["Annotation"]?.color;
+    if (bottom) {
+      setBottomColorState(bottom);
+      void browser.storage.local
+        .set({ [STORAGE_KEY_BOTTOM_COLOR]: bottom })
+        .catch(() => {});
+    }
+    if (top) {
+      setTopColorState(top);
+      void browser.storage.local
+        .set({ [STORAGE_KEY_TOP_COLOR]: top })
+        .catch(() => {});
+    }
+    if (annotation) {
+      setAnnotationColorState(annotation);
+      void browser.storage.local
+        .set({ [STORAGE_KEY_ANNOTATION_COLOR]: annotation })
+        .catch(() => {});
+    }
+    setActivePresetIdState(preset.id);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ACTIVE_PRESET]: preset.id })
+      .catch(() => {});
   }, []);
 
   const setTargetTrack = useCallback((track: CaptionTrack | null) => {
@@ -658,6 +738,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       variantColor,
       variantCleanColor,
       variantCollapseColor,
+      presetCatalog,
+      activePresetId,
+      applyPreset,
+      setActivePresetId,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -721,6 +805,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       variantColor,
       variantCleanColor,
       variantCollapseColor,
+      presetCatalog,
+      activePresetId,
+      applyPreset,
+      setActivePresetId,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,

@@ -19,6 +19,7 @@
     "@loom/api-client": "*",
     "@loom/orthography-tables": "*",
     "react": "^19.2.0",
+    "react-colorful": "^5.6.1",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {

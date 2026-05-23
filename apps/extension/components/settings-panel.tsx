@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { HexColorPicker } from "react-colorful";
 
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
@@ -8,6 +9,7 @@ import {
   resolveOrthographyVariants,
   type VariantDescriptor,
 } from "@loom/orthography-tables";
+import type { Preset, PresetCatalog } from "@/lib/presets/types";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -127,6 +129,15 @@ const POSITION_OPTIONS: Array<{ code: CaptionPosition; label: string }> = [
 // Firefox uses scrollbar-color / scrollbar-width.  No native transition
 // support in Firefox for those properties — the class toggle produces
 // an instant cut rather than a fade.  Acceptable degradation.
+// react-colorful's runtime style injection puts a <style> in
+// document.head, but our shadow root doesn't inherit it.  Inline the
+// CSS here so it lives inside the shadow tree along with our own
+// scoped styles.  Pinned from node_modules/react-colorful 5.6.1 —
+// re-extract when bumping the dep (see scripts/extract-colorful-css.sh
+// if it ever feels worth automating).  +1 override: width 100% so the
+// wheel fills our popover container instead of the library's 200px.
+const REACT_COLORFUL_CSS = ".react-colorful{position:relative;display:flex;flex-direction:column;width:200px;height:200px;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;cursor:default}.react-colorful__saturation{position:relative;flex-grow:1;border-color:transparent;border-bottom:12px solid #000;border-radius:8px 8px 0 0;background-image:linear-gradient(0deg,#000,transparent),linear-gradient(90deg,#fff,hsla(0,0%,100%,0))}.react-colorful__alpha-gradient,.react-colorful__pointer-fill{content:\"\";position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;border-radius:inherit}.react-colorful__alpha-gradient,.react-colorful__saturation{box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}.react-colorful__alpha,.react-colorful__hue{position:relative;height:24px}.react-colorful__hue{background:linear-gradient(90deg,red 0,#ff0 17%,#0f0 33%,#0ff 50%,#00f 67%,#f0f 83%,red)}.react-colorful__last-control{border-radius:0 0 8px 8px}.react-colorful__interactive{position:absolute;left:0;top:0;right:0;bottom:0;border-radius:inherit;outline:none;touch-action:none}.react-colorful__pointer{position:absolute;z-index:1;box-sizing:border-box;width:28px;height:28px;transform:translate(-50%,-50%);background-color:#fff;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,.2)}.react-colorful__interactive:focus .react-colorful__pointer{transform:translate(-50%,-50%) scale(1.1)}.react-colorful__alpha,.react-colorful__alpha-pointer{background-color:#fff;background-image:url('data:image/svg+xml;charset=utf-8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" fill-opacity=\".05\"><path d=\"M8 0h8v8H8zM0 8h8v8H0z\"/></svg>')}.react-colorful__saturation-pointer{z-index:3}.react-colorful__hue-pointer{z-index:2}.react-colorful{width:100%;height:160px}.react-colorful__pointer{width:18px;height:18px}";
+
 const SCROLLBAR_CSS = `
 .loom-langselect-list {
   scrollbar-width: thin;
@@ -201,6 +212,9 @@ export function SettingsPanel({
     variantColor,
     variantCleanColor,
     variantCollapseColor,
+    presetCatalog,
+    activePresetId,
+    applyPreset,
     setTargetTrack,
     setNativeTrack,
     setTargetTranslateTo,
@@ -257,6 +271,10 @@ export function SettingsPanel({
           inside the shadow root via this <style> element; no external
           stylesheet. */}
       <style>{SCROLLBAR_CSS}</style>
+      {/* react-colorful's runtime auto-inject targets document.head,
+          which our shadow tree doesn't inherit.  Inline the CSS so the
+          color wheel actually has shape + colors. */}
+      <style>{REACT_COLORFUL_CSS}</style>
 
       <div style={headerStyle()}>
         <span>Loom settings</span>
@@ -363,6 +381,11 @@ export function SettingsPanel({
       />
 
       <Section title="Styles">
+        <PresetPicker
+          catalog={presetCatalog}
+          activeId={activePresetId}
+          onApply={applyPreset}
+        />
         <LayerStyleBlock
           label="Bottom"
           color={bottomColor}
@@ -737,27 +760,53 @@ interface ColorRowProps {
 }
 
 function ColorRow({ label, value, onChange }: ColorRowProps) {
+  const [wheelOpen, setWheelOpen] = useState(false);
   return (
-    <div style={colorRowStyle()}>
-      {label && <span style={colorLabelStyle()}>{label}</span>}
-      <div style={swatchRowStyle()}>
-        {COLOR_SWATCHES.map((hex) => (
+    <div style={colorRowOuterStyle()}>
+      <div style={colorRowStyle()}>
+        {label && <span style={colorLabelStyle()}>{label}</span>}
+        <div style={swatchRowStyle()}>
+          {COLOR_SWATCHES.map((hex) => (
+            <button
+              key={hex}
+              type="button"
+              onClick={() => onChange(hex)}
+              style={swatchStyle(hex, value.toLowerCase() === hex.toLowerCase())}
+              aria-label={`Set color to ${hex}`}
+            />
+          ))}
           <button
-            key={hex}
             type="button"
-            onClick={() => onChange(hex)}
-            style={swatchStyle(hex, value.toLowerCase() === hex.toLowerCase())}
-            aria-label={`Set color to ${hex}`}
-          />
-        ))}
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          style={colorInputStyle()}
-          aria-label="Custom color"
-        />
+            onClick={() => setWheelOpen((v) => !v)}
+            style={wheelTriggerStyle(wheelOpen, value)}
+            aria-label="Open color wheel"
+            aria-pressed={wheelOpen}
+            title="Open color wheel"
+          >
+            ◐
+          </button>
+        </div>
       </div>
+      {wheelOpen && (
+        <div style={wheelPopoverStyle()}>
+          <HexColorPicker color={value} onChange={onChange} />
+          <div style={wheelFooterStyle()}>
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                // Only commit valid 6-digit hex; let the user keep
+                // typing intermediates without resetting state.
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v);
+              }}
+              style={wheelHexInputStyle()}
+              spellCheck={false}
+            />
+            <span style={wheelSwatchStyle(value)} aria-hidden="true" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1249,6 +1298,113 @@ function VariantToggleRow({
   );
 }
 
+// ---- PresetPicker — thematic color preset dropdown ------------------
+//
+// Mirrors the desktop's /styles/presets UI: a grouped list of named
+// presets (Classic / Cultural / Dark / Adaptive) that, when picked,
+// writes the Bottom / Top / Annotation color state atomically.
+//
+// Languages: the catalog returned by the API is ALREADY lang-filtered
+// (we pass selectedTarget.languageCode when fetching), so a zh-Hant
+// track sees "Blue-and-White Porcelain" and a ja track sees "NERV
+// Command"/"Ukiyo-e"/etc. without us doing client-side filtering.
+//
+// "(Custom)" sentinel item — pickable explicitly to clear the active
+// preset id without changing any colors; useful when the user has
+// been hand-editing colors and wants to drop the preset attribution.
+
+interface PresetPickerProps {
+  catalog: PresetCatalog | null;
+  activeId: string;
+  onApply: (preset: Preset) => void;
+}
+
+const PRESET_CUSTOM_ID = "__custom__";
+
+function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
+  const items = buildPresetOptions(catalog);
+  const currentLabel = (() => {
+    if (!activeId) return "(no preset — custom colors)";
+    const found = items.find((it) => it.code === activeId);
+    return found?.label ?? "(custom)";
+  })();
+
+  function pick(code: string): void {
+    if (code === PRESET_CUSTOM_ID || code === "") return;
+    const preset = catalog?.presets.find((p) => p.id === code);
+    if (preset) onApply(preset);
+  }
+
+  if (!catalog) {
+    return (
+      <div style={presetPickerWrapperStyle()}>
+        <span style={layerStyleRowLabelStyle()}>Preset</span>
+        <div style={presetPickerPlaceholderStyle()}>Loading presets…</div>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div style={presetPickerWrapperStyle()}>
+        <span style={layerStyleRowLabelStyle()}>Preset</span>
+        <div style={presetPickerPlaceholderStyle()}>
+          No presets available — switch to a Chinese, Japanese, Korean, Thai,
+          or Russian track to see language-themed presets, or use Classic on
+          any track.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={presetPickerWrapperStyle()}>
+      <div style={presetPickerHeaderStyle()}>
+        <span style={layerStyleRowLabelStyle()}>Preset</span>
+        <span style={presetPickerCurrentStyle()} title={currentLabel}>
+          {currentLabel}
+        </span>
+      </div>
+      <LangSelect
+        value={activeId}
+        onChange={pick}
+        options={items}
+        emptyOption={{ label: "(no preset — custom colors)" }}
+      />
+    </div>
+  );
+}
+
+/** Flatten the catalog's groups into LangSelect-friendly options.
+ *  Group label appears as a (non-interactive) banner-style "—— Group ——"
+ *  pseudo-row baked into the label of the first preset of each group.
+ *  Cleaner than hacking LangSelect to render section headers. */
+function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
+  if (!catalog) return [];
+  const groupKeyToLabel = new Map(
+    catalog.groups.map((g) => [g.key, g.label] as const),
+  );
+  // Sort presets into stable group order, then by index within group.
+  const groupOrder = catalog.groups.map((g) => g.key);
+  const grouped: Record<string, Preset[]> = {};
+  for (const p of catalog.presets) {
+    (grouped[p.group] ??= []).push(p);
+  }
+  const out: LangOption[] = [];
+  for (const groupKey of groupOrder) {
+    const list = grouped[groupKey] ?? [];
+    if (list.length === 0) continue;
+    const groupLabel = groupKeyToLabel.get(groupKey) ?? groupKey;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]!;
+      // Prefix the first preset's label with the group banner so the
+      // user can see section boundaries in the scrollable list.
+      const labelPrefix = i === 0 ? `${groupLabel}  ·  ` : "";
+      out.push({ code: p.id, label: `${labelPrefix}${p.label}` });
+    }
+  }
+  return out;
+}
+
 // ---- Styles ---------------------------------------------------------
 
 function panelStyle(): React.CSSProperties {
@@ -1542,12 +1698,88 @@ function kindBadgeStyle(kind: "manual" | "asr"): React.CSSProperties {
   };
 }
 
+function colorRowOuterStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  };
+}
+
 function colorRowStyle(): React.CSSProperties {
   return {
     display: "flex",
     alignItems: "center",
     gap: "10px",
     padding: "6px 0",
+  };
+}
+
+function wheelTriggerStyle(open: boolean, currentColor: string): React.CSSProperties {
+  return {
+    width: "22px",
+    height: "22px",
+    borderRadius: "50%",
+    border: open
+      ? "2px solid rgba(93, 255, 170, 0.9)"
+      : "1px solid rgba(255, 255, 255, 0.25)",
+    background: `conic-gradient(from 0deg, #ff5c5c, #ffe05c, #5cff9e, #5cffff, #9b8aff, #ff5c9e, #ff5c5c)`,
+    cursor: "pointer",
+    padding: 0,
+    fontSize: 0,
+    boxShadow: open
+      ? "0 0 0 2px rgba(93, 255, 170, 0.3)"
+      : "0 0 0 1px rgba(0, 0, 0, 0.4)",
+    transition: "box-shadow 120ms ease, border-color 120ms ease",
+    color: currentColor,
+  };
+}
+
+function wheelPopoverStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    padding: "8px",
+    borderRadius: "6px",
+    background: "rgba(0, 0, 0, 0.35)",
+    border: "1px solid rgba(255, 255, 255, 0.08)",
+    marginTop: "2px",
+  };
+}
+
+function wheelFooterStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    paddingTop: "4px",
+  };
+}
+
+function wheelHexInputStyle(): React.CSSProperties {
+  return {
+    flex: "1 1 auto",
+    padding: "4px 6px",
+    borderRadius: "4px",
+    border: "1px solid rgba(255, 255, 255, 0.12)",
+    background: "rgba(255, 255, 255, 0.06)",
+    color: "#fff",
+    fontFamily: "system-ui, -apple-system, monospace",
+    fontSize: "11px",
+    outline: "none",
+    letterSpacing: "0.04em",
+  };
+}
+
+function wheelSwatchStyle(hex: string): React.CSSProperties {
+  return {
+    width: "20px",
+    height: "20px",
+    borderRadius: "4px",
+    border: "1px solid rgba(255, 255, 255, 0.25)",
+    background: hex,
+    flex: "0 0 auto",
   };
 }
 
@@ -1775,6 +2007,48 @@ function layerStyleRowLabelStyle(): React.CSSProperties {
     color: "rgba(255, 255, 255, 0.5)",
     textTransform: "uppercase",
     letterSpacing: "0.06em",
+  };
+}
+
+function presetPickerWrapperStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    padding: "8px",
+    borderRadius: "6px",
+    background: "rgba(93, 138, 255, 0.06)",
+    border: "1px solid rgba(93, 138, 255, 0.18)",
+    marginBottom: "8px",
+  };
+}
+
+function presetPickerHeaderStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "8px",
+  };
+}
+
+function presetPickerCurrentStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.55)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    maxWidth: "180px",
+  };
+}
+
+function presetPickerPlaceholderStyle(): React.CSSProperties {
+  return {
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.45)",
+    fontStyle: "italic",
+    padding: "4px 0",
   };
 }
 

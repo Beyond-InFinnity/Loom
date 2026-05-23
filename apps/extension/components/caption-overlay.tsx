@@ -59,6 +59,17 @@ interface Layer {
       a dumb renderer. */
   segments: RichSegment[];
   color: string;
+  /** 0–100; written into the rgba alpha of the base text. */
+  alpha: number;
+  /** 4-corner text-shadow outline (emulates ASS outline thickness). */
+  outlineColor: string;
+  /** 0–100. */
+  outlineAlpha: number;
+  /** Glow halo radius in CSS px @ 1080-scale.  0 = no glow. */
+  glowRadius: number;
+  glowColor: string;
+  /** 0–100. */
+  glowAlpha: number;
   fontSizePx: number;
   /** CSS font-family value, or the "auto" sentinel which resolves to
       DEFAULT_FONT_STACK at render time. */
@@ -112,7 +123,34 @@ export function CaptionOverlay() {
     variantColor,
     variantCleanColor,
     variantCollapseColor,
+    topAlpha,
+    bottomAlpha,
+    annotationAlpha,
+    topOutlineColor,
+    bottomOutlineColor,
+    annotationOutlineColor,
+    topOutlineAlpha,
+    bottomOutlineAlpha,
+    annotationOutlineAlpha,
+    topGlowRadius,
+    bottomGlowRadius,
+    annotationGlowRadius,
+    topGlowColor,
+    bottomGlowColor,
+    annotationGlowColor,
+    topGlowAlpha,
+    bottomGlowAlpha,
+    annotationGlowAlpha,
   } = useCaptionStream();
+  void annotationAlpha;
+  void annotationOutlineColor;
+  void annotationOutlineAlpha;
+  void annotationGlowRadius;
+  void annotationGlowColor;
+  void annotationGlowAlpha;
+  // Annotation rt inherits the parent layer's text-shadow + color via
+  // CSS inheritance — explicit annotation-only overlay control would
+  // need to apply per-rt style, deferred until a real user request.
   const scale = usePlayerScale();
 
   if (status.kind !== "tracking") return null;
@@ -187,6 +225,12 @@ export function CaptionOverlay() {
     slots[targetPosition].layer = {
       segments: targetSegments,
       color: topColor,
+      alpha: topAlpha,
+      outlineColor: topOutlineColor,
+      outlineAlpha: topOutlineAlpha,
+      glowRadius: topGlowRadius,
+      glowColor: topGlowColor,
+      glowAlpha: topGlowAlpha,
       fontSizePx: topFontSizePx,
       fontFamily: topFontFamily,
       annotationRatio: annotationFontRatio,
@@ -203,6 +247,12 @@ export function CaptionOverlay() {
     slots[nativePosition].layer = {
       segments: nativeSegments,
       color: bottomColor,
+      alpha: bottomAlpha,
+      outlineColor: bottomOutlineColor,
+      outlineAlpha: bottomOutlineAlpha,
+      glowRadius: bottomGlowRadius,
+      glowColor: bottomGlowColor,
+      glowAlpha: bottomGlowAlpha,
       fontSizePx: bottomFontSizePx,
       fontFamily: bottomFontFamily,
       // Native annotations use the SAME ratio + color/family as the
@@ -338,7 +388,13 @@ function LayerPlaceholder({
   return (
     <div
       style={{
-        ...layerStyle(fontSize, fontFamily, scale, "transparent"),
+        fontFamily: resolveFontFamily(fontFamily),
+        fontSize: `${fontSize * scale}px`,
+        fontWeight: 500,
+        textAlign: "center",
+        lineHeight: 1.25,
+        padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,
+        maxWidth: "92%",
         visibility: "hidden",
       }}
       aria-hidden="true"
@@ -350,7 +406,7 @@ function LayerPlaceholder({
 
 function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
   return (
-    <div style={layerStyle(layer.fontSizePx, layer.fontFamily, scale, layer.color)}>
+    <div style={layerStyle(layer, scale)}>
       <AnnotatedText
         segments={layer.segments}
         baseFontPxScaled={layer.fontSizePx * scale}
@@ -417,40 +473,63 @@ function zoneStyle(
   return { ...base, bottom: `${ZONE_INSET_PCT}%` };
 }
 
-function layerStyle(
-  fontSizePx: number,
-  fontFamily: string,
-  scale: number,
-  color: string,
-): React.CSSProperties {
+function layerStyle(layer: Layer, scale: number): React.CSSProperties {
   return {
-    fontFamily: resolveFontFamily(fontFamily),
-    fontSize: `${fontSizePx * scale}px`,
+    fontFamily: resolveFontFamily(layer.fontFamily),
+    fontSize: `${layer.fontSizePx * scale}px`,
     fontWeight: 500,
-    color,
+    color: hexToRgba(layer.color, layer.alpha),
     textAlign: "center",
     whiteSpace: "pre-wrap",
     padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,
     lineHeight: 1.25,
     unicodeBidi: "isolate",
     // 4-corner offset shadows emulate ASS outline; trailing offset
-    // shadow emulates ASS shadow.  Mirrors
+    // shadow emulates ASS shadow.  When the layer has glow_radius > 0,
+    // an additional `0 0 Npx rgba(...)` halo is appended.  Mirrors
     // apps/web/lib/raster/build-html.ts::textShadowCss.
-    textShadow: buildTextShadow(scale),
+    textShadow: buildTextShadow(layer, scale),
     maxWidth: "92%",
   };
 }
 
-function buildTextShadow(scale: number): string {
+function buildTextShadow(layer: Layer, scale: number): string {
   const d = OUTLINE_PX * scale;
   const s = SHADOW_OFFSET_PX * scale;
-  const outlineRgba = "rgba(0, 0, 0, 1)";
+  const outlineRgba = hexToRgba(layer.outlineColor, layer.outlineAlpha);
+  // Shadow stays hard-coded black @ 70% — the desktop's StyleConfig
+  // splits shadow_color from outline_color, but the extension hasn't
+  // surfaced shadow color separately yet.  Acceptable: shadow is the
+  // dimmer drop-stroke; outline is the visible-stroke users actually
+  // pick a color for.
   const shadowRgba = "rgba(0, 0, 0, 0.7)";
-  return [
+  const parts = [
     `-${d}px -${d}px 0 ${outlineRgba}`,
     `${d}px -${d}px 0 ${outlineRgba}`,
     `-${d}px ${d}px 0 ${outlineRgba}`,
     `${d}px ${d}px 0 ${outlineRgba}`,
     `${s}px ${s}px 0 ${shadowRgba}`,
-  ].join(", ");
+  ];
+  if (layer.glowRadius > 0 && layer.glowAlpha > 0) {
+    const r = layer.glowRadius * scale;
+    const glowRgba = hexToRgba(layer.glowColor, layer.glowAlpha);
+    // Glow goes LAST so it composites on top of the outline ring,
+    // matching the desktop's PGS glow blur behavior.
+    parts.push(`0 0 ${r}px ${glowRgba}`);
+  }
+  return parts.join(", ");
+}
+
+/** Convert "#RRGGBB" + alpha-percent → "rgba(r,g,b,a)".  Falls back to
+    the input string on parse failure (callers can still pass named
+    colors like "transparent" — the rgba conversion is skipped). */
+function hexToRgba(hex: string, alphaPct: number): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1]!, 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  const a = Math.max(0, Math.min(100, alphaPct)) / 100;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }

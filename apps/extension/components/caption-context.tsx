@@ -59,6 +59,29 @@ const STORAGE_KEY_VARIANT_COLOR = "loom_variant_color";
 const STORAGE_KEY_VARIANT_CLEAN_COLOR = "loom_variant_clean_color";
 const STORAGE_KEY_VARIANT_COLLAPSE_COLOR = "loom_variant_collapse_color";
 const STORAGE_KEY_ACTIVE_PRESET = "loom_active_preset_id";
+// Advanced per-layer styling — alpha, outline (4-corner text-shadow
+// stroke), glow (0 0 Npx text-shadow halo).  All match the desktop's
+// LayerColors wire shape so presets apply correctly.  Storage keys
+// follow `loom_${layer}_${field}` so a future "reset to default" can
+// just walk these keys without a manifest.
+const STORAGE_KEY_TOP_ALPHA = "loom_top_alpha";
+const STORAGE_KEY_BOTTOM_ALPHA = "loom_bottom_alpha";
+const STORAGE_KEY_ANNOTATION_ALPHA = "loom_annotation_alpha";
+const STORAGE_KEY_TOP_OUTLINE_COLOR = "loom_top_outline_color";
+const STORAGE_KEY_BOTTOM_OUTLINE_COLOR = "loom_bottom_outline_color";
+const STORAGE_KEY_ANNOTATION_OUTLINE_COLOR = "loom_annotation_outline_color";
+const STORAGE_KEY_TOP_OUTLINE_ALPHA = "loom_top_outline_alpha";
+const STORAGE_KEY_BOTTOM_OUTLINE_ALPHA = "loom_bottom_outline_alpha";
+const STORAGE_KEY_ANNOTATION_OUTLINE_ALPHA = "loom_annotation_outline_alpha";
+const STORAGE_KEY_TOP_GLOW_RADIUS = "loom_top_glow_radius";
+const STORAGE_KEY_BOTTOM_GLOW_RADIUS = "loom_bottom_glow_radius";
+const STORAGE_KEY_ANNOTATION_GLOW_RADIUS = "loom_annotation_glow_radius";
+const STORAGE_KEY_TOP_GLOW_COLOR = "loom_top_glow_color";
+const STORAGE_KEY_BOTTOM_GLOW_COLOR = "loom_bottom_glow_color";
+const STORAGE_KEY_ANNOTATION_GLOW_COLOR = "loom_annotation_glow_color";
+const STORAGE_KEY_TOP_GLOW_ALPHA = "loom_top_glow_alpha";
+const STORAGE_KEY_BOTTOM_GLOW_ALPHA = "loom_bottom_glow_alpha";
+const STORAGE_KEY_ANNOTATION_GLOW_ALPHA = "loom_annotation_glow_alpha";
 const DEFAULT_TOP_COLOR = "#ffffff";
 const DEFAULT_BOTTOM_COLOR = "#ffffff";
 const DEFAULT_ANNOTATION_COLOR = "#ffffff";
@@ -75,6 +98,15 @@ const DEFAULT_ANNOTATION_FONT_RATIO = 0.5;
 const DEFAULT_VARIANT_COLOR = "#ffffff";
 const DEFAULT_VARIANT_CLEAN_COLOR = "#5cffff";       // soft cyan — 1:1 mapping
 const DEFAULT_VARIANT_COLLAPSE_COLOR = "#ffcc5c";   // soft amber — forward-collapse
+// Defaults for advanced layer styling.  Match desktop's LayerColors
+// defaults from loom_core/color_presets.py::_L() so presets behave
+// identically across surfaces.
+const DEFAULT_LAYER_ALPHA = 100;                    // 0–100, full opacity
+const DEFAULT_OUTLINE_COLOR = "#000000";
+const DEFAULT_OUTLINE_ALPHA = 90;
+const DEFAULT_GLOW_RADIUS = 0;                       // 0 disables glow rendering
+const DEFAULT_GLOW_COLOR = "#ffffff";
+const DEFAULT_GLOW_ALPHA = 100;
 
 /** Slot a track occupies on screen.
     - top-1    : top of player, upper line of top zone (visually highest)
@@ -166,6 +198,31 @@ interface CaptionContextValue {
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
 
+  /** Per-layer alpha — 0..100, applied to the layer's color at render
+      time via rgba() conversion.  Default 100 (fully opaque). */
+  topAlpha: number;
+  bottomAlpha: number;
+  annotationAlpha: number;
+  /** Per-layer outline color + alpha — the 4-corner text-shadow stroke
+      that emulates ASS outline.  Default black @ 90%. */
+  topOutlineColor: string;
+  bottomOutlineColor: string;
+  annotationOutlineColor: string;
+  topOutlineAlpha: number;
+  bottomOutlineAlpha: number;
+  annotationOutlineAlpha: number;
+  /** Per-layer glow — `text-shadow: 0 0 ${radius}px rgba(...)` halo.
+      Radius 0 disables glow rendering for that layer.  Default 0. */
+  topGlowRadius: number;
+  bottomGlowRadius: number;
+  annotationGlowRadius: number;
+  topGlowColor: string;
+  bottomGlowColor: string;
+  annotationGlowColor: string;
+  topGlowAlpha: number;
+  bottomGlowAlpha: number;
+  annotationGlowAlpha: number;
+
   /** Color preset catalog fetched from /styles/presets for the current
       target lang.  null while loading or on fetch failure (UI shows
       "no presets" placeholder). */
@@ -213,6 +270,26 @@ interface CaptionContextValue {
       occupied by the other track, so state stays collision-free. */
   setTargetPosition: (pos: CaptionPosition) => void;
   setNativePosition: (pos: CaptionPosition) => void;
+  /** Advanced per-layer setters.  Each persists + restores. */
+  setTopAlpha: (v: number) => void;
+  setBottomAlpha: (v: number) => void;
+  setAnnotationAlpha: (v: number) => void;
+  setTopOutlineColor: (hex: string) => void;
+  setBottomOutlineColor: (hex: string) => void;
+  setAnnotationOutlineColor: (hex: string) => void;
+  setTopOutlineAlpha: (v: number) => void;
+  setBottomOutlineAlpha: (v: number) => void;
+  setAnnotationOutlineAlpha: (v: number) => void;
+  setTopGlowRadius: (v: number) => void;
+  setBottomGlowRadius: (v: number) => void;
+  setAnnotationGlowRadius: (v: number) => void;
+  setTopGlowColor: (hex: string) => void;
+  setBottomGlowColor: (hex: string) => void;
+  setAnnotationGlowColor: (hex: string) => void;
+  setTopGlowAlpha: (v: number) => void;
+  setBottomGlowAlpha: (v: number) => void;
+  setAnnotationGlowAlpha: (v: number) => void;
+
   /** Annotation setters — discover.ts persists + re-fetches. */
   setTargetAnnotateEnabled: (v: boolean) => void;
   setNativeAnnotateEnabled: (v: boolean) => void;
@@ -307,6 +384,24 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [activePresetId, setActivePresetIdState] = useState<string>("");
+  const [topAlpha, setTopAlphaState] = useState(DEFAULT_LAYER_ALPHA);
+  const [bottomAlpha, setBottomAlphaState] = useState(DEFAULT_LAYER_ALPHA);
+  const [annotationAlpha, setAnnotationAlphaState] = useState(DEFAULT_LAYER_ALPHA);
+  const [topOutlineColor, setTopOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
+  const [bottomOutlineColor, setBottomOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
+  const [annotationOutlineColor, setAnnotationOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
+  const [topOutlineAlpha, setTopOutlineAlphaState] = useState(DEFAULT_OUTLINE_ALPHA);
+  const [bottomOutlineAlpha, setBottomOutlineAlphaState] = useState(DEFAULT_OUTLINE_ALPHA);
+  const [annotationOutlineAlpha, setAnnotationOutlineAlphaState] = useState(DEFAULT_OUTLINE_ALPHA);
+  const [topGlowRadius, setTopGlowRadiusState] = useState(DEFAULT_GLOW_RADIUS);
+  const [bottomGlowRadius, setBottomGlowRadiusState] = useState(DEFAULT_GLOW_RADIUS);
+  const [annotationGlowRadius, setAnnotationGlowRadiusState] = useState(DEFAULT_GLOW_RADIUS);
+  const [topGlowColor, setTopGlowColorState] = useState(DEFAULT_GLOW_COLOR);
+  const [bottomGlowColor, setBottomGlowColorState] = useState(DEFAULT_GLOW_COLOR);
+  const [annotationGlowColor, setAnnotationGlowColorState] = useState(DEFAULT_GLOW_COLOR);
+  const [topGlowAlpha, setTopGlowAlphaState] = useState(DEFAULT_GLOW_ALPHA);
+  const [bottomGlowAlpha, setBottomGlowAlphaState] = useState(DEFAULT_GLOW_ALPHA);
+  const [annotationGlowAlpha, setAnnotationGlowAlphaState] = useState(DEFAULT_GLOW_ALPHA);
 
   const stream = useMemo(
     () =>
@@ -406,6 +501,24 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_VARIANT_CLEAN_COLOR,
           STORAGE_KEY_VARIANT_COLLAPSE_COLOR,
           STORAGE_KEY_ACTIVE_PRESET,
+          STORAGE_KEY_TOP_ALPHA,
+          STORAGE_KEY_BOTTOM_ALPHA,
+          STORAGE_KEY_ANNOTATION_ALPHA,
+          STORAGE_KEY_TOP_OUTLINE_COLOR,
+          STORAGE_KEY_BOTTOM_OUTLINE_COLOR,
+          STORAGE_KEY_ANNOTATION_OUTLINE_COLOR,
+          STORAGE_KEY_TOP_OUTLINE_ALPHA,
+          STORAGE_KEY_BOTTOM_OUTLINE_ALPHA,
+          STORAGE_KEY_ANNOTATION_OUTLINE_ALPHA,
+          STORAGE_KEY_TOP_GLOW_RADIUS,
+          STORAGE_KEY_BOTTOM_GLOW_RADIUS,
+          STORAGE_KEY_ANNOTATION_GLOW_RADIUS,
+          STORAGE_KEY_TOP_GLOW_COLOR,
+          STORAGE_KEY_BOTTOM_GLOW_COLOR,
+          STORAGE_KEY_ANNOTATION_GLOW_COLOR,
+          STORAGE_KEY_TOP_GLOW_ALPHA,
+          STORAGE_KEY_BOTTOM_GLOW_ALPHA,
+          STORAGE_KEY_ANNOTATION_GLOW_ALPHA,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
@@ -465,6 +578,37 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setVariantCollapseColorState(vColl);
         const ap = result[STORAGE_KEY_ACTIVE_PRESET];
         if (typeof ap === "string") setActivePresetIdState(ap);
+        // Advanced styling — clamp numerics, validate hex strings.
+        const loadAlpha = (k: string, setter: (n: number) => void) => {
+          const v = result[k];
+          if (typeof v === "number" && v >= 0 && v <= 100) setter(v);
+        };
+        const loadHex = (k: string, setter: (s: string) => void) => {
+          const v = result[k];
+          if (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) setter(v);
+        };
+        const loadRadius = (k: string, setter: (n: number) => void) => {
+          const v = result[k];
+          if (typeof v === "number" && v >= 0 && v <= 50) setter(v);
+        };
+        loadAlpha(STORAGE_KEY_TOP_ALPHA, setTopAlphaState);
+        loadAlpha(STORAGE_KEY_BOTTOM_ALPHA, setBottomAlphaState);
+        loadAlpha(STORAGE_KEY_ANNOTATION_ALPHA, setAnnotationAlphaState);
+        loadHex(STORAGE_KEY_TOP_OUTLINE_COLOR, setTopOutlineColorState);
+        loadHex(STORAGE_KEY_BOTTOM_OUTLINE_COLOR, setBottomOutlineColorState);
+        loadHex(STORAGE_KEY_ANNOTATION_OUTLINE_COLOR, setAnnotationOutlineColorState);
+        loadAlpha(STORAGE_KEY_TOP_OUTLINE_ALPHA, setTopOutlineAlphaState);
+        loadAlpha(STORAGE_KEY_BOTTOM_OUTLINE_ALPHA, setBottomOutlineAlphaState);
+        loadAlpha(STORAGE_KEY_ANNOTATION_OUTLINE_ALPHA, setAnnotationOutlineAlphaState);
+        loadRadius(STORAGE_KEY_TOP_GLOW_RADIUS, setTopGlowRadiusState);
+        loadRadius(STORAGE_KEY_BOTTOM_GLOW_RADIUS, setBottomGlowRadiusState);
+        loadRadius(STORAGE_KEY_ANNOTATION_GLOW_RADIUS, setAnnotationGlowRadiusState);
+        loadHex(STORAGE_KEY_TOP_GLOW_COLOR, setTopGlowColorState);
+        loadHex(STORAGE_KEY_BOTTOM_GLOW_COLOR, setBottomGlowColorState);
+        loadHex(STORAGE_KEY_ANNOTATION_GLOW_COLOR, setAnnotationGlowColorState);
+        loadAlpha(STORAGE_KEY_TOP_GLOW_ALPHA, setTopGlowAlphaState);
+        loadAlpha(STORAGE_KEY_BOTTOM_GLOW_ALPHA, setBottomGlowAlphaState);
+        loadAlpha(STORAGE_KEY_ANNOTATION_GLOW_ALPHA, setAnnotationGlowAlphaState);
       } catch (e) {
         console.warn("[Loom] failed to load presentation prefs:", e);
       }
@@ -502,27 +646,86 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   // glow fields are present in the wire shape but the extension
   // hasn't surfaced UI for those, so they're dropped silently.
   const applyPreset = useCallback((preset: Preset) => {
-    const bottom = preset.layers["Bottom"]?.color;
-    const top = preset.layers["Top"]?.color;
-    const annotation = preset.layers["Annotation"]?.color;
-    if (bottom) {
-      setBottomColorState(bottom);
-      void browser.storage.local
-        .set({ [STORAGE_KEY_BOTTOM_COLOR]: bottom })
-        .catch(() => {});
-    }
-    if (top) {
-      setTopColorState(top);
-      void browser.storage.local
-        .set({ [STORAGE_KEY_TOP_COLOR]: top })
-        .catch(() => {});
-    }
-    if (annotation) {
-      setAnnotationColorState(annotation);
-      void browser.storage.local
-        .set({ [STORAGE_KEY_ANNOTATION_COLOR]: annotation })
-        .catch(() => {});
-    }
+    // Apply ALL preset fields per layer: color + opacity + outline
+    // (color + opacity) + optional glow (color + opacity).  Romanized
+    // layer is ignored until 5e wires the 4th caption slot in.
+    const applyLayer = (
+      layerKey: "Bottom" | "Top" | "Annotation",
+      colorSetter: React.Dispatch<React.SetStateAction<string>>,
+      colorStorageKey: string,
+      alphaSetter: React.Dispatch<React.SetStateAction<number>>,
+      alphaStorageKey: string,
+      outlineColorSetter: React.Dispatch<React.SetStateAction<string>>,
+      outlineColorStorageKey: string,
+      outlineAlphaSetter: React.Dispatch<React.SetStateAction<number>>,
+      outlineAlphaStorageKey: string,
+      glowRadiusSetter: React.Dispatch<React.SetStateAction<number>>,
+      glowRadiusStorageKey: string,
+      glowColorSetter: React.Dispatch<React.SetStateAction<string>>,
+      glowColorStorageKey: string,
+      glowAlphaSetter: React.Dispatch<React.SetStateAction<number>>,
+      glowAlphaStorageKey: string,
+    ) => {
+      const lc = preset.layers[layerKey];
+      if (!lc) return;
+      colorSetter(lc.color);
+      void browser.storage.local.set({ [colorStorageKey]: lc.color }).catch(() => {});
+      alphaSetter(lc.opacity);
+      void browser.storage.local.set({ [alphaStorageKey]: lc.opacity }).catch(() => {});
+      outlineColorSetter(lc.outline_color);
+      void browser.storage.local.set({ [outlineColorStorageKey]: lc.outline_color }).catch(() => {});
+      outlineAlphaSetter(lc.outline_opacity);
+      void browser.storage.local.set({ [outlineAlphaStorageKey]: lc.outline_opacity }).catch(() => {});
+      // Glow is OPTIONAL on a preset; null means "preset doesn't
+      // touch glow, leave whatever the user had."  When the preset
+      // DOES specify glow, default radius to a visible 8px since
+      // the wire shape carries color + opacity but no explicit
+      // radius — matches desktop convention.
+      if (lc.glow_color !== null && lc.glow_opacity !== null) {
+        glowRadiusSetter(8);
+        void browser.storage.local.set({ [glowRadiusStorageKey]: 8 }).catch(() => {});
+        glowColorSetter(lc.glow_color);
+        void browser.storage.local.set({ [glowColorStorageKey]: lc.glow_color }).catch(() => {});
+        glowAlphaSetter(lc.glow_opacity);
+        void browser.storage.local.set({ [glowAlphaStorageKey]: lc.glow_opacity }).catch(() => {});
+      } else {
+        // Preset doesn't carry glow — turn it off explicitly so a
+        // previously-applied glowy preset doesn't bleed visual state
+        // into the new one.
+        glowRadiusSetter(0);
+        void browser.storage.local.set({ [glowRadiusStorageKey]: 0 }).catch(() => {});
+      }
+    };
+    applyLayer(
+      "Bottom",
+      setBottomColorState, STORAGE_KEY_BOTTOM_COLOR,
+      setBottomAlphaState, STORAGE_KEY_BOTTOM_ALPHA,
+      setBottomOutlineColorState, STORAGE_KEY_BOTTOM_OUTLINE_COLOR,
+      setBottomOutlineAlphaState, STORAGE_KEY_BOTTOM_OUTLINE_ALPHA,
+      setBottomGlowRadiusState, STORAGE_KEY_BOTTOM_GLOW_RADIUS,
+      setBottomGlowColorState, STORAGE_KEY_BOTTOM_GLOW_COLOR,
+      setBottomGlowAlphaState, STORAGE_KEY_BOTTOM_GLOW_ALPHA,
+    );
+    applyLayer(
+      "Top",
+      setTopColorState, STORAGE_KEY_TOP_COLOR,
+      setTopAlphaState, STORAGE_KEY_TOP_ALPHA,
+      setTopOutlineColorState, STORAGE_KEY_TOP_OUTLINE_COLOR,
+      setTopOutlineAlphaState, STORAGE_KEY_TOP_OUTLINE_ALPHA,
+      setTopGlowRadiusState, STORAGE_KEY_TOP_GLOW_RADIUS,
+      setTopGlowColorState, STORAGE_KEY_TOP_GLOW_COLOR,
+      setTopGlowAlphaState, STORAGE_KEY_TOP_GLOW_ALPHA,
+    );
+    applyLayer(
+      "Annotation",
+      setAnnotationColorState, STORAGE_KEY_ANNOTATION_COLOR,
+      setAnnotationAlphaState, STORAGE_KEY_ANNOTATION_ALPHA,
+      setAnnotationOutlineColorState, STORAGE_KEY_ANNOTATION_OUTLINE_COLOR,
+      setAnnotationOutlineAlphaState, STORAGE_KEY_ANNOTATION_OUTLINE_ALPHA,
+      setAnnotationGlowRadiusState, STORAGE_KEY_ANNOTATION_GLOW_RADIUS,
+      setAnnotationGlowColorState, STORAGE_KEY_ANNOTATION_GLOW_COLOR,
+      setAnnotationGlowAlphaState, STORAGE_KEY_ANNOTATION_GLOW_ALPHA,
+    );
     setActivePresetIdState(preset.id);
     void browser.storage.local
       .set({ [STORAGE_KEY_ACTIVE_PRESET]: preset.id })
@@ -630,6 +833,101 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       return pos;
     });
   }, []);
+
+  // Advanced layer setters — generated from a small table so we
+  // don't repeat 18 useCallback declarations with identical bodies.
+  // Each setter persists to its own storage key + updates state.
+  const makeNumberSetter = (
+    setter: React.Dispatch<React.SetStateAction<number>>,
+    key: string,
+    min: number,
+    max: number,
+  ) =>
+    (v: number) => {
+      const clamped = Math.max(min, Math.min(max, v));
+      setter(clamped);
+      void browser.storage.local.set({ [key]: clamped }).catch(() => {});
+    };
+  const makeHexSetter = (
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    key: string,
+  ) =>
+    (v: string) => {
+      setter(v);
+      void browser.storage.local.set({ [key]: v }).catch(() => {});
+    };
+  const setTopAlpha = useCallback(
+    makeNumberSetter(setTopAlphaState, STORAGE_KEY_TOP_ALPHA, 0, 100),
+    [],
+  );
+  const setBottomAlpha = useCallback(
+    makeNumberSetter(setBottomAlphaState, STORAGE_KEY_BOTTOM_ALPHA, 0, 100),
+    [],
+  );
+  const setAnnotationAlpha = useCallback(
+    makeNumberSetter(setAnnotationAlphaState, STORAGE_KEY_ANNOTATION_ALPHA, 0, 100),
+    [],
+  );
+  const setTopOutlineColor = useCallback(
+    makeHexSetter(setTopOutlineColorState, STORAGE_KEY_TOP_OUTLINE_COLOR),
+    [],
+  );
+  const setBottomOutlineColor = useCallback(
+    makeHexSetter(setBottomOutlineColorState, STORAGE_KEY_BOTTOM_OUTLINE_COLOR),
+    [],
+  );
+  const setAnnotationOutlineColor = useCallback(
+    makeHexSetter(setAnnotationOutlineColorState, STORAGE_KEY_ANNOTATION_OUTLINE_COLOR),
+    [],
+  );
+  const setTopOutlineAlpha = useCallback(
+    makeNumberSetter(setTopOutlineAlphaState, STORAGE_KEY_TOP_OUTLINE_ALPHA, 0, 100),
+    [],
+  );
+  const setBottomOutlineAlpha = useCallback(
+    makeNumberSetter(setBottomOutlineAlphaState, STORAGE_KEY_BOTTOM_OUTLINE_ALPHA, 0, 100),
+    [],
+  );
+  const setAnnotationOutlineAlpha = useCallback(
+    makeNumberSetter(setAnnotationOutlineAlphaState, STORAGE_KEY_ANNOTATION_OUTLINE_ALPHA, 0, 100),
+    [],
+  );
+  const setTopGlowRadius = useCallback(
+    makeNumberSetter(setTopGlowRadiusState, STORAGE_KEY_TOP_GLOW_RADIUS, 0, 50),
+    [],
+  );
+  const setBottomGlowRadius = useCallback(
+    makeNumberSetter(setBottomGlowRadiusState, STORAGE_KEY_BOTTOM_GLOW_RADIUS, 0, 50),
+    [],
+  );
+  const setAnnotationGlowRadius = useCallback(
+    makeNumberSetter(setAnnotationGlowRadiusState, STORAGE_KEY_ANNOTATION_GLOW_RADIUS, 0, 50),
+    [],
+  );
+  const setTopGlowColor = useCallback(
+    makeHexSetter(setTopGlowColorState, STORAGE_KEY_TOP_GLOW_COLOR),
+    [],
+  );
+  const setBottomGlowColor = useCallback(
+    makeHexSetter(setBottomGlowColorState, STORAGE_KEY_BOTTOM_GLOW_COLOR),
+    [],
+  );
+  const setAnnotationGlowColor = useCallback(
+    makeHexSetter(setAnnotationGlowColorState, STORAGE_KEY_ANNOTATION_GLOW_COLOR),
+    [],
+  );
+  const setTopGlowAlpha = useCallback(
+    makeNumberSetter(setTopGlowAlphaState, STORAGE_KEY_TOP_GLOW_ALPHA, 0, 100),
+    [],
+  );
+  const setBottomGlowAlpha = useCallback(
+    makeNumberSetter(setBottomGlowAlphaState, STORAGE_KEY_BOTTOM_GLOW_ALPHA, 0, 100),
+    [],
+  );
+  const setAnnotationGlowAlpha = useCallback(
+    makeNumberSetter(setAnnotationGlowAlphaState, STORAGE_KEY_ANNOTATION_GLOW_ALPHA, 0, 100),
+    [],
+  );
 
   const setTargetVariantEnabled = useCallback((v: boolean) => {
     setTargetVariantEnabledState(v);
@@ -742,6 +1040,42 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       activePresetId,
       applyPreset,
       setActivePresetId,
+      topAlpha,
+      bottomAlpha,
+      annotationAlpha,
+      topOutlineColor,
+      bottomOutlineColor,
+      annotationOutlineColor,
+      topOutlineAlpha,
+      bottomOutlineAlpha,
+      annotationOutlineAlpha,
+      topGlowRadius,
+      bottomGlowRadius,
+      annotationGlowRadius,
+      topGlowColor,
+      bottomGlowColor,
+      annotationGlowColor,
+      topGlowAlpha,
+      bottomGlowAlpha,
+      annotationGlowAlpha,
+      setTopAlpha,
+      setBottomAlpha,
+      setAnnotationAlpha,
+      setTopOutlineColor,
+      setBottomOutlineColor,
+      setAnnotationOutlineColor,
+      setTopOutlineAlpha,
+      setBottomOutlineAlpha,
+      setAnnotationOutlineAlpha,
+      setTopGlowRadius,
+      setBottomGlowRadius,
+      setAnnotationGlowRadius,
+      setTopGlowColor,
+      setBottomGlowColor,
+      setAnnotationGlowColor,
+      setTopGlowAlpha,
+      setBottomGlowAlpha,
+      setAnnotationGlowAlpha,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,
@@ -809,6 +1143,42 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       activePresetId,
       applyPreset,
       setActivePresetId,
+      topAlpha,
+      bottomAlpha,
+      annotationAlpha,
+      topOutlineColor,
+      bottomOutlineColor,
+      annotationOutlineColor,
+      topOutlineAlpha,
+      bottomOutlineAlpha,
+      annotationOutlineAlpha,
+      topGlowRadius,
+      bottomGlowRadius,
+      annotationGlowRadius,
+      topGlowColor,
+      bottomGlowColor,
+      annotationGlowColor,
+      topGlowAlpha,
+      bottomGlowAlpha,
+      annotationGlowAlpha,
+      setTopAlpha,
+      setBottomAlpha,
+      setAnnotationAlpha,
+      setTopOutlineColor,
+      setBottomOutlineColor,
+      setAnnotationOutlineColor,
+      setTopOutlineAlpha,
+      setBottomOutlineAlpha,
+      setAnnotationOutlineAlpha,
+      setTopGlowRadius,
+      setBottomGlowRadius,
+      setAnnotationGlowRadius,
+      setTopGlowColor,
+      setBottomGlowColor,
+      setAnnotationGlowColor,
+      setTopGlowAlpha,
+      setBottomGlowAlpha,
+      setAnnotationGlowAlpha,
       setTargetTrack,
       setNativeTrack,
       setTargetTranslateTo,

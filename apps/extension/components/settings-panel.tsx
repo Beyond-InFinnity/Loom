@@ -215,6 +215,42 @@ export function SettingsPanel({
     presetCatalog,
     activePresetId,
     applyPreset,
+    topAlpha,
+    bottomAlpha,
+    annotationAlpha,
+    topOutlineColor,
+    bottomOutlineColor,
+    annotationOutlineColor,
+    topOutlineAlpha,
+    bottomOutlineAlpha,
+    annotationOutlineAlpha,
+    topGlowRadius,
+    bottomGlowRadius,
+    annotationGlowRadius,
+    topGlowColor,
+    bottomGlowColor,
+    annotationGlowColor,
+    topGlowAlpha,
+    bottomGlowAlpha,
+    annotationGlowAlpha,
+    setTopAlpha,
+    setBottomAlpha,
+    setAnnotationAlpha,
+    setTopOutlineColor,
+    setBottomOutlineColor,
+    setAnnotationOutlineColor,
+    setTopOutlineAlpha,
+    setBottomOutlineAlpha,
+    setAnnotationOutlineAlpha,
+    setTopGlowRadius,
+    setBottomGlowRadius,
+    setAnnotationGlowRadius,
+    setTopGlowColor,
+    setBottomGlowColor,
+    setAnnotationGlowColor,
+    setTopGlowAlpha,
+    setBottomGlowAlpha,
+    setAnnotationGlowAlpha,
     setTargetTrack,
     setNativeTrack,
     setTargetTranslateTo,
@@ -395,6 +431,20 @@ export function SettingsPanel({
           sizeMode="px"
           sizeValue={bottomFontSizePx}
           onSizeChange={setBottomFontSizePx}
+          advanced={{
+            alpha: bottomAlpha,
+            onAlphaChange: setBottomAlpha,
+            outlineColor: bottomOutlineColor,
+            onOutlineColorChange: setBottomOutlineColor,
+            outlineAlpha: bottomOutlineAlpha,
+            onOutlineAlphaChange: setBottomOutlineAlpha,
+            glowRadius: bottomGlowRadius,
+            onGlowRadiusChange: setBottomGlowRadius,
+            glowColor: bottomGlowColor,
+            onGlowColorChange: setBottomGlowColor,
+            glowAlpha: bottomGlowAlpha,
+            onGlowAlphaChange: setBottomGlowAlpha,
+          }}
         />
         <LayerStyleBlock
           label="Top"
@@ -405,6 +455,20 @@ export function SettingsPanel({
           sizeMode="px"
           sizeValue={topFontSizePx}
           onSizeChange={setTopFontSizePx}
+          advanced={{
+            alpha: topAlpha,
+            onAlphaChange: setTopAlpha,
+            outlineColor: topOutlineColor,
+            onOutlineColorChange: setTopOutlineColor,
+            outlineAlpha: topOutlineAlpha,
+            onOutlineAlphaChange: setTopOutlineAlpha,
+            glowRadius: topGlowRadius,
+            onGlowRadiusChange: setTopGlowRadius,
+            glowColor: topGlowColor,
+            onGlowColorChange: setTopGlowColor,
+            glowAlpha: topGlowAlpha,
+            onGlowAlphaChange: setTopGlowAlpha,
+          }}
         />
         <LayerStyleBlock
           label="Annotation"
@@ -415,6 +479,20 @@ export function SettingsPanel({
           sizeMode="ratio"
           sizeValue={annotationFontRatio}
           onSizeChange={setAnnotationFontRatio}
+          advanced={{
+            alpha: annotationAlpha,
+            onAlphaChange: setAnnotationAlpha,
+            outlineColor: annotationOutlineColor,
+            onOutlineColorChange: setAnnotationOutlineColor,
+            outlineAlpha: annotationOutlineAlpha,
+            onOutlineAlphaChange: setAnnotationOutlineAlpha,
+            glowRadius: annotationGlowRadius,
+            onGlowRadiusChange: setAnnotationGlowRadius,
+            glowColor: annotationGlowColor,
+            onGlowColorChange: setAnnotationGlowColor,
+            glowAlpha: annotationGlowAlpha,
+            onGlowAlphaChange: setAnnotationGlowAlpha,
+          }}
         />
         <p style={hintStyle()}>
           Annotation size is a ratio of the Top size (0.5 = half).
@@ -857,6 +935,25 @@ interface LayerStyleBlockProps {
   sizeMode: "px" | "ratio";
   sizeValue: number;
   onSizeChange: (value: number) => void;
+  /** Advanced controls — bundled together so they can be opt-in via
+      one "Advanced ▾" toggle.  Pass null to hide the advanced section
+      entirely for layers that don't have these fields wired (today
+      all three of Bottom/Top/Annotation have them; future romanized
+      layer in 5e will too). */
+  advanced: {
+    alpha: number;
+    onAlphaChange: (value: number) => void;
+    outlineColor: string;
+    onOutlineColorChange: (hex: string) => void;
+    outlineAlpha: number;
+    onOutlineAlphaChange: (value: number) => void;
+    glowRadius: number;
+    onGlowRadiusChange: (value: number) => void;
+    glowColor: string;
+    onGlowColorChange: (hex: string) => void;
+    glowAlpha: number;
+    onGlowAlphaChange: (value: number) => void;
+  } | null;
 }
 
 function LayerStyleBlock({
@@ -868,11 +965,13 @@ function LayerStyleBlock({
   sizeMode,
   sizeValue,
   onSizeChange,
+  advanced,
 }: LayerStyleBlockProps) {
   const sizeLabel = sizeMode === "px" ? "Size (px)" : "Size (ratio of Top)";
   const sizeMin = sizeMode === "px" ? 12 : 0.2;
   const sizeMax = sizeMode === "px" ? 120 : 1.0;
   const sizeStep = sizeMode === "px" ? 1 : 0.05;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <div style={layerStyleBlockStyle()}>
       <div style={layerStyleHeaderStyle()}>{label}</div>
@@ -903,6 +1002,142 @@ function LayerStyleBlock({
           style={numberInputStyle()}
         />
       </div>
+      {advanced && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            style={advancedToggleStyle(advancedOpen)}
+            aria-expanded={advancedOpen}
+          >
+            Advanced {advancedOpen ? "▴" : "▾"}
+          </button>
+          {advancedOpen && (
+            <div style={advancedBlockStyle()}>
+              <PercentSliderRow
+                label="Layer alpha"
+                value={advanced.alpha}
+                onChange={advanced.onAlphaChange}
+              />
+              <div style={layerStyleRowStyle()}>
+                <span style={layerStyleRowLabelStyle()}>Outline color</span>
+                <ColorRow
+                  label=""
+                  value={advanced.outlineColor}
+                  onChange={advanced.onOutlineColorChange}
+                />
+              </div>
+              <PercentSliderRow
+                label="Outline alpha"
+                value={advanced.outlineAlpha}
+                onChange={advanced.onOutlineAlphaChange}
+              />
+              <RangeRow
+                label="Glow radius (px)"
+                value={advanced.glowRadius}
+                min={0}
+                max={20}
+                step={1}
+                onChange={advanced.onGlowRadiusChange}
+                hint={
+                  advanced.glowRadius === 0
+                    ? "0 = no glow"
+                    : `${advanced.glowRadius}px halo`
+                }
+              />
+              {advanced.glowRadius > 0 && (
+                <>
+                  <div style={layerStyleRowStyle()}>
+                    <span style={layerStyleRowLabelStyle()}>Glow color</span>
+                    <ColorRow
+                      label=""
+                      value={advanced.glowColor}
+                      onChange={advanced.onGlowColorChange}
+                    />
+                  </div>
+                  <PercentSliderRow
+                    label="Glow alpha"
+                    value={advanced.glowAlpha}
+                    onChange={advanced.onGlowAlphaChange}
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- Numeric input rows --------------------------------------------
+
+interface PercentSliderRowProps {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}
+
+function PercentSliderRow({ label, value, onChange }: PercentSliderRowProps) {
+  return (
+    <div style={layerStyleRowStyle()}>
+      <div style={percentLabelRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>{label}</span>
+        <span style={percentValueStyle()}>{value}%</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => {
+          const v = parseInt(e.target.value, 10);
+          if (!Number.isNaN(v)) onChange(v);
+        }}
+        style={sliderStyle()}
+      />
+    </div>
+  );
+}
+
+interface RangeRowProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  hint?: string;
+}
+
+function RangeRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  hint,
+}: RangeRowProps) {
+  return (
+    <div style={layerStyleRowStyle()}>
+      <div style={percentLabelRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>{label}</span>
+        {hint && <span style={percentValueStyle()}>{hint}</span>}
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!Number.isNaN(v)) onChange(v);
+        }}
+        style={sliderStyle()}
+      />
     </div>
   );
 }
@@ -2007,6 +2242,65 @@ function layerStyleRowLabelStyle(): React.CSSProperties {
     color: "rgba(255, 255, 255, 0.5)",
     textTransform: "uppercase",
     letterSpacing: "0.06em",
+  };
+}
+
+function advancedToggleStyle(open: boolean): React.CSSProperties {
+  return {
+    marginTop: "4px",
+    padding: "5px 8px",
+    borderRadius: "4px",
+    border: open
+      ? "1px solid rgba(93, 138, 255, 0.35)"
+      : "1px solid rgba(255, 255, 255, 0.08)",
+    background: open
+      ? "rgba(93, 138, 255, 0.12)"
+      : "rgba(255, 255, 255, 0.02)",
+    color: open ? "#9bb8ff" : "rgba(255, 255, 255, 0.55)",
+    fontFamily: "inherit",
+    fontSize: "10px",
+    fontWeight: 600,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    cursor: "pointer",
+    width: "fit-content",
+    alignSelf: "flex-end",
+  };
+}
+
+function advancedBlockStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    padding: "6px 0 2px",
+    marginTop: "2px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.04)",
+  };
+}
+
+function percentLabelRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "6px",
+  };
+}
+
+function percentValueStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.6)",
+    fontVariantNumeric: "tabular-nums",
+  };
+}
+
+function sliderStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    accentColor: "#9bb8ff",
+    cursor: "pointer",
   };
 }
 

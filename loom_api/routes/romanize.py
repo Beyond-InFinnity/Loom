@@ -9,9 +9,15 @@ Japanese is special-cased so the user-supplied ``long_vowel_mode`` is
 honored — the default ``romanize_func`` from ``get_lang_config`` bakes in
 the macron mode, so we re-route through ``annotation_func`` +
 ``spans_to_romaji_func`` whenever both are available.
+
+POST /romanize/batch (5e): one request with a list of texts that all
+share the same lang/system/long_vowel_mode.  Same motivation as
+/annotate/batch — the browser-extension activation flow needs an
+entire episode's romanizations up-front and a single request burns
+one slowapi slot instead of N.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -19,6 +25,10 @@ from pydantic import BaseModel, Field
 from loom_core.styles import get_lang_config
 
 router = APIRouter(tags=["text"])
+
+
+_BATCH_MAX_TEXTS = 2000
+_BATCH_MAX_TEXT_LENGTH = 5000
 
 
 class RomanizeRequest(BaseModel):
@@ -96,4 +106,110 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
         lang_code=req.lang_code,
         romanization_name=cfg.get("romanization_name", "N/A"),
         has_phonetic_layer=True,
+    )
+
+
+# ---- POST /romanize/batch ---------------------------------------------------
+#
+# Browser extension consumer: paired with /annotate/batch in the
+# per-tab activation flow.  Annotation gives per-character ruby for
+# CJK + Korean (5d); romanization gives the full-utterance phonetic
+# line above the foreign text (5e) and is the entire phonetic surface
+# for non-CJK families (Cyrillic / Thai / Indic / Hebrew / Arabic-
+# Persian-Urdu).  Same shape contract as /annotate/batch: one shared
+# (lang, phonetic_system, long_vowel_mode) per request, positional
+# results, empty/oversized texts produce empty results rather than
+# being dropped (so result[i] always pairs with request.texts[i]).
+#
+# Fail-soft on unsupported languages: where /romanize raises 400 on
+# has_phonetic_layer=False, /romanize/batch returns all-empty results
+# with has_phonetic_layer=False at the response root.  This matches
+# /annotate/batch's philosophy — the extension's activation flow
+# benefits from never having to special-case a 400 mid-batch, and
+# clients can still detect the situation by inspecting the root
+# has_phonetic_layer flag.
+
+
+class RomanizeBatchRequest(BaseModel):
+    texts: List[str] = Field(
+        ...,
+        description=(
+            "UTF-8 source texts to romanize.  All texts share the "
+            "lang/phonetic_system/long_vowel_mode specified at the "
+            "request level.  Hard caps: "
+            f"≤{_BATCH_MAX_TEXTS} entries, each ≤"
+            f"{_BATCH_MAX_TEXT_LENGTH} chars."
+        ),
+        max_length=_BATCH_MAX_TEXTS,
+    )
+    lang_code: str = Field(..., description="See POST /romanize.")
+    phonetic_system: Optional[str] = Field(
+        None,
+        description="See POST /romanize.",
+    )
+    long_vowel_mode: str = Field(
+        "macrons",
+        description="See POST /romanize.",
+    )
+    opt_in_training: bool = Field(
+        False,
+        description="See POST /romanize.",
+    )
+
+
+class RomanizeBatchItem(BaseModel):
+    """One result entry — just the romanized string.  Per-call
+    metadata (lang_code, romanization_name, has_phonetic_layer) is
+    constant across the batch and lives at the response root."""
+
+    romanized: str
+
+
+class RomanizeBatchResponse(BaseModel):
+    results: list[RomanizeBatchItem] = Field(
+        ...,
+        description=(
+            "One entry per input text, same order as the request.  "
+            "Empty/oversized texts and unsupported languages produce "
+            "{romanized: ''} instead of being dropped, so positional "
+            "alignment with the request is preserved."
+        ),
+    )
+    lang_code: str
+    romanization_name: str
+    has_phonetic_layer: bool
+
+
+@router.post("/romanize/batch", response_model=RomanizeBatchResponse)
+def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
+    cfg = get_lang_config(req.lang_code, phonetic_system=req.phonetic_system)
+    romanize_func = cfg.get("romanize_func")
+    annotation_func = cfg.get("annotation_func")
+    spans_to_romaji_func = cfg.get("spans_to_romaji_func")
+    has_phonetic_layer = bool(cfg.get("has_phonetic_layer"))
+
+    # Fail-soft: a lang without a phonetic layer (or that claims one but
+    # is missing both callables) returns all-empty.  Caller learns this
+    # from the response-root has_phonetic_layer flag.
+    has_japanese_path = bool(spans_to_romaji_func and annotation_func)
+    has_callable = has_phonetic_layer and (has_japanese_path or romanize_func)
+
+    results: list[RomanizeBatchItem] = []
+    for text in req.texts:
+        if not has_callable or not text or not text.strip() or len(text) > _BATCH_MAX_TEXT_LENGTH:
+            results.append(RomanizeBatchItem(romanized=""))
+            continue
+
+        if has_japanese_path:
+            spans = annotation_func(text)
+            romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
+        else:
+            romanized = romanize_func(text)
+        results.append(RomanizeBatchItem(romanized=romanized))
+
+    return RomanizeBatchResponse(
+        results=results,
+        lang_code=req.lang_code,
+        romanization_name=cfg.get("romanization_name", "N/A"),
+        has_phonetic_layer=has_phonetic_layer,
     )

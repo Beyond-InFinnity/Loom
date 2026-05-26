@@ -278,6 +278,47 @@
         }
       }
     },
+    "/romanize/batch": {
+      "post": {
+        "tags": [
+          "text"
+        ],
+        "summary": "Romanize Batch",
+        "operationId": "romanize_batch_romanize_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RomanizeBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RomanizeBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/annotate": {
       "post": {
         "tags": [
@@ -2278,6 +2319,100 @@
         },
         "type": "object",
         "title": "Resolution"
+      },
+      "RomanizeBatchItem": {
+        "properties": {
+          "romanized": {
+            "type": "string",
+            "title": "Romanized"
+          }
+        },
+        "type": "object",
+        "required": [
+          "romanized"
+        ],
+        "title": "RomanizeBatchItem",
+        "description": "One result entry \u2014 just the romanized string.  Per-call\nmetadata (lang_code, romanization_name, has_phonetic_layer) is\nconstant across the batch and lives at the response root."
+      },
+      "RomanizeBatchRequest": {
+        "properties": {
+          "texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "Texts",
+            "description": "UTF-8 source texts to romanize.  All texts share the lang/phonetic_system/long_vowel_mode specified at the request level.  Hard caps: \u22642000 entries, each \u22645000 chars."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code",
+            "description": "See POST /romanize."
+          },
+          "phonetic_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phonetic System",
+            "description": "See POST /romanize."
+          },
+          "long_vowel_mode": {
+            "type": "string",
+            "title": "Long Vowel Mode",
+            "description": "See POST /romanize.",
+            "default": "macrons"
+          },
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "description": "See POST /romanize.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "texts",
+          "lang_code"
+        ],
+        "title": "RomanizeBatchRequest"
+      },
+      "RomanizeBatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/RomanizeBatchItem"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "One entry per input text, same order as the request.  Empty/oversized texts and unsupported languages produce {romanized: ''} instead of being dropped, so positional alignment with the request is preserved."
+          },
+          "lang_code": {
+            "type": "string",
+            "title": "Lang Code"
+          },
+          "romanization_name": {
+            "type": "string",
+            "title": "Romanization Name"
+          },
+          "has_phonetic_layer": {
+            "type": "boolean",
+            "title": "Has Phonetic Layer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "lang_code",
+          "romanization_name",
+          "has_phonetic_layer"
+        ],
+        "title": "RomanizeBatchResponse"
       },
       "RomanizeRequest": {
         "properties": {

@@ -271,6 +271,18 @@ export function SettingsPanel({
     setNativeAnnotateEnabled,
     setTargetPhoneticSystem,
     setNativePhoneticSystem,
+    targetRomanizeEnabled,
+    nativeRomanizeEnabled,
+    longVowelMode,
+    romanizationColor,
+    romanizationFontFamily,
+    romanizationFontRatio,
+    setTargetRomanizeEnabled,
+    setNativeRomanizeEnabled,
+    setLongVowelMode,
+    setRomanizationColor,
+    setRomanizationFontFamily,
+    setRomanizationFontRatio,
     setTargetVariantEnabled,
     setNativeVariantEnabled,
     setVariantHighlightEnabled,
@@ -399,6 +411,31 @@ export function SettingsPanel({
         </p>
       </Section>
 
+      <Section title="Romanization">
+        <RomanizeRow
+          label="Target"
+          track={selectedTarget}
+          enabled={targetRomanizeEnabled}
+          onToggle={setTargetRomanizeEnabled}
+        />
+        <RomanizeRow
+          label="Native"
+          track={selectedNative}
+          enabled={nativeRomanizeEnabled}
+          onToggle={setNativeRomanizeEnabled}
+        />
+        <JapaneseLongVowelRow
+          mode={longVowelMode}
+          onPickMode={setLongVowelMode}
+        />
+        <p style={hintStyle()}>
+          Full-utterance phonetic line above the foreign text.  Covers
+          every language Loom supports — CJK (above the ruby), Cyrillic,
+          Thai, Indic, Hebrew, and the Arabic-Persian-Urdu family.
+          Long-vowel mode only affects Japanese.
+        </p>
+      </Section>
+
       <VariantSection
         selectedTarget={selectedTarget}
         selectedNative={selectedNative}
@@ -494,10 +531,25 @@ export function SettingsPanel({
             onGlowAlphaChange: setAnnotationGlowAlpha,
           }}
         />
+        <LayerStyleBlock
+          label="Romanization"
+          color={romanizationColor}
+          onColorChange={setRomanizationColor}
+          fontFamily={romanizationFontFamily}
+          onFontFamilyChange={setRomanizationFontFamily}
+          sizeMode="ratio"
+          sizeValue={romanizationFontRatio}
+          onSizeChange={setRomanizationFontRatio}
+          // Advanced (alpha / outline / glow) inherits from the parent
+          // layer's text-shadow + alpha — a separate advanced surface
+          // would let users dim only the romanization line, but that's
+          // a follow-up if anyone asks.
+          advanced={null}
+        />
         <p style={hintStyle()}>
-          Annotation size is a ratio of the Top size (0.5 = half).
-          Romanization layer styling lands when 5e wires in the
-          secondary phonetic line.
+          Annotation + Romanization sizes are ratios of the parent
+          layer's size (0.5 = half).  Romanization inherits outline +
+          alpha from the parent layer it sits above.
         </p>
       </Section>
 
@@ -1244,6 +1296,91 @@ function AnnotateRow({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- RomanizeRow (5e) ---------------------------------------------
+//
+// Per-layer toggle for the full-utterance romanization line.
+// Eligibility: any language whose classifier puts it in either
+// "annotate-romanize" (CJK + Korean — gets ruby AND the line) or
+// "romanize" (Cyrillic / Thai / Indic / Hebrew / Arabic-Persian-Urdu
+// — the line IS the phonetic surface).  Latin-script and unsupported
+// langs dim the row + explain why.
+
+interface RomanizeRowProps {
+  label: string;
+  track: CaptionTrack | null;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+}
+
+function RomanizeRow({ label, track, enabled, onToggle }: RomanizeRowProps) {
+  const cls = track ? classifyLang(track.languageCode) : null;
+  const romanizable =
+    cls?.processing === "annotate-romanize" || cls?.processing === "romanize";
+  const dim = !romanizable;
+
+  return (
+    <div style={annotateRowStyle(dim)}>
+      <div style={annotateHeaderStyle()}>
+        <span style={annotateLabelStyle()}>{label}</span>
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          style={annotateToggleStyle(enabled)}
+          aria-pressed={enabled}
+        >
+          {enabled ? "On" : "Off"}
+        </button>
+      </div>
+      {!romanizable && (
+        <p style={hintStyle()}>
+          {track
+            ? `${track.languageCode}: no phonetic layer (Latin / unsupported).`
+            : "(pick a track first)"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---- JapaneseLongVowelRow (5e) ------------------------------------
+//
+// Global setting (not per-layer) because if both layers happen to be
+// Japanese they'd share the same long-vowel convention anyway.  Only
+// surfaces meaningfully on Japanese tracks; harmless on everything
+// else (backend ignores it for non-ja langs).
+
+const LONG_VOWEL_OPTIONS: Array<{
+  code: "macrons" | "doubled" | "unmarked";
+  label: string;
+}> = [
+  { code: "macrons", label: "Macrons (tōkyō)" },
+  { code: "doubled", label: "Doubled vowels (tookyoo)" },
+  { code: "unmarked", label: "Unmarked (tokyo)" },
+];
+
+function JapaneseLongVowelRow({
+  mode,
+  onPickMode,
+}: {
+  mode: "macrons" | "doubled" | "unmarked";
+  onPickMode: (m: "macrons" | "doubled" | "unmarked") => void;
+}) {
+  return (
+    <div style={annotateSystemRowStyle()}>
+      <span style={annotateSystemLabelStyle()}>Japanese long vowels</span>
+      <LangSelect
+        value={mode}
+        onChange={(code) => {
+          if (code === "macrons" || code === "doubled" || code === "unmarked") {
+            onPickMode(code);
+          }
+        }}
+        options={LONG_VOWEL_OPTIONS}
+      />
     </div>
   );
 }

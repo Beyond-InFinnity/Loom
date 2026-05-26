@@ -37,6 +37,13 @@ import {
   setCachedAnnotateMap,
 } from "../annotate/cache";
 import type { AnnotateMap } from "../annotate/types";
+import { buildRomanizeMap } from "../romanize/build-map";
+import {
+  romanizeCacheKey,
+  getCachedRomanizeMap,
+  setCachedRomanizeMap,
+} from "../romanize/cache";
+import type { RomanizeMap } from "../romanize/types";
 
 const MAIN_SOURCE = "loom-main";
 const ISO_SOURCE = "loom-iso";
@@ -61,6 +68,24 @@ const STORAGE_KEY_TARGET_PHONETIC = "loom_target_phonetic_system";
 const STORAGE_KEY_NATIVE_PHONETIC = "loom_native_phonetic_system";
 const DEFAULT_TARGET_ANNOTATE_ENABLED = true;
 const DEFAULT_NATIVE_ANNOTATE_ENABLED = false;
+
+// Romanization prefs (5e — secondary phonetic line).  Same pattern as
+// annotation: persisted, per-layer, target defaults on (the full-
+// utterance phonetic line is the headline for non-CJK families and
+// the third layer for CJK), native defaults off.  long_vowel_mode is
+// Japanese-specific and global (per-layer makes no sense — if both
+// layers are Japanese they share the mode).
+const STORAGE_KEY_TARGET_ROMANIZE_ENABLED = "loom_target_romanize_enabled";
+const STORAGE_KEY_NATIVE_ROMANIZE_ENABLED = "loom_native_romanize_enabled";
+const STORAGE_KEY_LONG_VOWEL_MODE = "loom_long_vowel_mode";
+const DEFAULT_TARGET_ROMANIZE_ENABLED = true;
+const DEFAULT_NATIVE_ROMANIZE_ENABLED = false;
+const DEFAULT_LONG_VOWEL_MODE: "macrons" | "doubled" | "unmarked" = "macrons";
+const _VALID_LONG_VOWEL_MODES: ReadonlySet<string> = new Set([
+  "macrons",
+  "doubled",
+  "unmarked",
+]);
 
 interface MainTracklist {
   source: typeof MAIN_SOURCE;
@@ -123,6 +148,20 @@ export interface CaptionPayload {
       second-stage emit after buildAnnotateMap completes. */
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
+  /** Per-track romanization enable flag (5e).  Persisted.  When
+      enabled + lang has a phonetic layer, resolveCaptions fans out
+      /romanize/batch and re-emits with the layer's map populated. */
+  targetRomanizeEnabled: boolean;
+  nativeRomanizeEnabled: boolean;
+  /** Japanese-specific long-vowel mode threaded through to
+      /romanize/batch.  Global (not per-layer); ignored by non-
+      Japanese languages.  Persisted. */
+  longVowelMode: "macrons" | "doubled" | "unmarked";
+  /** Romanization maps keyed by event text — the full-utterance
+      phonetic line rendered above the foreign text in the overlay's
+      4th slot.  Same lifecycle as the annotate maps. */
+  targetRomanizeMap: RomanizeMap | null;
+  nativeRomanizeMap: RomanizeMap | null;
   /** Parsed events for the selected target.  null when not yet
       fetched or fetch failed. */
   targetEvents: CaptionEvent[] | null;
@@ -178,10 +217,24 @@ let targetPhoneticSystem: string | null = null;
 let nativePhoneticSystem: string | null = null;
 let annotationPrefsLoaded = false;
 
+// Romanization prefs (5e).  Same scoping rationale as annotation
+// prefs — survive emptySession() on video navigation, loaded once
+// during ensureInstalled().
+let targetRomanizeEnabled = DEFAULT_TARGET_ROMANIZE_ENABLED;
+let nativeRomanizeEnabled = DEFAULT_NATIVE_ROMANIZE_ENABLED;
+let longVowelMode: "macrons" | "doubled" | "unmarked" =
+  DEFAULT_LONG_VOWEL_MODE;
+let romanizationPrefsLoaded = false;
+
 /** AbortController for in-flight annotation fan-outs.  Single shared
     controller — new fetch cancels the previous, so we don't stack
     overlapping fan-outs when the user rapid-fires settings changes. */
 let annotateAbortController: AbortController | null = null;
+/** Parallel controller for /romanize/batch fan-outs.  Kept separate
+    from the annotate one so a phonetic-system change can refetch
+    annotations without also re-running romanization (and vice-versa
+    for long_vowel_mode flips). */
+let romanizeAbortController: AbortController | null = null;
 
 // 5d-perf v3: replaced the rolling-window prefetch with a single
 // /annotate/batch call at track-resolve time.  Rationale: even the
@@ -495,6 +548,17 @@ async function resolveCaptions(): Promise<void> {
     effectiveTargetLang,
     effectiveNativeLang,
   );
+  // 5e: parallel /romanize/batch for the secondary phonetic line.
+  // Independent of annotation: a Japanese track gets BOTH ruby +
+  // romaji line; a Russian track gets ONLY the romanization line.
+  // Fired with its own AbortController so a long-vowel-mode flip
+  // doesn't disturb in-flight annotations.
+  void fetchAllRomanizationsForLayers(
+    targetEvents,
+    nativeEvents ?? [],
+    effectiveTargetLang,
+    effectiveNativeLang,
+  );
 }
 
 /** Fire one /annotate/batch per layer.  Both run in parallel and
@@ -621,6 +685,132 @@ async function fetchLayerAnnotations(
   });
 }
 
+// ---- Romanization batch fetch (5e — mirror of annotation flow) -----
+//
+// Same shape as fetchAllAnnotationsForLayers + fetchLayerAnnotations,
+// pointed at /romanize/batch instead of /annotate/batch.  Kept as a
+// parallel function rather than merged so the two surfaces can fire,
+// abort, and cache independently — a phonetic-system flip only
+// refetches annotations, a long-vowel-mode flip only refetches
+// romanizations.
+
+async function fetchAllRomanizationsForLayers(
+  targetEvents: CaptionEvent[] | null,
+  nativeEvents: CaptionEvent[],
+  effectiveTargetLang: string,
+  effectiveNativeLang: string,
+): Promise<void> {
+  romanizeAbortController?.abort();
+  romanizeAbortController = new AbortController();
+  const signal = romanizeAbortController.signal;
+  const videoId = session.videoId ?? "";
+
+  await Promise.all([
+    fetchLayerRomanization({
+      events: targetEvents,
+      enabled: targetRomanizeEnabled,
+      lang: effectiveTargetLang,
+      phoneticSystem: targetPhoneticSystem,
+      longVowelMode,
+      videoId,
+      signal,
+      layerName: "target",
+    }),
+    fetchLayerRomanization({
+      events: nativeEvents,
+      enabled: nativeRomanizeEnabled,
+      lang: effectiveNativeLang,
+      phoneticSystem: nativePhoneticSystem,
+      longVowelMode,
+      videoId,
+      signal,
+      layerName: "native",
+    }),
+  ]);
+}
+
+interface FetchLayerRomanizationOpts {
+  events: CaptionEvent[] | null;
+  enabled: boolean;
+  lang: string;
+  phoneticSystem: string | null;
+  longVowelMode: "macrons" | "doubled" | "unmarked";
+  videoId: string;
+  signal: AbortSignal;
+  layerName: "target" | "native";
+}
+
+/** Fetch full-utterance romanization for a single layer.  Eligibility
+    gate: classifier.processing must be "annotate-romanize" (CJK +
+    Korean — these also get the phonetic line above the ruby) or
+    "romanize" (Cyrillic / Thai / Indic / Hebrew / Arabic-Persian-
+    Urdu — these get the phonetic line as their entire phonetic
+    surface).  Latin-script and unsupported langs short-circuit out
+    before any network call. */
+async function fetchLayerRomanization(
+  opts: FetchLayerRomanizationOpts,
+): Promise<void> {
+  if (!opts.enabled) return;
+  if (!opts.events || opts.events.length === 0) return;
+
+  const cls = classifyLang(opts.lang);
+  if (cls.processing !== "annotate-romanize" && cls.processing !== "romanize") {
+    return;
+  }
+
+  const cacheKey = romanizeCacheKey(
+    opts.videoId,
+    opts.lang,
+    opts.phoneticSystem,
+    opts.longVowelMode,
+  );
+
+  let map = getCachedRomanizeMap(cacheKey);
+  if (!map) {
+    console.log(
+      "[Loom Romanize] batch start for layer=" +
+        opts.layerName +
+        " lang=" +
+        opts.lang +
+        " events=" +
+        opts.events.length,
+    );
+    map = await buildRomanizeMap(
+      opts.events.map((e) => e.text),
+      {
+        langCode: opts.lang,
+        phoneticSystem: opts.phoneticSystem,
+        longVowelMode: opts.longVowelMode,
+        signal: opts.signal,
+      },
+    );
+    if (opts.signal.aborted) return;
+    if (map.size > 0) {
+      setCachedRomanizeMap(cacheKey, map);
+    }
+  } else {
+    console.log(
+      "[Loom Romanize] cache hit for layer=" +
+        opts.layerName +
+        " lang=" +
+        opts.lang +
+        " map_size=" +
+        map.size,
+    );
+  }
+
+  if (opts.signal.aborted) return;
+  if (!latest || latest.status.kind !== "tracking") return;
+
+  emit({
+    ...latest,
+    targetRomanizeMap:
+      opts.layerName === "target" ? new Map(map) : latest.targetRomanizeMap,
+    nativeRomanizeMap:
+      opts.layerName === "native" ? new Map(map) : latest.nativeRomanizeMap,
+  });
+}
+
 async function fetchWithCache(
   videoId: string,
   capturedUrl: string,
@@ -706,6 +896,11 @@ function buildBasePayload(): CaptionPayload {
     nativePhoneticSystem,
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
+    targetRomanizeEnabled,
+    nativeRomanizeEnabled,
+    longVowelMode,
+    targetRomanizeMap: null,
+    nativeRomanizeMap: null,
     targetEvents: null,
     nativeEvents: null,
   };
@@ -790,6 +985,10 @@ export function setTargetPhoneticSystem(code: string | null): void {
     .set({ [STORAGE_KEY_TARGET_PHONETIC]: targetPhoneticSystem ?? "" })
     .catch((e) => console.warn("[Loom] persist targetPhoneticSystem:", e));
   rerunAnnotations();
+  // phonetic_system also drives romanizer choice (Chinese Pinyin vs
+  // Zhuyin produces different output strings, Thai paiboon vs RTGS,
+  // etc.), so the romanize maps need to refetch too.
+  rerunRomanizations();
 }
 
 export function setNativePhoneticSystem(code: string | null): void {
@@ -799,6 +998,7 @@ export function setNativePhoneticSystem(code: string | null): void {
     .set({ [STORAGE_KEY_NATIVE_PHONETIC]: nativePhoneticSystem ?? "" })
     .catch((e) => console.warn("[Loom] persist nativePhoneticSystem:", e));
   rerunAnnotations();
+  rerunRomanizations();
 }
 
 /** Shared re-runner for the four annotation setters.  When the user
@@ -825,6 +1025,64 @@ function rerunAnnotations(): void {
     nativeAnnotateMap: null,
   });
   void fetchAllAnnotationsForLayers(
+    targetEvents,
+    nativeEvents,
+    status.targetLang,
+    status.nativeLang,
+  );
+}
+
+// ---- Romanization setters (5e) -------------------------------------
+
+export function setTargetRomanizeEnabled(v: boolean): void {
+  targetRomanizeEnabled = v;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_TARGET_ROMANIZE_ENABLED]: v })
+    .catch((e) => console.warn("[Loom] persist targetRomanizeEnabled:", e));
+  rerunRomanizations();
+}
+
+export function setNativeRomanizeEnabled(v: boolean): void {
+  nativeRomanizeEnabled = v;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_NATIVE_ROMANIZE_ENABLED]: v })
+    .catch((e) => console.warn("[Loom] persist nativeRomanizeEnabled:", e));
+  rerunRomanizations();
+}
+
+/** Japanese long-vowel mode (macrons / doubled / unmarked).  Global,
+    not per-layer — if both layers happen to be Japanese they share
+    the mode.  Threaded through /romanize/batch's long_vowel_mode. */
+export function setLongVowelMode(
+  mode: "macrons" | "doubled" | "unmarked",
+): void {
+  if (!_VALID_LONG_VOWEL_MODES.has(mode)) return;
+  longVowelMode = mode;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_LONG_VOWEL_MODE]: mode })
+    .catch((e) => console.warn("[Loom] persist longVowelMode:", e));
+  rerunRomanizations();
+}
+
+/** Mirror of rerunAnnotations for the romanize surface.  Phonetic-
+    system changes go through rerunAnnotations because they also
+    drive romanization choice (Pinyin vs Zhuyin uses different output
+    forms); we add rerunRomanizations to the same setters so the
+    romanize maps stay in sync. */
+function rerunRomanizations(): void {
+  if (!latest || latest.status.kind !== "tracking") return;
+  const status = latest.status;
+  const targetEvents = latest.targetEvents;
+  const nativeEvents = latest.nativeEvents ?? [];
+  emit({
+    ...latest,
+    targetRomanizeEnabled,
+    nativeRomanizeEnabled,
+    longVowelMode,
+    targetRomanizeMap: null,
+    nativeRomanizeMap: null,
+  });
+  void fetchAllRomanizationsForLayers(
     targetEvents,
     nativeEvents,
     status.targetLang,
@@ -881,6 +1139,28 @@ async function loadAnnotationPrefs(): Promise<void> {
   }
 }
 
+async function loadRomanizationPrefs(): Promise<void> {
+  if (romanizationPrefsLoaded) return;
+  romanizationPrefsLoaded = true;
+  try {
+    const result = await browser.storage.local.get([
+      STORAGE_KEY_TARGET_ROMANIZE_ENABLED,
+      STORAGE_KEY_NATIVE_ROMANIZE_ENABLED,
+      STORAGE_KEY_LONG_VOWEL_MODE,
+    ]);
+    const tEnabled = result[STORAGE_KEY_TARGET_ROMANIZE_ENABLED];
+    const nEnabled = result[STORAGE_KEY_NATIVE_ROMANIZE_ENABLED];
+    const lvm = result[STORAGE_KEY_LONG_VOWEL_MODE];
+    if (typeof tEnabled === "boolean") targetRomanizeEnabled = tEnabled;
+    if (typeof nEnabled === "boolean") nativeRomanizeEnabled = nEnabled;
+    if (typeof lvm === "string" && _VALID_LONG_VOWEL_MODES.has(lvm)) {
+      longVowelMode = lvm as "macrons" | "doubled" | "unmarked";
+    }
+  } catch (e) {
+    console.warn("[Loom] failed to load romanization prefs:", e);
+  }
+}
+
 // ---- Subscription API -----------------------------------------------
 
 function ensureInstalled(): void {
@@ -888,6 +1168,7 @@ function ensureInstalled(): void {
   installed = true;
   void loadNativeLangPref();
   void loadAnnotationPrefs();
+  void loadRomanizationPrefs();
   window.addEventListener("message", handleMessage);
   // Race-condition guard (5c): MAIN content script + ISO content
   // script both run at document_idle in undefined order.  If MAIN
@@ -935,10 +1216,11 @@ export function subscribeToCaptions(listener: Listener): () => void {
     listeners.delete(listener);
     activeSubscriberCount = Math.max(0, activeSubscriberCount - 1);
     if (activeSubscriberCount === 0) {
-      // Going dormant.  Abort any in-flight rolling-window annotation
+      // Going dormant.  Abort any in-flight annotation / romanization
       // fetches so they don't continue burning CPU after the user
       // explicitly turned Loom off.
       annotateAbortController?.abort();
+      romanizeAbortController?.abort();
     }
   };
 }

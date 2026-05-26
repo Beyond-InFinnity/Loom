@@ -130,6 +130,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/romanize/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Romanize Batch */
+        post: operations["romanize_batch_romanize_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/annotate": {
         parameters: {
             query?: never;
@@ -1158,6 +1175,60 @@ export interface components {
              */
             height: number;
         };
+        /**
+         * RomanizeBatchItem
+         * @description One result entry — just the romanized string.  Per-call
+         *     metadata (lang_code, romanization_name, has_phonetic_layer) is
+         *     constant across the batch and lives at the response root.
+         */
+        RomanizeBatchItem: {
+            /** Romanized */
+            romanized: string;
+        };
+        /** RomanizeBatchRequest */
+        RomanizeBatchRequest: {
+            /**
+             * Texts
+             * @description UTF-8 source texts to romanize.  All texts share the lang/phonetic_system/long_vowel_mode specified at the request level.  Hard caps: ≤2000 entries, each ≤5000 chars.
+             */
+            texts: string[];
+            /**
+             * Lang Code
+             * @description See POST /romanize.
+             */
+            lang_code: string;
+            /**
+             * Phonetic System
+             * @description See POST /romanize.
+             */
+            phonetic_system?: string | null;
+            /**
+             * Long Vowel Mode
+             * @description See POST /romanize.
+             * @default macrons
+             */
+            long_vowel_mode: string;
+            /**
+             * Opt In Training
+             * @description See POST /romanize.
+             * @default false
+             */
+            opt_in_training: boolean;
+        };
+        /** RomanizeBatchResponse */
+        RomanizeBatchResponse: {
+            /**
+             * Results
+             * @description One entry per input text, same order as the request.  Empty/oversized texts and unsupported languages produce {romanized: ''} instead of being dropped, so positional alignment with the request is preserved.
+             */
+            results: components["schemas"]["RomanizeBatchItem"][];
+            /** Lang Code */
+            lang_code: string;
+            /** Romanization Name */
+            romanization_name: string;
+            /** Has Phonetic Layer */
+            has_phonetic_layer: boolean;
+        };
         /** RomanizeRequest */
         RomanizeRequest: {
             /**
@@ -1852,6 +1923,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RomanizeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    romanize_batch_romanize_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RomanizeBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RomanizeBatchResponse"];
                 };
             };
             /** @description Validation Error */

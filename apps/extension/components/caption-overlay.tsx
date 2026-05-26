@@ -81,6 +81,15 @@ interface Layer {
   annotationColor: string;
   /** Font family of the over-ruby <rt>.  null/auto → inherit. */
   annotationFontFamily: string | null;
+  /** Full-utterance phonetic line (5e — the 4th caption layer).
+      Rendered ABOVE the AnnotatedText block inside this layer, sized
+      relative to the base via `romanizationRatio`.  null when the
+      user has disabled romanization for this side OR no map entry
+      exists for this event text yet. */
+  romanizationLine: string | null;
+  romanizationRatio: number;
+  romanizationColor: string;
+  romanizationFontFamily: string | null;
   /** Color of the under-ruby <rt> (alternate-orthography variant). */
   variantColor: string;
   /** Font family of the under-ruby <rt>.  null/auto → inherit. */
@@ -117,6 +126,11 @@ export function CaptionOverlay() {
     nativePosition,
     targetAnnotateMap,
     nativeAnnotateMap,
+    targetRomanizeMap,
+    nativeRomanizeMap,
+    romanizationFontFamily,
+    romanizationFontRatio,
+    romanizationColor,
     targetVariantEnabled,
     nativeVariantEnabled,
     variantHighlightEnabled,
@@ -167,6 +181,16 @@ export function CaptionOverlay() {
     : null;
   const nativeSpans = bottomText
     ? nativeAnnotateMap?.get(bottomText.trim()) ?? null
+    : null;
+
+  // Romanization line (5e) — same lookup pattern as annotation spans.
+  // null when the map hasn't populated yet OR the event text has no
+  // romanization (empty / oversized / no phonetic layer for the lang).
+  const targetRomanizationLine = topText
+    ? targetRomanizeMap?.get(topText.trim()) ?? null
+    : null;
+  const nativeRomanizationLine = bottomText
+    ? nativeRomanizeMap?.get(bottomText.trim()) ?? null
     : null;
 
   // Resolve the orthography variant table for each layer, if any.
@@ -236,6 +260,10 @@ export function CaptionOverlay() {
       annotationRatio: annotationFontRatio,
       annotationColor,
       annotationFontFamily,
+      romanizationLine: targetRomanizationLine,
+      romanizationRatio: romanizationFontRatio,
+      romanizationColor,
+      romanizationFontFamily,
       variantColor,
       variantFontFamily: null,
       variantHighlightEnabled,
@@ -261,6 +289,10 @@ export function CaptionOverlay() {
       annotationRatio: annotationFontRatio,
       annotationColor,
       annotationFontFamily,
+      romanizationLine: nativeRomanizationLine,
+      romanizationRatio: romanizationFontRatio,
+      romanizationColor,
+      romanizationFontFamily,
       variantColor,
       variantFontFamily: null,
       variantHighlightEnabled,
@@ -407,6 +439,9 @@ function LayerPlaceholder({
 function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
   return (
     <div style={layerStyle(layer, scale)}>
+      {layer.romanizationLine ? (
+        <RomanizationLine layer={layer} scale={scale} />
+      ) : null}
       <AnnotatedText
         segments={layer.segments}
         baseFontPxScaled={layer.fontSizePx * scale}
@@ -419,6 +454,42 @@ function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
         cleanHighlightColor={layer.variantCleanHighlightColor}
         collapseHighlightColor={layer.variantCollapseHighlightColor}
       />
+    </div>
+  );
+}
+
+/** The 4th caption layer (5e — secondary phonetic line).  Renders
+    above the AnnotatedText block inside its parent layer.  Inherits
+    the parent layer's text-shadow + outline via CSS (the .layer div
+    sets text-shadow on the whole subtree); only color, font-size,
+    and font-family override the inherited values. */
+function RomanizationLine({
+  layer,
+  scale,
+}: {
+  layer: Layer;
+  scale: number;
+}) {
+  const fontPx = layer.fontSizePx * layer.romanizationRatio * scale;
+  // Inherit alpha from the parent layer (use the same hexToRgba pass
+  // so a layer-alpha < 100 dims the romanization line uniformly with
+  // the base text).
+  const color = hexToRgba(layer.romanizationColor, layer.alpha);
+  return (
+    <div
+      style={{
+        fontFamily: layer.romanizationFontFamily
+          ? resolveFontFamily(layer.romanizationFontFamily)
+          : "inherit",
+        fontSize: `${fontPx}px`,
+        lineHeight: 1.15,
+        color,
+        // text-shadow inherits via CSS from the .layer style — the
+        // 4-corner outline + drop-shadow apply to this child too,
+        // matching how AnnotatedText's <rt> picks up the same shadow.
+      }}
+    >
+      {layer.romanizationLine}
     </div>
   );
 }

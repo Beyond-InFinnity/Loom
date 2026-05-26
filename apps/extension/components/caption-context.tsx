@@ -9,13 +9,16 @@ import {
 } from "react";
 
 import {
+  setLongVowelMode as discoverSetLongVowelMode,
   setNativeAnnotateEnabled as discoverSetNativeAnnotateEnabled,
   setNativeLangPref as discoverSetNativeLangPref,
   setNativePhoneticSystem as discoverSetNativePhoneticSystem,
+  setNativeRomanizeEnabled as discoverSetNativeRomanizeEnabled,
   setNativeTrack as discoverSetNativeTrack,
   setNativeTranslateTo as discoverSetNativeTranslateTo,
   setTargetAnnotateEnabled as discoverSetTargetAnnotateEnabled,
   setTargetPhoneticSystem as discoverSetTargetPhoneticSystem,
+  setTargetRomanizeEnabled as discoverSetTargetRomanizeEnabled,
   setTargetTrack as discoverSetTargetTrack,
   setTargetTranslateTo as discoverSetTargetTranslateTo,
   subscribeToCaptions,
@@ -24,6 +27,7 @@ import {
 import { CaptionStream } from "@/lib/captions/stream";
 import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
 import type { AnnotateMap } from "@/lib/annotate/types";
+import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
 import type { Preset, PresetCatalog } from "@/lib/presets/types";
 import {
@@ -48,6 +52,13 @@ const STORAGE_KEY_ANNOTATION_FONT_FAMILY = "loom_annotation_font_family";
 const STORAGE_KEY_TOP_FONT_SIZE = "loom_top_font_size_px";
 const STORAGE_KEY_BOTTOM_FONT_SIZE = "loom_bottom_font_size_px";
 const STORAGE_KEY_ANNOTATION_FONT_RATIO = "loom_annotation_font_ratio";
+// Romanization layer (5e — full-utterance phonetic line above the
+// foreign text, or the entire phonetic surface for non-CJK families).
+// One shared set of style controls for both Top + Bottom romanization
+// — mirrors annotation's shared-style design.
+const STORAGE_KEY_ROMANIZATION_FONT_FAMILY = "loom_romanization_font_family";
+const STORAGE_KEY_ROMANIZATION_FONT_RATIO = "loom_romanization_font_ratio";
+const STORAGE_KEY_ROMANIZATION_COLOR = "loom_romanization_color";
 // Alternate-orthography (under-ruby) layer.  Per-layer enable so the
 // user can turn on under-ruby for their learning lang without polluting
 // the native layer.  Highlight + colors are SHARED across layers so a
@@ -95,6 +106,12 @@ const DEFAULT_BOTTOM_FONT_SIZE_PX = 48;
     loom_core/styles.py::annotation_font_ratio).  0.5 for CJK ruby,
     0.4 for alphabetic.  User can override per-track. */
 const DEFAULT_ANNOTATION_FONT_RATIO = 0.5;
+/** Romanization line font is also a fraction of the parent layer's
+    font, picked to roughly match desktop's absolute 30/52 ratio for
+    Top.  Slightly larger than annotation since the romanization line
+    is a full utterance — more reading load, bigger glyphs help. */
+const DEFAULT_ROMANIZATION_FONT_RATIO = 0.55;
+const DEFAULT_ROMANIZATION_COLOR = "#ffffff";
 const DEFAULT_VARIANT_COLOR = "#ffffff";
 const DEFAULT_VARIANT_CLEAN_COLOR = "#5cffff";       // soft cyan — 1:1 mapping
 const DEFAULT_VARIANT_COLLAPSE_COLOR = "#ffcc5c";   // soft amber — forward-collapse
@@ -179,6 +196,12 @@ interface CaptionContextValue {
   topFontSizePx: number;
   bottomFontSizePx: number;
   annotationFontRatio: number;
+  /** Romanization (5e) styling — same shared-across-layers shape as
+      annotation.  Ratio is relative to the parent layer's font (Top
+      or Bottom depending on which layer has the line). */
+  romanizationFontFamily: string;
+  romanizationFontRatio: number;
+  romanizationColor: string;
 
   /** Per-track screen position.  See CaptionPosition above.  Persisted. */
   targetPosition: CaptionPosition;
@@ -197,6 +220,18 @@ interface CaptionContextValue {
       render <ruby> for the currently-active event. */
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
+
+  /** Per-track romanization (5e) — controls the 4th caption layer
+      (the full-utterance phonetic line above the foreign text).
+      Persisted by discover.ts. */
+  targetRomanizeEnabled: boolean;
+  nativeRomanizeEnabled: boolean;
+  /** Japanese long-vowel mode.  Global (not per-layer).  Persisted. */
+  longVowelMode: "macrons" | "doubled" | "unmarked";
+  /** Romanization maps keyed by event text — full-utterance phonetic
+      strings (vs the per-token spans in the annotate maps). */
+  targetRomanizeMap: RomanizeMap | null;
+  nativeRomanizeMap: RomanizeMap | null;
 
   /** Per-layer alpha — 0..100, applied to the layer's color at render
       time via rgba() conversion.  Default 100 (fully opaque). */
@@ -266,6 +301,9 @@ interface CaptionContextValue {
   setTopFontSizePx: (px: number) => void;
   setBottomFontSizePx: (px: number) => void;
   setAnnotationFontRatio: (ratio: number) => void;
+  setRomanizationColor: (hex: string) => void;
+  setRomanizationFontFamily: (family: string) => void;
+  setRomanizationFontRatio: (ratio: number) => void;
   /** Position setters auto-swap when the requested slot is already
       occupied by the other track, so state stays collision-free. */
   setTargetPosition: (pos: CaptionPosition) => void;
@@ -295,6 +333,10 @@ interface CaptionContextValue {
   setNativeAnnotateEnabled: (v: boolean) => void;
   setTargetPhoneticSystem: (code: string | null) => void;
   setNativePhoneticSystem: (code: string | null) => void;
+  /** Romanization setters — same delegation pattern. */
+  setTargetRomanizeEnabled: (v: boolean) => void;
+  setNativeRomanizeEnabled: (v: boolean) => void;
+  setLongVowelMode: (mode: "macrons" | "doubled" | "unmarked") => void;
   /** Alternate-orthography setters.  Per-layer enable; shared highlight
       + colors. */
   setTargetVariantEnabled: (v: boolean) => void;
@@ -346,6 +388,15 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [annotationFontRatio, setAnnotationFontRatioState] = useState(
     DEFAULT_ANNOTATION_FONT_RATIO,
   );
+  const [romanizationColor, setRomanizationColorState] = useState(
+    DEFAULT_ROMANIZATION_COLOR,
+  );
+  const [romanizationFontFamily, setRomanizationFontFamilyState] = useState(
+    DEFAULT_FONT_FAMILY,
+  );
+  const [romanizationFontRatio, setRomanizationFontRatioState] = useState(
+    DEFAULT_ROMANIZATION_FONT_RATIO,
+  );
   const [targetPosition, setTargetPositionState] = useState<CaptionPosition>(
     DEFAULT_TARGET_POSITION,
   );
@@ -369,6 +420,17 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     useState<AnnotateMap | null>(null);
   const [nativeAnnotateMap, setNativeAnnotateMapState] =
     useState<AnnotateMap | null>(null);
+  // Romanization state (5e) — mirrors annotation state shape.
+  const [targetRomanizeEnabled, setTargetRomanizeEnabledState] = useState(true);
+  const [nativeRomanizeEnabled, setNativeRomanizeEnabledState] =
+    useState(false);
+  const [longVowelMode, setLongVowelModeState] = useState<
+    "macrons" | "doubled" | "unmarked"
+  >("macrons");
+  const [targetRomanizeMap, setTargetRomanizeMapState] =
+    useState<RomanizeMap | null>(null);
+  const [nativeRomanizeMap, setNativeRomanizeMapState] =
+    useState<RomanizeMap | null>(null);
   const [targetVariantEnabled, setTargetVariantEnabledState] = useState(false);
   const [nativeVariantEnabled, setNativeVariantEnabledState] = useState(false);
   const [variantHighlightEnabled, setVariantHighlightEnabledState] =
@@ -443,6 +505,11 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativePhoneticSystemState(payload.nativePhoneticSystem);
       setTargetAnnotateMapState(payload.targetAnnotateMap);
       setNativeAnnotateMapState(payload.nativeAnnotateMap);
+      setTargetRomanizeEnabledState(payload.targetRomanizeEnabled);
+      setNativeRomanizeEnabledState(payload.nativeRomanizeEnabled);
+      setLongVowelModeState(payload.longVowelMode);
+      setTargetRomanizeMapState(payload.targetRomanizeMap);
+      setNativeRomanizeMapState(payload.nativeRomanizeMap);
 
       const s = payload.status;
       if (s.kind === "tracking" && payload.targetEvents) {
@@ -519,6 +586,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_TOP_GLOW_ALPHA,
           STORAGE_KEY_BOTTOM_GLOW_ALPHA,
           STORAGE_KEY_ANNOTATION_GLOW_ALPHA,
+          STORAGE_KEY_ROMANIZATION_COLOR,
+          STORAGE_KEY_ROMANIZATION_FONT_FAMILY,
+          STORAGE_KEY_ROMANIZATION_FONT_RATIO,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
@@ -558,6 +628,16 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setBottomFontSizePxState(bSize);
         if (typeof aRatio === "number" && aRatio >= 0.2 && aRatio <= 1.0)
           setAnnotationFontRatioState(aRatio);
+        // Romanization layer (5e) — same clamping shape as annotation.
+        const rCol = result[STORAGE_KEY_ROMANIZATION_COLOR];
+        const rFont = result[STORAGE_KEY_ROMANIZATION_FONT_FAMILY];
+        const rRatio = result[STORAGE_KEY_ROMANIZATION_FONT_RATIO];
+        if (typeof rCol === "string" && rCol.length > 0)
+          setRomanizationColorState(rCol);
+        if (typeof rFont === "string" && rFont.length > 0)
+          setRomanizationFontFamilyState(rFont);
+        if (typeof rRatio === "number" && rRatio >= 0.2 && rRatio <= 1.0)
+          setRomanizationFontRatioState(rRatio);
         // Variant prefs — booleans validated as actual booleans (avoid
         // truthy-coercion of stale "true"/"false" strings); colors
         // accept any non-empty string (the native color input will
@@ -808,6 +888,27 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       .set({ [STORAGE_KEY_ANNOTATION_FONT_RATIO]: clamped })
       .catch((e) => console.warn("[Loom] persist annotationFontRatio:", e));
   }, []);
+  const setRomanizationColor = useCallback((hex: string) => {
+    setRomanizationColorState(hex);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ROMANIZATION_COLOR]: hex })
+      .catch((e) => console.warn("[Loom] persist romanizationColor:", e));
+  }, []);
+  const setRomanizationFontFamily = useCallback((family: string) => {
+    setRomanizationFontFamilyState(family);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ROMANIZATION_FONT_FAMILY]: family })
+      .catch((e) =>
+        console.warn("[Loom] persist romanizationFontFamily:", e),
+      );
+  }, []);
+  const setRomanizationFontRatio = useCallback((ratio: number) => {
+    const clamped = Math.max(0.2, Math.min(1.0, ratio));
+    setRomanizationFontRatioState(clamped);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_ROMANIZATION_FONT_RATIO]: clamped })
+      .catch((e) => console.warn("[Loom] persist romanizationFontRatio:", e));
+  }, []);
 
   // Position setters use functional setState so they read the latest
   // sibling-position (the OTHER track's slot) without needing it as a
@@ -978,6 +1079,18 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const setNativePhoneticSystem = useCallback((code: string | null) => {
     discoverSetNativePhoneticSystem(code);
   }, []);
+  const setTargetRomanizeEnabled = useCallback((v: boolean) => {
+    discoverSetTargetRomanizeEnabled(v);
+  }, []);
+  const setNativeRomanizeEnabled = useCallback((v: boolean) => {
+    discoverSetNativeRomanizeEnabled(v);
+  }, []);
+  const setLongVowelMode = useCallback(
+    (mode: "macrons" | "doubled" | "unmarked") => {
+      discoverSetLongVowelMode(mode);
+    },
+    [],
+  );
 
   const setNativePosition = useCallback((pos: CaptionPosition) => {
     setNativePositionState((prevNative) => {
@@ -1022,6 +1135,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topFontSizePx,
       bottomFontSizePx,
       annotationFontRatio,
+      romanizationFontFamily,
+      romanizationFontRatio,
+      romanizationColor,
       targetPosition,
       nativePosition,
       targetAnnotateEnabled,
@@ -1030,6 +1146,11 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetRomanizeEnabled,
+      nativeRomanizeEnabled,
+      longVowelMode,
+      targetRomanizeMap,
+      nativeRomanizeMap,
       targetVariantEnabled,
       nativeVariantEnabled,
       variantHighlightEnabled,
@@ -1090,12 +1211,18 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopFontSizePx,
       setBottomFontSizePx,
       setAnnotationFontRatio,
+      setRomanizationColor,
+      setRomanizationFontFamily,
+      setRomanizationFontRatio,
       setTargetPosition,
       setNativePosition,
       setTargetAnnotateEnabled,
       setNativeAnnotateEnabled,
       setTargetPhoneticSystem,
       setNativePhoneticSystem,
+      setTargetRomanizeEnabled,
+      setNativeRomanizeEnabled,
+      setLongVowelMode,
       setTargetVariantEnabled,
       setNativeVariantEnabled,
       setVariantHighlightEnabled,
@@ -1125,6 +1252,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topFontSizePx,
       bottomFontSizePx,
       annotationFontRatio,
+      romanizationFontFamily,
+      romanizationFontRatio,
+      romanizationColor,
       targetPosition,
       nativePosition,
       targetAnnotateEnabled,
@@ -1133,6 +1263,11 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetRomanizeEnabled,
+      nativeRomanizeEnabled,
+      longVowelMode,
+      targetRomanizeMap,
+      nativeRomanizeMap,
       targetVariantEnabled,
       nativeVariantEnabled,
       variantHighlightEnabled,
@@ -1193,12 +1328,18 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopFontSizePx,
       setBottomFontSizePx,
       setAnnotationFontRatio,
+      setRomanizationColor,
+      setRomanizationFontFamily,
+      setRomanizationFontRatio,
       setTargetPosition,
       setNativePosition,
       setTargetAnnotateEnabled,
       setNativeAnnotateEnabled,
       setTargetPhoneticSystem,
       setNativePhoneticSystem,
+      setTargetRomanizeEnabled,
+      setNativeRomanizeEnabled,
+      setLongVowelMode,
       setTargetVariantEnabled,
       setNativeVariantEnabled,
       setVariantHighlightEnabled,

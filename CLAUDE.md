@@ -2,59 +2,20 @@
 
 ## ⚡ Session Quick-Start
 
-> Update this section at the end of every session.
+> Update this section at the end of every session. Full session-by-session history lives in the dated archives at `general_project_notes/notes/srtstitcher/CLAUDE*_ARCHIVE.md`.
 
-**Current state (end of 2026-05-23 session):** **5a → 5d all shipped, plus this session's stack of post-5d feature work: alternate-orthography under-ruby (Pass 1 + Pass 2), color presets, inline color wheel, full advanced per-layer styling (alpha + outline + glow).**  Extension renders dual subs on YouTube **with per-character annotation ruby** — furigana for Japanese, Pinyin / Zhuyin / Jyutping for Chinese variants (auto-routed via classifyLang's chineseVariant), Revised Romanization for Korean.  Annotation pipeline locked at a single `/annotate/batch` POST per (target_track, phonetic_system) on activation, ~3-4 sec wait then permanent quiet (production verified for `zh-Hans` → Pinyin).  **Per-tab activation:** every YouTube tab starts DORMANT with a tiny "Loom" pill; user clicks to activate the full pipeline; sessionStorage persists across same-tab reloads.  **Settings panel substantially complete** (this is what was queued as "5f" — landed organically as 5d-diagnostic + this session's polish): live track switching with manual/ASR badges + processing-tier indicators, per-layer tlang overrides, position picker (top/bottom × slot 1/2 with auto-swap), per-layer styles (color + font family + font size + alpha + outline color/alpha + glow radius/color/alpha for Bottom/Top/Annotation, mirroring desktop's `LayerColors`), annotation toggle + phonetic-system override per layer, alternate-orthography toggle + highlight tiers, color preset dropdown (28 thematic presets from /styles/presets, lang-aware), inline HSV color wheel via react-colorful in every ColorRow, native-language base preference.  All persisted to `browser.storage.local`.  Production live: `api.loom.nerv-analytic.ai` now serves `/annotate/batch` + `/styles/presets` (deployed via fast-forward of `main` from `monorepo-restructure` — Railway only tracks `main`).  Step 4f web deploy still live at `https://loom.nerv-analytic.ai`.  Tests: **609 passing** in `loom_core` (pytest) + **164 passing in `apps/extension`** (vitest across lang-code / lang-support / auto-pick / url-picker / orthography-tables / build-segments).
-
-**This session's feature stack (2026-05-22 → 2026-05-23):**
-- **Alternate-orthography under-ruby (Pass 1 `88d0a24`, Pass 2 `3e40952`).** Traditional Chinese characters render their Simplified form as a second `<rt>` paired with the base glyph (independent of, and composable with, the existing Pinyin/Zhuyin/Jyutping over-ruby).  Pass 1: new shared workspace `packages/orthography-tables/` (mirrors `packages/api-client/` shape) with a builder that reads OpenCC's `TSCharacters.txt` and emits a 4105-entry sorted-key JSON.  Each entry is `{to, collapse}` — `to` is the canonical simplified form; `collapse` lists OTHER trad chars that forward-map to the same simplified glyph (the pedagogically significant "identity-hidden" cases like 髮/發 → 发).  Generic, orthography-neutral `resolveOrthographyVariants(langCode)` resolver — today only Traditional Chinese (zh-Hant, zh-TW, zh-HK, zh-MO, yue, yue-Hant) resolves; future variants (Japanese kana, Serbian/Kazakh Cyrl↔Latn) slot in as one new descriptor + one new rule.  Reverse direction (simp→trad) is lossy + explicitly out of scope.  Pass 2: rendering + UI via a refactored `AnnotatedText` taking `RichSegment[]` (plain runs + annotated chars with optional over/under ruby + highlight tier).  Three-tier base-char highlight: absent (no styling) / "Distinct" (1:1 mapping, default cyan) / "Merged" (forward-collapse, default amber).  Settings-panel "Alternate orthography" section always visible (mirrors AnnotateRow's always-mounted dim-when-not-applicable pattern); inline preview shows 語→语 + 髮→发+發 so the merge case is visceral.  Per-layer enable + shared highlight toggle + shared colors.
-- **Color presets — feature-parity with desktop (commit immediately before `b1e06a4`).**  `lib/presets/{fetch,types}.ts` hits `/styles/presets?lang=` (existing API endpoint, already deployed on Railway).  Module-level cache keyed by lang; in-flight dedup; 10s timeout; fail-soft to null.  `caption-context` triggers fetch when `selectedTarget.languageCode` changes — zh-Hant gets cultural Chinese presets ("Blue-and-White Porcelain"), ja gets Ukiyo-e / NERV Command / Neon Tokyo, English/French/German gets universal only.  `applyPreset()` writes Bottom + Top + Annotation colors atomically as well as the new alpha / outline / glow fields (see below) — a single click reproduces the desktop's full styling.  Settings-panel `PresetPicker` at the top of the Styles section, group-organized (Classic · Cultural · Dark · Adaptive) with banner-prefixed first entries.
-- **Inline HSV color wheel (`react-colorful` ~2KB).**  Every `ColorRow` (6 locations: Bottom/Top/Annotation/variant under-rt/distinct-tier/merged-tier) grows a conic-gradient trigger button at the end of its swatch row.  Click → wheel pops out below with a saturation-value square + hue strip + hex text input that only commits on valid `#RRGGBB` (lets users type intermediates without state flicker).  **TRIPWIRE:** react-colorful's runtime auto-injects its CSS to `document.head`, which the shadow root doesn't inherit — vendored the library's 1.7KB CSS verbatim into `REACT_COLORFUL_CSS` + `width:100%` override.  Re-extract on dep bumps via the regex-walker pattern documented in the source-file comment near that constant.
-- **Per-layer advanced styling — alpha + outline + glow (`b1e06a4`).**  18 new state fields (3 layers × 6 axes), all persisted.  `LayerStyleBlock` cards grow an "Advanced ▾" collapsible (default closed; casual users see the compact 3-row form they had before).  When opened: alpha slider 0–100, outline ColorRow + alpha slider, glow radius slider 0–20px with hint copy ("0 = no glow" / "Npx halo"), and glow color + glow alpha only appearing when radius > 0.  `caption-overlay`'s `layerStyle()` rewritten to take a full Layer struct + `hexToRgba(color, alpha)` for the base text color; `buildTextShadow()` reads outline + glow from the layer and appends a `0 0 Npx rgba(...)` halo as a 6th `text-shadow` component when `glowRadius > 0`.  Presets that carry `glow_color`/`glow_opacity` activate glow at 8px default radius (matches desktop); presets that omit glow turn it off explicitly so previously-applied glowy presets don't bleed in.
-- **Alternate-orthography polish train (multiple post-Pass-2 fixes).**  Plain-English label rename "Clean (1:1)" → "Distinct char color" / "Forward-collapse" → "Merged char color" (`63a0021`).  Settings-panel section always-mounted instead of gated-out (`493a5ca`) — feature was undiscoverable on non-Chinese videos.  Five disjoint cards → one consolidated `layerStyleBlock`-styled card with live two-example preview (語→语 distinct + 髮→发+發 merged) (`2414fda`).  Nested-ruby pattern for double-sided rendering (`bb40051`) — Firefox stacks two `<rt>` siblings on the same side regardless of per-rt `ruby-position`; nest the rubies so each has exactly one rt.  Observed render order: variantForm → reading → base from top to bottom (Firefox ignores `ruby-position: under` on the outer rt of a nested ruby; happy accident — pedagogically reads better with Simplified floating above as supplementary).  Documented in `annotated-text.tsx` header (`a5199c7`).
-- **Three Body 0-events diagnostic (`0580a00`).**  `fetchWithCache` was dropping the rich result from `fetchTrackEventsViaSwap` on the floor when events came back empty.  Now logs status / bodyLength / error / url so we can distinguish pot-rejection / HTTP failure / parse-zero / lang-swap-not-carrying without guessing.  The actual Three Body failure resolved itself on next reload — was a stale-URL situation from SPA navigation.
-
-**Highlights this session (2026-05-22):**
-- **5d shipped — but only after four architectural iterations.**  Worth remembering, because each step exposed a load-bearing constraint:
-  - First cut (`2ba8389`): per-text fan-out, parallel `/annotate` POSTs with concurrency 5.  Worked on the short Japanese test video but rate-limit-bombed on a 43-min `zh-Hans` test (707 unique texts → slowapi 100/min ceiling hit after the first ~100, the rest 429'd, worker pool stalled forever because no per-request timeout).
-  - Diagnostic logs + per-request timeout (`5304759`, `284736f`): surfaced the rate-limit reality with structured counters (ok / empty / 429 / errors) + owner-key-presence marker in the start log.
-  - Rolling window (`a4cd883`): ~12-event window prefetched at each playhead boundary instead of all 707 at once.  Better but still a constant network trickle for the whole video + per-boundary React re-renders + Map copies.  User complaint: "constantly running annotations is just killer."
-  - Per-tab activation (`aaa6d13`): dormant default on every YT tab.  Addressed cumulative cost across many tabs but didn't fix the per-tab "constant work" complaint.
-  - **`/annotate/batch` backend endpoint + single-shot fetch (`f7f4d66`).**  THE architecture lock.  Backend takes a list of texts in one request, returns positional results.  Frontend: one POST per (track, phonetic-system), ~3-4 sec wait then silence for the rest of playback.  One slot of the 100/min budget per video instead of ~700.  Production-verified for zh-Hans → Pinyin via curl + extension reload.
-- **Per-layer styles (`aee664b`):** mirrored desktop's `StyleConfig` per-layer surface.  Each of Bottom / Top / Annotation now has color picker + font family dropdown (16 options including Auto + per-script Notos + system serif/sans/mono + Arial/Helvetica/Georgia/Times/Courier) + font size input.  Annotation uses RATIO (0.2–1.0) instead of absolute px — matches desktop's `annotation_font_ratio` convention so annotations scale with the parent target font.  Romanization stub deferred to 5e — drops in trivially as a 4th `LayerStyleBlock` when the secondary phonetic line lands.
-- **Slot bouncing fix (`b31a725`):** when both layers share a zone (e.g., both bottom) and one has text while the other doesn't, the populated layer was falling to the zone anchor (where its sibling would normally sit).  Fixed with `LayerPlaceholder` — `visibility: hidden` + nbsp + `layerStyle` — that reserves one line of vertical space at the configured fontSize.  Only kicks in when BOTH slots in a zone are configured; solo-in-zone case unchanged.
-- **Per-tab activation model (`aaa6d13`):** every YouTube tab starts DORMANT with a small power-icon `DormantPill`.  Click → activate; `LoomApp` mounts the active tree (`CaptionStreamProvider` + overlay + full pill).  Click "Turn off Loom on this tab" in the settings panel → React unmounts the active tree, subscriber count drops to 0, `handleMessage` in `discover.ts` starts dropping MAIN's tracklists.  `sessionStorage`-persisted so same-tab reloads stay active.  `discover.ts` gained `activeSubscriberCount` gate that early-returns from `handleMessage` when no subscribers — even though the window message listener stays attached (cheap), tracklists arriving during dormant state are dropped silently.
-- **5f settings panel — substantially complete this session** (came in as a series of "5d-diagnostic" commits 1b5d6c4 → aee664b):
-  - Live target/native track switching with per-track manual/ASR badges + processing-tier indicator showing the actual downstream system (Pinyin/Zhuyin/Jyutping/Romaji/RR/Cyrillic translit/etc.)
-  - Per-layer tlang dropdowns (any source track → any supported language MT; bidirectional, not just native-side)
-  - Custom `LangSelect` dropdown with fading-scrollbar list (`webkit-scrollbar` opacity transition + JS-toggled `.scrolling` class + `scrollbar-width: thin` for Firefox).  49 alphabetized Loom-compatible languages.  10 items visible at a time.
-  - Position picker: top-1 / top-2 / bottom-1 / bottom-2 with auto-swap on collision; placeholder space when both slots in a zone are configured.
-  - Annotation: per-track on/off + phonetic-system override (Auto / Pinyin / Zhuyin / Jyutping).
-  - Styles: per-layer color (swatch row + native color input) + font family dropdown + font size (px for Top/Bottom, ratio for Annotation).
-  - Native language preference (auto-pick base) — controls regional-variant collapse: `en` matches `en-US`/`en-GB`/`en-AU`/etc.
-  - "Turn off Loom on this tab" red-tinted deactivate button at the bottom.
-- **Major perf tripwires established this session (LOAD-BEARING — see file-header comments for details):**
-  - **NO `backdrop-filter` ANYWHERE.**  Pill + panel are always rendered on top of YT's continuously-repainting player area; `backdrop-filter` forces re-blur of underlying pixels every frame → main-thread saturation → multi-second input lag (user reported "3-second click delay").  Solid `rgba(...)` background with opacity ≥ 0.94 instead.  Documented in `components/loom-pill.tsx` + `components/settings-panel.tsx` headers.
-  - **Pill MUST NOT depend on `target` / `native` from context.**  Earlier compact-mode toggle (`captionsShowing = !!(target?.text || native?.text)`) caused the pill to re-render every dialogue boundary, generating new inline styles that triggered CSS transitions on padding / gap / background / box-shadow.  On rapid-fire dialogue those transitions overlapped and never settled.  Pill now reads only `status` from context and is wrapped in `React.memo`.  Compact mode dropped entirely — slight UX cost (pill stays at full size during dialogue) for the perf win.
-  - **Shadow host MUST be on its own compositor layer.**  `transform: translateZ(0); will-change: transform; contain: layout paint style` on `loom-overlay-root` (in `injectHostPositioningStyle` in `content.tsx`).  Without this, YT's progress-bar tick + control auto-hide cascade through our paint surface on the main thread.  Same `translateZ(0) + willChange: transform` on the pill button itself for defense-in-depth.
-- **NEW tripwires (2026-05-23):**
-  - **WXT `build` defaults to `chrome-mv3`.**  `npm run build` writes to `.output/chrome-mv3/`; Firefox testing requires `npm run build:firefox` writing to `.output/firefox-mv2/`.  Cost three reload cycles this session — UI changes "weren't appearing" because the Firefox-loaded build was hours stale.  Whenever a session is iterating on extension UI and the user reloads but sees no change, **first check `.output/firefox-mv2/` mtime** before assuming a logic bug.
-  - **Nested-`<ruby>` outer-rt position is INVERTED on Firefox MV2.**  The CSS Ruby spec says per-rt `ruby-position` is honoured; Firefox honours it for FLAT single-rt rubies but ignores it (effectively forces `over`) for the outer rt of a nested ruby.  Pass-2 intended Simplified-below-Traditional; what actually renders is Simplified-above-everything-else.  Visual outcome reads better pedagogically — kept as-is; documented in `annotated-text.tsx` header so future readers don't trust the "under-ruby" terminology blindly.  The settings-panel preview uses FLAT single-rt rubies so it correctly shows Simplified-below — divergence is documented so it doesn't confuse a future tweak.
-  - **react-colorful auto-inject doesn't reach the shadow root.**  Library calls `document.head.appendChild(<style>)` at runtime; our overlay tree is in a shadow DOM that doesn't inherit document-level styles.  Inlined the library's CSS verbatim in `settings-panel.tsx::REACT_COLORFUL_CSS` (1.7 KB) so it renders properly.  Pinned to 5.6.1 — re-extract via the regex-walker pattern noted in the source-file comment when bumping.
-  - **`tlang=` is intrinsically lock-step.**  When the user picks "(auto: tlang=en when no native track)" or any tlang= override, YouTube generates one MT'd event per source event with identical timing.  That's how the API works — not a regression.  User-visible only on videos where the source track's event boundaries don't line up with English sentence boundaries (Chinese mid-clause splits being the canonical case).  If the user reports "tracks are no longer independent," first check whether the native side is `(auto)` / tlang.
-- **BCP-47 language expansion (`1916291`):** `auto-pick.ts` replaced its hardcoded `PREFERRED_LANGS` list with a script-family tier system.  `lib/captions/lang-code.ts` (BCP-47 parser, disambiguates subtags by shape — 4-letter Title = script, 2-letter / 3-digit = region) + `lib/captions/lang-support.ts` (`SCRIPT_FAMILY` → `Processing` tier map: latin → native-display, cjk-han/kana/hangul → annotate-romanize, cyrillic/thai/hebrew/arabic/indic → romanize).  Regional dialects (`en-US`/`en-GB`/`en-AU`/`pt-BR`/`pt-PT`/`es-419`/`es-MX`/`es-ES`/`zh-Hans`/`zh-Hant`) collapse via canonical base language; processing tier derived from ISO 15924 script.  Adding a Roman-alphabet language is zero LOC; adding a non-Latin script is one entry in `SCRIPT_FAMILY`.  87+19+23 = 129 vitest cases cover the surface.
-- **Deploy mechanism (operator note):** Railway only tracks `main`, never `monorepo-restructure`.  Push to `main` via `git push origin monorepo-restructure:main` (fast-forward — `monorepo-restructure` is always a strict ancestor of `main` after merge).  Verified working this session — `/annotate/batch` deployed and live within ~5 minutes of push.
+**Current state (end of 2026-05-23 session):** Steps 1–4 shipped (4f live; 4g Streamlit-deletion pending). Step 5 (browser extension) is the active frontier with **5a–5d shipped and 5f substantially complete**. The extension renders dual subs on YouTube with per-character annotation ruby — furigana (Japanese), Pinyin / Zhuyin / Jyutping (Chinese variants, auto-routed via `classifyLang`), Revised Romanization (Korean). Annotation is a single `/annotate/batch` POST per (target_track, phonetic_system) on activation (~3–4 s, then quiet; production-verified for `zh-Hans` → Pinyin). Per-tab activation: every YouTube tab starts dormant with a "Loom" pill; click to activate; `sessionStorage` persists across same-tab reloads. The settings panel covers live track switching (manual/ASR badges + processing-tier indicators), per-layer `tlang` overrides, a 4-slot position picker (top/bottom × 1/2 with auto-swap), full per-layer styling (color + font + size + alpha + outline color/alpha + glow radius/color/alpha for Bottom/Top/Annotation), annotation toggle + phonetic-system override, alternate-orthography ruby (zh-Hant → Simplified) with Distinct/Merged tier highlights, 28 lang-aware color presets (from `/styles/presets`), and an inline HSV color wheel (react-colorful) — functionally on par with the desktop Style editor. All persisted to `browser.storage.local`. Production: `api.loom.nerv-analytic.ai` serves `/annotate/batch` + `/styles/presets`; web app live at `https://loom.nerv-analytic.ai`. Tests: **609** in `loom_core` (pytest) + **164** in `apps/extension` (vitest).
 
 **🎯 Active focus next session:**
-1. **5e — `/romanize` secondary phonetic line.**  The 4th caption layer above Annotation, plain Latin-letter full-utterance romanization (e.g., "Kyou wa..." above the kanji+ruby).  Backend `/romanize` exists; **add a `/romanize/batch` endpoint** that mirrors `/annotate/batch` shape (texts list + lang + phonetic_system → list of results).  Frontend: 4th `LayerStyleBlock` in the settings panel + 4th slot in the caption overlay's bunch.  Same activation flow as 5d — single batch on activation, silent for the rest.
-2. **Owed follow-ups (carry over from 5b/5c/5d):**
-   - **tlang=en parser anomaly** — still owed.  `&tlang=en` returns full body (~64 kB) but the json3 parser extracts only 1 event.  Will bite on JA-only videos that need MT for Bottom.  Hypothesis: tlang responses use word-level `segs` or a different events structure than native tracks.
-   - **Chrome MV3 verification** — 5a-5d developed on Firefox MV2 only.  WXT builds both; need to load-unpacked in Chrome and re-verify.  `world: "MAIN"` is MV3-native so should "just work."
-   - **Stale-URL on rapid SPA navigation** — likely fine since we key by videoId, worth confirming on a busy navigation session.
-3. **4g** (delete Streamlit) — can land anytime; not blocked.  `loom_app.py` + `app/` + drop `streamlit/pandas/pyarrow/pydeck/altair` from `requirements.txt`.
-4. **5g** — Chrome MV3 verification + cross-browser smoke + store-distribution prep.  Final ship-readiness polish before public announcement.
+1. **5e — `/romanize` secondary phonetic line.** The 4th caption layer above Annotation (full-utterance romanization, e.g. "Kyou wa..." above the kanji+ruby). Backend `/romanize` exists; add a `/romanize/batch` endpoint mirroring `/annotate/batch` (texts list + lang + phonetic_system → list of results). Frontend: 4th `LayerStyleBlock` + 4th overlay slot. Same single-batch-on-activation lifecycle as 5d.
+2. **Owed follow-ups (carry over from 5b–5d):**
+   - **tlang=en parser anomaly** — `&tlang=en` returns a full ~64 kB body but the json3 parser extracts only 1 event. Will bite JA-only videos that need MT for Bottom. Hypothesis: tlang responses use word-level `segs` / a different events structure than native tracks.
+   - **Chrome MV3 verification** — 5a–5d developed on Firefox MV2 only. WXT builds both; load-unpacked in Chrome and re-verify (`world: "MAIN"` is MV3-native, should "just work").
+   - **Stale-URL on rapid SPA navigation** — likely fine (keyed by videoId); worth confirming on a busy navigation session.
+3. **4g** (delete Streamlit) — unblocked, can land anytime: remove `loom_app.py` + `app/`, drop `streamlit`/`pandas`/`pyarrow`/`pydeck`/`altair` from `requirements.txt`.
+4. **5g** — Chrome MV3 verification + cross-browser smoke + store-distribution prep. Final ship-readiness polish before public announcement.
 
-**Pending state (next session check):** working tree clean.  Many unpushed commits on `monorepo-restructure` since the 2026-05-22 `origin/main` fast-forward at `50271a4`.  ALL of them touch only `apps/extension/` / `packages/orthography-tables/` / `apps/extension/lib/presets/` / `CLAUDE.md` — zero `loom_api/` or `loom_core/` changes, so Railway's `watchPatterns` would not redeploy on push.  Push to `main` whenever you want the archive caught up; backend stays put.  Roughly: Pass 1 + Pass 2 of orthography (`88d0a24` + `3e40952`), four AO polish/fix commits, the Three Body diagnostic, the orthography docs-only nested-ruby clarification, color-presets + color-wheel, and per-layer alpha/outline/glow (`b1e06a4`).
+**Deploy mechanism:** Railway tracks `main` only — push via `git push origin monorepo-restructure:main` (fast-forward; `monorepo-restructure` is always a strict ancestor of `main` after merge). The backend redeploys only when `loom_api`/`loom_core` paths change (Railway `watchPatterns`); extension-only commits don't trigger one. Vercel (web app) also tracks `main`.
 
 **Step 5 substeps:**
 | | Status | Ships | Goal |
@@ -67,13 +28,13 @@
 | 5f | 🟢 effectively complete (sans `opt_in_training`) | `components/settings-panel.tsx` + `components/{loom-app,dormant-pill}.tsx` + extended `caption-context.tsx` + new `lib/{orthography,presets}/`.  Per-tab activation, live track switching, per-layer tlang, position picker, per-layer styles (color + font + size + alpha + outline color/alpha + glow radius/color/alpha), annotation toggle + phonetic-system picker, alternate-orthography ruby + tier highlights, 28 thematic color presets (lang-aware via `/styles/presets`), inline HSV color wheel via react-colorful, native lang preference.  Functionally on par with the desktop's Style editor.  **Pending:** `opt_in_training` flag wire-up (lands with step 6's OCR pipeline; no archival code yet). | User-controllable demo surface, ship-ready except for OCR data-flow toggle. |
 | 5g | 🔲 | Chrome MV3 verification, cross-browser smoke, store-distribution prep, tlang=en parser anomaly resolution, stale-URL fix. | Ship-readiness polish before public announcement. |
 
-**Architecture (locked 2026-05-03 — Option B, all-client + romanization API):** browser runs ffmpeg.wasm for video probe/extract/mux + JS ports of ASS generation + PGS rasterization (via html2canvas — see Spike subsection for why not SVG-foreignObject).  Server (`api.loom.nerv-analytic.ai` on Railway) only handles romanization: text-in / text-out, ~100KB request.  Drops backend bandwidth ~99% vs upload-everything; target hosting cost $5/mo flat.  Tradeoffs accepted: ~50MB initial JS bundle (one-time, cached), JS reimplementations of `loom_core/subs/processing.py::generate_ass_file` + `loom_core/rasterize/sup_writer.py` that must track the Python reference (drift risk — single source of truth lives in Python; JS port is a transcription), weak-device fallback to a future server-mode toggle.
+**Architecture (locked 2026-05-03 — Option B, all-client + romanization API):** browser runs ffmpeg.wasm for video probe/extract/mux + JS ports of ASS generation + PGS rasterization (via html2canvas — see `ROADMAP.md` for why not SVG-foreignObject).  Server (`api.loom.nerv-analytic.ai` on Railway) only handles romanization: text-in / text-out, ~100KB request.  Drops backend bandwidth ~99% vs upload-everything; target hosting cost $5/mo flat.  Tradeoffs accepted: ~50MB initial JS bundle (one-time, cached), JS reimplementations of `loom_core/subs/processing.py::generate_ass_file` + `loom_core/rasterize/sup_writer.py` that must track the Python reference (drift risk — single source of truth lives in Python; JS port is a transcription), weak-device fallback to a future server-mode toggle.
 
 **Step 4 substeps (Option B):**
 | | Status | Ships | Goal |
 |---|---|---|---|
 | 4a | ✅ `fac632e` | npm workspaces + `apps/web/` Next.js scaffold + `packages/api-client/` from OpenAPI | Foundation. Both apps build, share typed client. |
-| 4b | ✅ `c8b14ee` | PGS-in-browser rasterization spike — `spike/pgs-browser/` | Architecture validated. See "Spike: PGS-in-browser" below for the verdict + the constraint it imposes on 4d. |
+| 4b | ✅ `c8b14ee` | PGS-in-browser rasterization spike — `spike/pgs-browser/` | Architecture validated. See "Spike: PGS-in-browser" in `ROADMAP.md` for the verdict + the constraint it imposes on 4d. |
 | 4c | ✅ `2070002` `ca870c2` `e876f09` | ffmpeg.wasm wiring: probe / extract / mux via `FFmpegClient` (apps/web/lib/ffmpeg/) + smoke-test page at `/ffmpeg-test` | Video plumbing client-side.  Validated on real MKV. |
 | 4d-1 | ✅ `393f5cd` | `apps/web/lib/subs/{ssa,types,timestamp,color}.ts` — SSAFile class | Pysubs2 minimal-surface port. |
 | 4d-2 | ✅ `e58b120` | `apps/web/lib/subs/{generate-ass,style-config}.ts` — `generateAssFile()` | Bottom + Top + (optional) Romanized .ass output. |
@@ -93,61 +54,6 @@
 
 **Step 4 deferred follow-ups:**
 - **Desktop backfill onto `@loom/api-client`** — 4a-5 attempt surfaced 9 legitimate type errors (generated types are stricter than hand-written ones — proper literal unions like `phonetic_system`, `null` vs `undefined` distinctions on optional fields).  Needs per-call-site refactor, not a 5-min rewrite.  Drift risk bounded as long as backend changes propagate to `apps/desktop/src/api.ts` + `apps/desktop/src/styles.ts` in the same commit.
-
-**4c artifacts (where things live):**
-- `apps/web/lib/ffmpeg/client.ts` — `FFmpegClient` class, public API: `create / probe / extractTrack / mux / terminate`.  Every public method takes `OperationOptions { signal?, timeoutMs? }`.  Concurrent ops on the same client are rejected (FFmpeg's in-memory FS isn't safe for parallel use).
-- `apps/web/lib/ffmpeg/parse-probe.ts` — pure ffprobe-JSON → `ProbeResult` parser.  Mirrors `loom_core/video/mkv_handler.py::get_video_metadata` for shape; image-codec selectability rules match the desktop side.
-- `apps/web/lib/ffmpeg/types.ts` — `TrackInfo`, `AudioTrackInfo`, `VideoMetadata`, `ProbeResult`, `OperationOptions`.  Field names mirror Python `loom_core/models.py` so 4e can use the same shapes.
-- `apps/web/app/ffmpeg-test/page.tsx` — diagnostic smoke-test page kept long-term for browser/Chromium regression testing.  Exercises probe → extract (per-track Extract buttons) → mux (synthetic .ass injection) end-to-end.
-- `apps/web/scripts/setup-ffmpeg-assets.sh` — postinstall hook that stages `@ffmpeg/core` ESM build + sibling ESM modules into `apps/web/public/ffmpeg/`.  Critical: must be the ESM build (worker is `type:"module"` and does `(await import(coreURL)).default`); UMD has no `export default`.  All ESM siblings (const.js, errors.js, classes.js, types.js, index.js, utils.js) must co-locate with worker.js because it imports them relatively.  `apps/web/public/ffmpeg/` is gitignored.
-- `apps/web/next.config.ts` — sets `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: credentialless` on every route.  `credentialless` (not `require-corp`) so cross-origin API fetches don't need CORP headers — important for prod where the API is at a different origin.  Trade-off: Safari support is partial.
-
-**4c tripwires (don't repeat these):**
-- The FFmpeg class has no `worker.onerror` listener — if the worker fails to boot (broken import, parse error, security policy block), `FFmpeg.load()` hangs forever.  Hardened against by `FFmpegClient.#init` going through `withTimeout` and `apps/web/app/ffmpeg-test/page.tsx` having window-level error capture + an "abort" button + a "probe worker only" diagnostic.
-- `classWorkerURL` MUST be a fully-qualified URL with origin.  The FFmpeg class does `new URL(classWorkerURL, import.meta.url)` and Next dev's `import.meta.url` for that bundled module resolves to `file:///...`, so a path-only string like `/ffmpeg/worker.js` resolves to `file://` and the browser blocks it.  `FFmpegClient.#init` builds the URL with `${window.location.origin}/ffmpeg`.
-- ffmpeg-core MUST be the ESM build (`@ffmpeg/core/dist/esm/`), not UMD — the module worker does `(await import(coreURL)).default`.  Worker-side imports are silent-fail: a missing default export hangs `load()` instead of throwing.
-- TS `moduleResolution: bundler` doesn't map `.js` → `.ts` for value imports (only type-only imports get stripped before reaching the bundler).  Drop the `.js` suffix on all imports across `apps/web/lib/`.
-
-**General lesson codified:** see `feedback_async_hang_prevention.md` — every promise from third-party code goes through `withTimeout()` with a labeled rejection.  Silent hangs are a banned bug class.
-
-**4d artifacts so far (where things live):**
-- `apps/web/lib/subs/types.ts` — `SSAEvent`, `SSAStyle`, `Color`, `SSAFileShape`, `defaultStyle()` factory.  Field names match pysubs2's snake_case so 4d-2's port is mechanical.
-- `apps/web/lib/subs/timestamp.ts` — ASS (centisecond) ↔ SRT (millisecond) ↔ ms-int helpers.
-- `apps/web/lib/subs/color.ts` — `&HAABBGGRR` ↔ `Color` (alpha INVERTED per ASS file format).
-- `apps/web/lib/subs/ssa.ts` — `SSAFile` class.  `fromString()` auto-detects ASS vs SRT.  `splitAssRow()` handles the embedded-comma-in-Text quirk (Text field is always last; gets the verbatim remainder).
-- `apps/web/lib/subs/style-config.ts` — `StyleConfig` mirrors `apps/desktop/src/styles.ts::StyleConfig` exactly (lowercase keys: bottom/top/romanized/annotation).  Bounded drift acknowledged.
-- `apps/web/lib/subs/generate-ass.ts` — `generateAssFile()`.  Skips annotation / opencc / preserved-styles / romanized-when-no-fn (TODO comments mark each).
-- `apps/web/lib/raster/timeline.ts` — `buildPgsTimeline()`.  Union of native + target boundary timestamps → disjoint intervals.  First-overlap match per track (concurrent-event merging from Python's `_merge_concurrent_target_events` not yet ported).
-- `apps/web/lib/raster/build-html.ts` — `buildSubtitleHtml()`.  Per-event HTML mirrors desktop's `_build_fullframe_html` structure (frame container + absolutely-positioned .layer divs).  `textShadowCss()` faithfully ports the 4-corner offset shadow technique for ASS-outline emulation.
-- `apps/web/lib/raster/rasterizer.ts` — `rasterizeFrames()` async generator.  Lazy by design (full-episode = ~12GB of RGBA in aggregate).  Mounts offscreen container at `left: -100000px`, swaps innerHTML per frame, calls html2canvas, yields full-frame RGBA + transparency-detection-as-clear-marker.  Per-frame timeout via `withTimeout()` per `feedback_async_hang_prevention.md`.
-
-**4d-4 design notes (read before starting):**
-- The Python source is `loom_core/rasterize/sup_writer.py` — read it whole before porting; it's ~600 lines and the binary format details (PCS/WDS/PDS/ODS structure, Display Set framing, palette/object segment numbering) are not obvious without that read.
-- PGS spec reference: a Display Set = `[PCS, WDS, PDS, ODS, END]` segments.  Each segment is `<type:1><size:2><payload>`.  PCS holds presentation timestamp + composition state; WDS defines window rectangles; PDS holds the indexed palette; ODS holds the RLE-compressed bitmap data.  END is a zero-payload terminator.
-- Critical timestamp anchor: PTS=0 anchor in `SupWriter` prevents ffmpeg timestamp rebasing during mux.  Don't change this unless 4c mux output starts misbehaving.
-- Epoch types: **Epoch Start** = full redraw (all segments).  **Acquisition Point** = full redraw at every 12th set so a player seeking can pick up mid-stream.  **Normal** = only changed regions re-encoded (relies on `region_content_keys` to detect "did this region change since last frame?").  **Skip** = identical frame, emit nothing.
-- Reserved palette ranges: object 0 → indices 1–127, object 1 → 128–254 (255 = transparent).  Two-region max per Display Set per the PGS spec.
-- Region splitting (`split_regions(canvas_height=)`): try a 2-region split when the gap midpoint between top + bottom non-transparent regions falls within 25–75% of canvas height.  Otherwise fall back to single-region covering both.
-- Consumer pattern: `for await (const frame of rasterizeFrames(...)) { writer.write(frame) }`.  Writer streams bytes out; caller (4d-5) wires those into a download.
-- Validation plan when 4d-4 lands: emit a .sup, test mux it back into the source MKV via `FFmpegClient.mux({ sup: bytes })` (already shipped from 4c-3), play in mpv, confirm subs appear at the right times + positions.  Round-trip: source → extract → 4d port → mux back → play.
-
-**Spike: PGS-in-browser (4b verdict, 2026-05-03):** `spike/pgs-browser/` validates that the browser can capture rendered subtitle pixels for PGS encoding. **Direct path is blocked by canvas-tainting:** drawing an SVG `<foreignObject>` (which would have been the pixel-perfect approach) to canvas marks it origin-opaque, so `getImageData` throws. Workaround that survived the spike: **html2canvas** library (~200KB) walks the DOM and draws text/shapes via Canvas2D primitives — no SVG, no taint. Both phases (Latin+Japanese, then Hebrew RTL + ruby furigana + Japanese) showed ~0.6% pixel divergence vs the desktop's Playwright reference, with the diff concentrated as 1–2px sub-pixel offsets at glyph edges (html2canvas's text-layout heuristics differ slightly from native Chromium's). **The "byte-identical SUP file" goal is not achievable with this approach** — the web app's PGS bytes will differ from the desktop's. **Visual equivalence is achievable** — both render the same content, same fonts, same positioning at viewer-perceptible scale. Step 4d (JS port of `sup_writer`) needs to operate on whatever pixels html2canvas produces, not match a reference byte-stream. Spike artifacts kept under `spike/pgs-browser/` for re-running on Chromium upgrades; raw `.bin` buffers + per-run `stats.txt` are gitignored, but `reference.png`, `browser.png`, `diff.png` are committed as evidence.
-
-**Step 3c — what shipped:**
-- **Track A:** `scripts/fetch_noto_fonts.sh` pulls the full Noto manifest (~48MB across 29 face files: Sans CJK SC/TC/JP/KR, Sans Thai, Naskh Arabic, Nastaliq Urdu, Sans Devanagari/Bengali/Tamil/Telugu/Gujarati/Gurmukhi, Sans for Latin/Cyrillic/Greek). `loom_core/fonts.py::build_font_face_css(scanner)` emits one `@font-face` per face with cmap-coalesced `unicode-range`; injected at the top of `_build_fullframe_html`'s `<style>`. Chromium picks the correct family per codepoint without fontconfig fallback. **Dev-mode caveat:** Tauri 2's `resource_dir()` in dev returns the build artifact dir, not `src-tauri/resources/`, so during `npm run tauri dev` you must set `LOOM_FONT_DIR=$PWD/apps/desktop/src-tauri/resources/fonts` manually. Production bundles read from the actual resource dir.
-- **Track B:** `scripts/setup_bundle.sh` is the single idempotent build-time script. Steps: (1) Noto fonts via fetch_noto_fonts.sh, (2) python-build-standalone CPython 3.11 via `uv python install`, (3) `uv venv --relocatable --seed` + CPU-only torch + requirements.txt + strip dev-only stack (streamlit/pyarrow/pydeck/altair/pandas), (4) Playwright Chromium via the bundled venv. Final cleanup pass prunes `__pycache__` / `.pyc` / `.pyo`. Bundle layout under `apps/desktop/src-tauri/resources/`: `fonts/` (48M), `python/{runtime,venv,source}/` (1.6G), `playwright-browsers/chromium-1217/` (374M). Total ~2GB raw → 1.2G compressed in .deb/.rpm.
-- **Sidecar spawn (`apps/desktop/src-tauri/src/lib.rs`):** three-way resolution in `BundlePaths::is_complete()` → (1) `LOOM_UVICORN` env set ⇒ dev mode, (2) bundle complete (python_bin + source_dir + a `chromium-*` under browsers_dir) ⇒ spawn `python -m uvicorn` from the bundled venv with PYTHONHOME/PYTHONPATH/VIRTUAL_ENV stripped + PLAYWRIGHT_BROWSERS_PATH set, (3) fallback to legacy hardcoded dev defaults. Browsers check prevents partial bundles from silently falling into "production" mode and triggering Playwright's `~/.cache/` fetch.
-
-**Step 3c — known limitations (not blocking 3c, parked for later):**
-- **AppImage target dropped from `tauri.conf.json`.** AppDir is 3.8G uncompressed; `linuxdeploy` consistently fails to squashfs it into a single AppImage. `.deb` + `.rpm` cover Linux distribution; AppImage was nice-to-have, not critical-path. Fixable later by manual `linuxdeploy --appimage-extract-and-run` invocation or alternative AppImage tooling.
-- **macOS / Windows desktop bundling not done.** `setup_bundle.sh` is Linux-only as written (uses GNU `realpath --relative-to=`, `find -executable`, POSIX `bin/python` paths). `tauri.conf.json` lists `app`, `dmg`, `msi`, `nsis` targets but no equivalent setup script exists for those platforms. Whole-step follow-up; not needed for Connor's own use.
-- **Bundle size 2GB raw** dominated by torch CPU (~200MB), unidic-lite Japanese dictionary (~250MB), Playwright Chromium (~374MB). Tauri auto-updater handling of multi-hundred-MB resource diffs is untested.
-
-**Pre-3c hygiene shipped (2026-04-26 audit):** `mkv_handler.py` ffmpeg subprocess calls hardened against Windows cp1252 locale (`encoding="utf-8", errors="replace"`); `pgs.py` debug-dump opens given explicit `encoding="utf-8"`. None exercised by CI but all relevant for installed-Windows-app reliability.
-
-R6b-fonts library primitive exists but is not yet wired into a UI warning path — secondary polish, can land any time.
-
-**Test suite:** 603 tests across 19 files. Engine tests cover `loom_core` only — no `loom_api` tests yet (smoke-tested via cURL during 2a–2c).
 
 ---
 
@@ -229,159 +135,11 @@ CLAUDE.md
 
 ## Owner Auth Roadmap
 
-**Why this exists.** Production rate limits (100/minute, 2000/day per IP, 5000-char per-request cap) protect the slim API from abuse, but they also block legitimate operator use — especially the OCR synthetic-data generation pipeline (Step 6) which will fan out tens of thousands of romanize/annotate calls during training-data assembly. The owner auth path lets *Connor* (and only Connor) skip the limiter without weakening defenses for everyone else.
+Production rate limits (slowapi 100/min, 2000/day per IP; 5000-char per-request cap) protect the slim API from abuse but also block legitimate high-volume operator use — notably the Step 6 OCR synthetic-data pipeline, which will fan out tens of thousands of romanize/annotate calls. The owner-auth path lets Connor (and only Connor) bypass the limiter without weakening defenses for everyone else. Three additive tiers; A satisfies v1.
 
-**Three layers, additive.** Each tier builds on the previous. Don't skip ahead — A satisfies v1; B and C are upgrades when the use case demands.
+**Tier A — pre-shared bypass key (✅ shipped, live).** Secret(s) live in Railway env `LOOM_BYPASS_KEYS` (comma-separated, supports rotation). Visit `loom.nerv-analytic.ai/?owner_key=<secret>` once per device → `OwnerKeyBootstrap` (`apps/web/components/owner-key-bootstrap.tsx`) stashes it in `localStorage.loom_owner_key` and cleans the URL. Every API call then carries `X-Loom-Auth: <secret>` via the `openapi-fetch` middleware in `apps/web/lib/api/client.ts` (read per-request, so a fresh value takes effect immediately). Server-side, `BypassAwareSlowAPI` (`loom_api/web.py`) wraps `SlowAPIMiddleware` and skips the limiter *entirely* for allow-listed keys (`hmac.compare_digest`, constant-time). A floating "owner mode" pill shows when active. **Reset:** `localStorage.removeItem("loom_owner_key")` or visit `/?owner_key=`. **Rotate:** change `LOOM_BYPASS_KEYS` (invalidates all devices at once) and re-issue. Limitations (acceptable for v1): per-device not per-identity; key briefly appears in URL/history; no per-device revocation.
 
-### Tier A — Pre-shared bypass key (✅ shipped)
-
-**How it works:**
-- Operator generates a long random secret: `python -c "import secrets; print(secrets.token_hex(32))"`
-- Secret(s) live in Railway as `LOOM_BYPASS_KEYS` (comma-separated list, supports rotation).
-- Operator visits `loom.nerv-analytic.ai/?owner_key=<secret>` once per device — `OwnerKeyBootstrap` (`apps/web/components/owner-key-bootstrap.tsx`) intercepts the param, stashes it in `localStorage` under `loom_owner_key`, and rewrites the URL clean.
-- Every API call from that device gets `X-Loom-Auth: <secret>` via the `openapi-fetch` middleware in `apps/web/lib/api/client.ts` (reads `localStorage` per-request so a fresh value takes effect immediately).
-- `BypassAwareSlowAPI` (`loom_api/web.py`) wraps `SlowAPIMiddleware`: requests carrying a key in the allow-list bypass the limiter ENTIRELY (not "given a higher bucket" — the request never reaches slowapi). `hmac.compare_digest` for constant-time match.
-
-**Indicator:** floating "owner mode" pill in the bottom-right of every page when `localStorage.loom_owner_key` is set. The only visible signal that bypass is in effect.
-
-**Reset:** `localStorage.removeItem("loom_owner_key")` from devtools, or visit `/?owner_key=` (empty value).
-
-**Rotation:** change `LOOM_BYPASS_KEYS` in Railway → old keys instantly invalid → re-issue new key via `?owner_key=...` to the operator's devices. Frontend code unchanged.
-
-**Limitations (acceptable for v1):**
-- Devices, not identities: same key on all of Connor's devices. Doesn't differentiate `infinnity12@gmail.com` from `connor.m.finnerty@nerv-analytic.ai` — Tier B addresses this if we ever care.
-- Key-in-URL exposure: the `?owner_key=...` URL ends up in browser history + any HTTP referer logs upstream of `?owner_key=` getting stripped. Mitigated by short URL lifespan (`replaceState` immediately after) but not eliminated.
-- No revocation per-device: rotating the env var nukes ALL devices simultaneously.
-
-### Tier B — Google OAuth identity binding (planned, post-Step 5)
-
-**Trigger:** when the synthetic-data pipeline (Step 6) starts attributing training samples to specific operator emails — e.g., for cleaner provenance in training-set documentation, or if Connor wants per-email rate budgets ("I'm OK with anyone reading 100k samples/day from `connor.m.finnerty@nerv-analytic.ai` but only 1k/day from secondary accounts").
-
-**Design:**
-- "Sign in with Google" button in `apps/web/app/owner/page.tsx`.
-- Frontend uses `@react-oauth/google` to obtain a Google ID token (JWT).
-- ID token sent to a new `POST /auth/session` endpoint on `loom_api.web`.
-- Backend verifies the JWT signature against Google's public keys + checks `email_verified=true` + checks `email` claim against `LOOM_OWNER_EMAILS` env-var allow-list (`infinnity12@gmail.com,connor.m.finnerty@gmail.com,connor.m.finnerty@nerv-analytic.ai`).
-- On success, backend mints a short-lived session token (HS256-signed JWT, 24h TTL).
-- Frontend stores session token in `localStorage` (replaces `loom_owner_key`).
-- `BypassAwareSlowAPI` updated: accept either `X-Loom-Auth: <bypass-key>` (Tier A) OR `X-Loom-Auth: Bearer <session-jwt>` (Tier B). The internal predicate becomes "is this request authenticated as the operator?" — same bypass behavior, broader auth backends.
-- Token refresh on 401: frontend silently retries Google sign-in.
-
-**Migration from A:** strictly additive. Tier A keys keep working forever; Tier B adds a second authentication backend. No frontend rewrite — `X-Loom-Auth` header path stays unchanged, just carries a different secret format.
-
-**Cost:** ~2-3 hours setup (Google Cloud OAuth client + redirect URIs for prod custom domain + Vercel preview wildcards), two new deps (`google-auth` server-side, `@react-oauth/google` client-side), one new endpoint, +~100 lines.
-
-### Tier C — Cloudflare Access network gate (deferred indefinitely)
-
-**Trigger:** if Tier B's email-binding still isn't enough — e.g., we want zero-trust gating with device posture checks, or want to put `loom.nerv-analytic.ai` itself behind auth (not just the API).
-
-**Design:**
-- Cloudflare in front of both `api.loom.nerv-analytic.ai` and `loom.nerv-analytic.ai`.
-- Cloudflare Access policy: `email in {infinnity12@gmail.com, ...}`.
-- Visitors hit the Cloudflare-issued login page (Google/email magic-link), get a Cloudflare Access JWT cookie, then their request reaches Railway/Vercel.
-- Backend optionally re-validates the `CF-Access-Jwt-Assertion` header for defense-in-depth.
-
-**Why deferred:** putting the public site itself behind auth defeats the purpose (it's a tool for general use; only the bypass path is auth-gated). Could selectively gate `/api/*` paths if we proxy through Cloudflare Workers, but that's complexity for what Tier B already handles.
-
-**Cost:** ~30 min setup, free tier covers it, but the routing complexity (which paths gated, which not) doesn't pay for itself unless Tier B is also somehow inadequate.
-
-### Implications for the synthetic data pipeline (Step 6)
-
-The OCR closed-loop pipeline runs as a batch process — it'll generate millions of `(rendered_image, text, language, style)` tuples by:
-1. Sampling text from the extension's archived corpus (`opt_in_training=true` path),
-2. Calling `/romanize` + `/annotate` to enrich each sample with phonetic + annotation ground-truth,
-3. Rendering through the same html2canvas / Playwright pipeline used in production,
-4. Feeding the resulting bitmap + text pairs to TrOCR fine-tuning.
-
-Steps 2–3 will hit the slim API hard (one call per sample, potentially fan-out for varied phonetic systems). Tier A's bypass key is the v1 enabler — without it the pipeline would either rate-limit itself to a crawl or need a separate "internal" deployment path. With Tier A, the pipeline runs from Connor's laptop / a CI runner with `X-Loom-Auth` set and slowapi never sees it.
-
-Tier B becomes relevant if we want to attribute generated samples to specific operator identities for dataset documentation (e.g., "this 50k-sample subset was assembled by `connor.m.finnerty@nerv-analytic.ai` on 2026-09-15"). Not strictly required for the pipeline to function.
-
----
-
-## Roadmap Beyond Step 4
-
-**Purpose:** capture every forward-looking item that surfaced during step-4 build-out but didn't ship in v1.  Three buckets — v1.5 follow-ups (the immediate next deltas after the public deploy), v2 (UX expansion that requires real design work), and long-term (deeper architectural moves that wait for a real signal).  Each item lists a trigger ("ship when") so future sessions don't relitigate scope.
-
-### v1.5 — Closing the gaps the survey exposed
-
-These are the items that v1's "skinny scope" intentionally left for the first iteration after deploy.  None block production today, but each is on the critical path to a polished tool.
-
-**1. PGS rendering of preserved events.**  Currently `iterPreservedEvents()` in `apps/web/lib/subs/style-classify.ts` yields signs / karaoke / typesetting events from multi-style fansub tracks.  `generate-ass.ts` copies those events through to the `.ass` output with original styling intact, but the rasterizer (`apps/web/lib/raster/timeline.ts::buildPgsTimeline`) filters them out — so they appear in mpv from the `.ass` track but are missing from the `.sup` bitmap track.
-- **Port `_dedup_preserved_for_pgs`** from `loom_core/subs/processing.py` (lines 453-555) — handles overlapping karaoke compositing layers.  Critical because raw karaoke layers (sweep + shadow + base) all render simultaneously when animation tags are stripped.
-- **Wire `stripAnimationTags()`** (already in `style-classify.ts`) into a separate raster pass.  Render preserved events with motion tags removed; visual-styling tags (font / color / pos / outline / shadow) preserved.
-- **Add second timeline pass** for preserved events.  Lives alongside the dialogue timeline; raster output composites both into one `.sup`.
-- **Ship when:** any production user complains that signs/karaoke don't appear in the muxed output, or before the first 3rd-party demo.  Estimated ~300 LOC.
-
-**2. `/annotate` API client wiring.**  The endpoint exists and works (verified live: `/annotate ja` returns furigana ruby HTML; `/annotate zh-Hant` returns per-character Zhuyin).  No client consumer.  Required for furigana in the `.sup` rasterizer — currently `build-html.ts` renders plain target text, so the bitmap output has no per-character readings.  ASS path uses `\pos()` annotation but only for CJK (the `supports_ass_annotation` gate); non-CJK languages need PGS-rendered annotation.
-- **Add `buildAnnotateMap()`** in `apps/web/lib/api/`, parallel to `buildRomanizeMap()`.  Same fan-out + memo pattern.
-- **Update `build-html.ts`** to accept an optional `annotation_html` parameter and inject it as a third `.layer` div above the Top layer.
-- **Ship when:** v1.5 PGS preserved-event work lands (same code path).  Estimated ~150 LOC.
-
-**3. Concurrent dialogue event merging.**  Python's `_merge_concurrent_target_events()` handles dual-speaker overlapping lines (one character speaking while another's line still on screen).  Web port currently does first-overlap match — picks one, drops the other.  Rare in practice for single-speaker anime but common in dramas / multi-character ensemble work.
-- **Port `_merge_concurrent_target_events`** from `loom_core/subs/processing.py`.  Music-only event filtering (`_is_music_only`) already in scope of the port.
-- **Ship when:** anyone reports dialogue dropouts during ensemble scenes.  Estimated ~100 LOC.
-
-**4. SRT crawl-bait + episode-card skip heuristic.**  Survey caught spam in multiple SRTs: `"For best IPTV provider..."` (DW3 across 5 languages), `"Created and Encoded by Bokutox"` (Gran Torino YIFY), `"=Three-Body=" / "=Episode 1="` (Tencent Three Body title cards).  These get fanned to `/romanize` as dialogue and pollute the Romanized layer.
-- **Heuristic regex skip** for events matching `/(www\.|provider|encoded by|^=.+=$|^\[.+\]$)/i` BEFORE the unique-text collection in `buildRomanizeMap`.
-- **Estimated:** ~10 LOC.  Could ship as a dedicated 4f-followup commit any time.
-
-**5. Speaker-tag stripping toggle.**  Japanese SRTs commonly prepend speaker names: `（アルミン）...`, `(花澤香菜)...`.  Currently the speaker tag survives romanization (`(Arumin)yatsura ni shihai...`).  Generally desirable for following dialogue, but some users may want it stripped.
-- **Add `strip_speaker_tags: bool` to `StyleConfig`** (off by default).
-- **Pre-process target text** in `generateAssFile` and `buildRomanizeMap` to strip leading `(...)` / `（...）` when toggle is on.
-- **Ship when:** UI editor lands (v2) — meaningless without a UI control.  Estimated ~30 LOC.
-
-**6. HI-track auto-detection warning.**  Squid Game's HI Korean track has bracket-tagged sound descriptions (`[흥미로운 음악]`, `[Music]`) interspersed with dialogue.  These count as dialogue events and produce technically-correct-but-noisy romaji.
-- **Heuristic:** if a track has >20% events matching `/^\[.+\]$/`, surface a warning in the track picker UI: "This looks like a hearing-impaired track — sound descriptions will be romanized too.  Pick the non-HI track for cleaner output."
-- **Estimated:** ~50 LOC including UI.  Polish-tier; defer until UI editor.
-
-### v2 — Style editor + live preview
-
-The big v1-deferred bucket.  v1 ships defaults-only generation (`defaultStyleConfig()`); v2 brings the full UI parity with the desktop app's style controls.  All of this is "additional UX surface" rather than new pipeline work — the engine already supports everything below.
-
-**Per-layer style editor** matching the desktop's Section components in `apps/desktop/src/sections/`:
-- Color + opacity per layer (Bottom, Top, Romanized, Annotation)
-- Font family + size per layer (with the FontScanner's missing-glyph warning wired)
-- Outline (toggle + thickness + color + opacity)
-- Shadow (toggle + distance)
-- Glow (toggle + radius + color, emits `\blur`)
-- Top stack position (vertical offset, annotation/romanized gaps)
-
-**Color presets** — 28 presets across classic / cultural / dark / adaptive groups, language-scoped.  Already in `loom_core/color_presets.py`; need API endpoint exposure + UI dropdown.
-
-**Output resolution scaling** — 480p / 720p / 1080p / 1440p / 2160p / Match source.  Server side already handles `_PLAYRES_OPTIONS` + `_scale = target_height / 1080`; client needs a selector.
-
-**Timing offsets** — manual per-track ms shift via `shift_events()`; auto-alignment via `compute_subtitle_offset()`.  Both already in `loom_core/subs/utils.py`.  Needs UI sliders + an "Auto-align" button that fires the histogram pass.
-
-**Live preview pane** — single-frame composite preview at a chosen timestamp.  Backend already has `POST /preview` (`loom_api/routes/preview.py`); web frontend skips it in v1.  Wire it up alongside the style editor so users see changes in real time without running a full generate.
-
-**Ship when:** real users start using the v1 default-styles output and ask for customization.  Until then, "use the desktop app for fine control" is an acceptable answer per memory `project_pgs_web_priority.md`.
-
-### Long-term — Architectural moves
-
-**Web Worker for rasterization.**  Currently `rasterizeFrames()` runs on the main thread; html2canvas + canvas processing block UI for ~1437 frames on a Frieren episode.  We mitigated with `setTimeout(0)` yields in commit `e6f2be7`, but a real fix is moving the whole pipeline into a Web Worker so the main thread stays responsive.  Cost: html2canvas's DOM walker needs the live document, which workers don't have — would need a different rendering path entirely.  Probably the same code shift as the next item.
-
-**Canvas2D direct draw bypassing html2canvas.**  The 4b spike validated html2canvas as the architectural choice — but at the cost of ~0.6% pixel divergence vs native Chromium.  A direct Canvas2D drawer (taking ASS-style text + position math + outline/glow shaders) would be byte-identical and could run in a Web Worker.  Cost: substantial — would reimplement layered text positioning, outline emulation, ruby layout.  ~1500 LOC minimum.  Memory `project_pgs_web_priority.md` documents the tradeoff: this ships only when a user genuinely needs byte-perfect web PGS output AND can't fall back to the desktop bundle.
-
-**Hardening / observability before public announcement.**
-- **Cloudflare in front of Railway** — free-tier WAF + bot detection.  Catches the abuse modes that get past slowapi (rotating IP scraping, especially).  Easy add: change `LOOM_CORS_ORIGINS` + Cloudflare DNS proxy toggle + verify Tier-B Cloudflare Access compatibility.
-- **Sentry (or similar) error tracking** — currently `/generate` failures only surface in the user's browser; we have no aggregated view of production errors.  Add `@sentry/nextjs` to the web app + `sentry-sdk` to the API.
-- **Analytics** — Plausible (privacy-respecting, $9/mo) or Vercel Analytics (free tier).  Tracks `/generate` start/complete rates, language breakdowns, file-size distributions.  Useful signal for prioritizing v1.5 work.
-- **Multi-region Railway** — only relevant if traffic outside the US/EU starts mattering.  Not on the radar yet.
-
-**Ship when:** before the first non-Connor-only public link; or when an outage happens and we realize we can't see it.
-
-### Closing 4f / 4g
-
-**4f production verification (owed).**  We pushed all the deploy fixes (`1af8a9d`, `e6f2be7`, `e340380`, `96e6148`) but the post-fix end-to-end test still owed: drop an AoT episode at the live `loom.nerv-analytic.ai/generate`, watch a successful complete generation, confirm `.ass` + `.sup` download, mux back into source, play in mpv, verify subs render.  This is the canonical "deploy actually works" gate.  Once this passes once, 4f is closed.
-
-**4g Streamlit deletion (not started).**
-- Delete `loom_app.py` + `app/` directory entirely.
-- Update `CLAUDE.md` Project Structure section to drop the Streamlit references.
-- Update Capability Matrix to drop the Streamlit column (it's currently absent — already done).
-- Drop `streamlit`, `pandas`, `pyarrow`, `pydeck`, `altair` from `requirements.txt` (the desktop venv).
-- Verify `apps/desktop` still works without those (uvicorn sidecar shouldn't need any of them).
-- **Ship when:** 4f production verification passes.  Once the web app is reachable + working, the Streamlit prototype's job is done.
+**Tiers B & C (planned / deferred).** B = Google OAuth identity binding (per-email allow-list + minted session JWT); C = Cloudflare Access network gate. Both are strictly additive over Tier A's `X-Loom-Auth` path. Full design, triggers, and cost in **`ROADMAP.md` → Owner Auth (Tiers B/C)**.
 
 ---
 
@@ -516,6 +274,29 @@ The big v1-deferred bucket.  v1 ships defaults-only generation (`defaultStyleCon
 
 ---
 
+## Tripwires — load-bearing, don't relearn these
+
+**Extension (`apps/extension`):**
+- **NO `backdrop-filter` anywhere.** The pill + panel render over YouTube's continuously-repainting player; `backdrop-filter` re-blurs the underlying pixels every frame → main-thread saturation → multi-second input lag. Use a solid `rgba(...)` background with opacity ≥ 0.94. (`components/loom-pill.tsx`, `components/settings-panel.tsx` headers.)
+- **The pill MUST NOT depend on `target`/`native` from context.** A compact-mode toggle keyed on caption text re-rendered the pill every dialogue boundary, generating new inline styles that triggered overlapping CSS transitions that never settled. The pill reads only `status` and is wrapped in `React.memo`; compact mode was dropped.
+- **The shadow host MUST be on its own compositor layer.** `transform: translateZ(0); will-change: transform; contain: layout paint style` on `loom-overlay-root` (`injectHostPositioningStyle` in `content.tsx`), else YT's progress-bar tick + control auto-hide cascade through our paint surface on the main thread. Same `translateZ(0)` on the pill button for defense-in-depth.
+- **WXT `build` defaults to `chrome-mv3`.** `npm run build` → `.output/chrome-mv3/`; Firefox testing needs `npm run build:firefox` → `.output/firefox-mv2/`. If UI changes "aren't appearing" after a reload, check `.output/firefox-mv2/` mtime before hunting a logic bug.
+- **Nested-`<ruby>` outer-rt position is inverted on Firefox MV2.** Per-rt `ruby-position` is honoured for flat single-rt rubies but ignored (forced to `over`) for the outer rt of a nested ruby. Alternate-orthography therefore renders Simplified above everything (reads better pedagogically — kept as-is). The settings-panel preview uses flat single-rt rubies and so correctly shows Simplified-below; this divergence is intentional. (`annotated-text.tsx` header.)
+- **react-colorful's runtime CSS auto-inject doesn't reach the shadow root.** It `appendChild`s a `<style>` to `document.head`, which our shadow DOM doesn't inherit. The CSS is vendored verbatim in `settings-panel.tsx::REACT_COLORFUL_CSS` (pinned to 5.6.1; re-extract via the regex-walker noted there when bumping).
+- **`tlang=` is intrinsically lock-step.** A `tlang` override makes YouTube emit one MT'd event per source event with identical timing — that's the API, not a regression. Visible only where source-event boundaries don't match English sentence boundaries (Chinese mid-clause splits being canonical). If "tracks are no longer independent" is reported, first check whether the native side is `(auto)`/tlang.
+
+**Web app (`apps/web`) — ffmpeg.wasm:**
+- The `FFmpeg` class has no `worker.onerror` listener: a worker that fails to boot hangs `load()` forever. Hardened via `FFmpegClient.#init` → `withTimeout` + window-level error capture on the test page.
+- `classWorkerURL` MUST be a fully-qualified URL with origin (`${window.location.origin}/ffmpeg`); a path-only string resolves against `import.meta.url` → `file://` and the browser blocks it.
+- ffmpeg-core MUST be the ESM build (`@ffmpeg/core/dist/esm/`); the module worker does `(await import(coreURL)).default`. UMD has no default export and silently hangs `load()`.
+- TS `moduleResolution: bundler` doesn't map `.js` → `.ts` for value imports — drop the `.js` suffix on imports across `apps/web/lib/`.
+- **General rule** (`feedback_async_hang_prevention.md`): every promise from third-party code goes through `withTimeout()` with a labeled rejection. Silent hangs are a banned bug class.
+
+**Desktop (`apps/desktop`):**
+- **Dev-mode fonts:** Tauri 2's `resource_dir()` in dev returns the build-artifact dir, not `src-tauri/resources/`; during `npm run tauri dev` set `LOOM_FONT_DIR=$PWD/apps/desktop/src-tauri/resources/fonts` manually. Production bundles read the real resource dir.
+
+---
+
 ## Language Pipelines
 
 Implementation lives in `loom_core/romanize.py` + `loom_core/language.py`. Read those for details — this section captures non-obvious gotchas only.
@@ -591,4 +372,5 @@ Default font sizes (1080-scale): Bottom=48, Top=52, Romanized=30, Annotation=22.
 
 1. `cd` into repo, run `claude`
 2. Read this file — it is the authoritative state document
-3. Older state (full session-by-session implementation history) lives in `/home/connor/Documents/projects/general_project_notes/notes/srtstitcher/CLAUDE*_ARCHIVE.md`
+3. Forward-looking plans (v1.5 / v2 / long-term backlog, Owner Auth Tiers B/C, the PGS-in-browser spike verdict) live in `ROADMAP.md`
+4. Full session-by-session implementation history lives in the dated archives at `/home/connor/Documents/projects/general_project_notes/notes/srtstitcher/CLAUDE*_ARCHIVE.md`

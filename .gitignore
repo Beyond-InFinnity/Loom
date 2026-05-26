@@ -60,3 +60,6 @@ spike/*/fonts/
 apps/desktop/src-tauri/resources/fonts/
 apps/desktop/src-tauri/resources/python/
 apps/desktop/src-tauri/resources/playwright-browsers/
+
+# Claude Code per-project state (settings, scheduled-tasks lock).
+.claude/

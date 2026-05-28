@@ -2,6 +2,8 @@
 
 Forward-looking plans split out of `CLAUDE.md` to keep the session-loaded briefing lean. Shipped-work history lives in the dated archives at `general_project_notes/notes/srtstitcher/CLAUDE*_ARCHIVE.md`; this file holds only what hasn't shipped yet (plus a couple of durable architecture-verdict references pointed to from `CLAUDE.md`).
 
+**Active recon:** `NETFLIX_RECON.md` — investigating a port of the dual-subs overlay from YouTube to Netflix.  Started 2026-05-28; aims for go/no-go after a 2–3 day spike.  About 60% of the existing extension code is platform-agnostic, so the marginal cost of adding Netflix is bounded.  See that doc for the recon checklist + decision framework.
+
 ---
 
 ## Roadmap Beyond Step 4

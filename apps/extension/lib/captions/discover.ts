@@ -831,7 +831,15 @@ async function fetchWithCache(
   // load-bearing diagnostic for "video looked fine but neither layer
   // had captions": HTTP error code, pot-rejection, parse failure, or
   // the URL just doesn't carry to this track's lang via swap.
-  console.warn(
+  //
+  // Emitted at console.log (not warn) so it shows under default
+  // Firefox devtools filters — warnings get hidden behind a separate
+  // toggle and we don't want this diagnostic invisible.  Captured URL
+  // included separately from swapped URL: if the captured URL's lang
+  // param matches the track we tried to swap to, that's a pot-binding
+  // mismatch (YT bound the pot to a specific videoId+lang and our
+  // swap was a no-op).
+  console.log(
     "[Loom Fetch]",
     "0 events for",
     track.languageCode + (tlang ? `→tlang=${tlang}` : ""),
@@ -839,7 +847,8 @@ async function fetchWithCache(
     "status=" + (result.status ?? "n/a"),
     "bodyLen=" + result.bodyLength,
     "error=" + (result.error ?? "(no error string)"),
-    "url=" + result.url,
+    "swappedUrl=" + result.url,
+    "capturedUrl=" + capturedUrl,
   );
   return result.events;
 }

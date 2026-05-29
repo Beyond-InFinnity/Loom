@@ -4,6 +4,8 @@ Forward-looking plans split out of `CLAUDE.md` to keep the session-loaded briefi
 
 **Active recon:** `NETFLIX_RECON.md` — investigating a port of the dual-subs overlay from YouTube to Netflix.  Started 2026-05-28; aims for go/no-go after a 2–3 day spike.  About 60% of the existing extension code is platform-agnostic, so the marginal cost of adding Netflix is bounded.  See that doc for the recon checklist + decision framework.
 
+**Active publishing plan:** `PUBLISH_PLAN.md` — getting the YouTube extension installable by friends/family as a "proper" extension (Firefox AMO + Chrome Web Store), not "load this temp add-on from a folder."  Started 2026-05-29.  Covers the dev/prod build split (~1 day of work, technical foundation), the non-code store-prep checklist (privacy policy, permission justifications, screenshots, icons), and the phased rollout (Firefox AMO self-distribution first → closed beta → Chrome Web Store unlisted → public listings).  See that doc for the per-step checklist and draft privacy-policy text.
+
 ---
 
 ## Roadmap Beyond Step 4

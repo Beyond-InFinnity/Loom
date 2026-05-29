@@ -105,11 +105,11 @@ Hosted at `loom.nerv-analytic.ai/privacy`.  Must disclose:
 
 ### Permission justifications
 
-Reviewers (especially Mozilla) reject extensions that request broad permissions without a clear "why."  We have three permissions to justify:
+Reviewers (especially Mozilla) reject extensions that request broad permissions without a clear "why."  Finalized, copy-paste justifications now live in **`STORE_LISTING.md`** (the canonical listing copy); the current request set — after `scripting` was dropped — is `storage`, `webRequest`, and two host permissions:
 
 - **`webRequest`** — *"We need webRequest to intercept the URL of YouTube's caption-track API requests so we can fetch the user's chosen secondary subtitle track in parallel.  We never read user-identifying request bodies; we only use the URL pattern to learn the YouTube-issued, per-session token needed to fetch caption text."*  This is the most-scrutinized permission; the explanation needs to be specific.
 - **`storage`** — *"For saving the user's display preferences (colors, font sizes, layer toggles) and the optional owner key.  Local to the browser; nothing is synced."*
-- **`scripting`** — *"Reserved for future YouTube-player API hooks; currently unused.  Will be removed if it remains unused at first public listing."*  (Or: just remove it from the manifest now and add it back when actually needed.)
+- ~~**`scripting`**~~ — **removed 2026-05-30** (dev/prod-split commit).  The MAIN-world hook is a declarative `world: "MAIN"` content script, not `chrome.scripting`, so the permission was never used.  Dropped from the manifest to shrink the review surface; add it back only if a real `chrome.scripting` call appears.
 - **`host_permissions: ["*://*.youtube.com/*"]`** — *"To run the extension's content script on YouTube watch pages, where it inserts the dual-subtitles overlay."*
 - **`host_permissions: ["https://api.loom.nerv-analytic.ai/*"]`** — *"To call the Loom romanization/annotation API.  CORS is required because Firefox content scripts don't get the page's CORS context by default."*
 
@@ -230,5 +230,18 @@ Total realistic effort to reach step 5: **2–3 weeks of focused work**, mostly 
 **Minor follow-ups (non-blocking):** (a) `public/` copies BOTH icon variants into every build, so the prod package ships the unused dev icons (~1.5 KB, not manifest-referenced — harmless, tidy later if a reviewer ever asks).  (b) Not yet installed side-by-side in a live Firefox — that's the human verification step before moving to store prep.
 
 - Next concrete action: Step 2 — polish for review (privacy policy hosted, permission justifications, screenshots, real icons, version indicator in settings panel).
+
+### 2026-05-30 — Step 2 (polish for review) — code + writing started
+
+Landed the pieces that don't need a live browser:
+- **Privacy policy page** — `apps/web/app/privacy/page.tsx`, served at `/privacy` on the next Vercel deploy.  Matches site chrome (SiteNav/SiteFooter + theme tokens); content verified against the extension's actual data flow (subtitle text + optional owner key only).  Contact email confirmed: `privacy@nerv-analytic.ai` (Proton mailbox).
+- **Version + feedback footer** in the settings panel (`components/settings-panel.tsx`) — renders `browser.runtime.getManifest()` name + version, so "Loom (Dev) v0.1.0" doubles as a dev/prod tell, plus a "Send feedback" link to GitHub Issues.
+- **`STORE_LISTING.md`** (new, repo root) — canonical copy-paste listing kit: name / summary / description, permission justifications accurate to the current 2-permission + 2-host set (`scripting` removed), screenshot shot-list, per-store submission sequence, open decisions.
+
+Verified: extension `tsc` clean · web `tsc --noEmit` clean.
+
+Icons now derive from the Nerv-Analytica brand favicon (purple-neuron mark) via `scripts/gen-icons.py` — native 16/32/48 verbatim, 96/128 upscaled, dev variant red-badged.  Contact email (`privacy@nerv-analytic.ai`, Proton), feedback channel (GitHub Issues), and repo-public are all settled.
+
+Still needs a human: screenshots (live extension) and the Step-1 side-by-side Firefox install check.  None block the *first* ship (AMO self-distribution just signs a `build:firefox:prod` XPI — listing copy + screenshots aren't needed until the public-listing / Chrome steps).
 
 <!-- New entries below this line, newest at the bottom -->

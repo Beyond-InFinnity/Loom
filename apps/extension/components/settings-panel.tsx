@@ -176,6 +176,17 @@ export interface SettingsPanelProps {
   onDeactivate: () => void;
 }
 
+// Build label for the panel footer — also a quiet dev/prod tell
+// ("Loom (Dev) v0.1.0" vs "Loom v0.1.0").  Constant per session.
+const BUILD_INFO: string = (() => {
+  try {
+    const m = browser.runtime.getManifest();
+    return `${m.name ?? "Loom"} v${m.version}`;
+  } catch {
+    return "Loom";
+  }
+})();
+
 export function SettingsPanel({
   open,
   onClose,
@@ -565,6 +576,18 @@ export function SettingsPanel({
           Reactivate via the small pill that returns when you turn it
           off.  Persists across reloads of this tab.
         </p>
+      </div>
+
+      <div style={footerStyle()}>
+        <span>{BUILD_INFO}</span>
+        <a
+          href="https://github.com/Beyond-InFinnity/Loom/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={footerLinkStyle()}
+        >
+          Send feedback
+        </a>
       </div>
     </div>
   );
@@ -2583,5 +2606,26 @@ function numberInputStyle(): React.CSSProperties {
     fontSize: "12px",
     fontFamily: "inherit",
     outline: "none",
+  };
+}
+
+function footerStyle(): React.CSSProperties {
+  return {
+    marginTop: "14px",
+    paddingTop: "10px",
+    borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    fontSize: "11px",
+    color: "rgba(255, 255, 255, 0.4)",
+  };
+}
+
+function footerLinkStyle(): React.CSSProperties {
+  return {
+    color: "rgba(255, 255, 255, 0.55)",
+    textDecoration: "none",
   };
 }

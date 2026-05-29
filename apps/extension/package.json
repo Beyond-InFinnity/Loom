@@ -15,7 +15,7 @@
     "build:chrome:dev": "wxt build -b chrome --mode development",
     "build:chrome:prod": "wxt build -b chrome --mode production",
     "zip": "wxt zip -b firefox --mode production",
-    "icons": "node scripts/gen-icons.mjs",
+    "icons": "python3 scripts/gen-icons.py",
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

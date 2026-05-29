@@ -26,6 +26,7 @@
 //   5f-diagnostics: phase split.  UI now picks tracks; we re-resolve
 //     without re-clicking CC.
 
+import { logDev } from "../env";
 import { autoPick } from "./auto-pick";
 import { fetchTrackEventsViaSwap } from "./fanout";
 import { classifyLang } from "./lang-support";
@@ -299,7 +300,7 @@ function handleMessage(event: MessageEvent): void {
 }
 
 async function discoverSession(data: MainTracklist): Promise<void> {
-  console.log(
+  logDev(
     "[Loom ISO] tracklist received: status =",
     data.status,
     "tracks =",
@@ -354,7 +355,7 @@ async function discoverSession(data: MainTracklist): Promise<void> {
   emit({ ...buildBasePayload(), status: { kind: "discovering" } });
 
   // Phase 1: rely on YT's natural prefetch.
-  console.log(
+  logDev(
     "[Loom ISO] polling for pot URL (prefetch phase, up to",
     PREFETCH_POLL_TIMEOUT_MS,
     "ms)...",
@@ -365,7 +366,7 @@ async function discoverSession(data: MainTracklist): Promise<void> {
   );
 
   if (!capturedUrl) {
-    console.log(
+    logDev(
       "[Loom ISO] no prefetch pot URL — requesting CC trigger from MAIN",
     );
     requestCcTrigger();
@@ -375,7 +376,7 @@ async function discoverSession(data: MainTracklist): Promise<void> {
     );
   }
 
-  console.log(
+  logDev(
     "[Loom ISO] poll result:",
     capturedUrl ? `URL captured, len=${capturedUrl.length}` : "null (timeout)",
   );
@@ -466,7 +467,7 @@ async function resolveCaptions(): Promise<void> {
   // Generation check — if a newer resolve started while we were
   // fetching, drop this emit.
   if (generation !== resolveGeneration) {
-    console.log(
+    logDev(
       "[Loom ISO] resolve gen",
       generation,
       "superseded by",
@@ -480,7 +481,7 @@ async function resolveCaptions(): Promise<void> {
     session.targetTranslateTo ?? target.languageCode;
   const effectiveNativeLang = nativeTlang ?? nativeSrc.languageCode;
 
-  console.log(
+  logDev(
     "[Loom ISO] resolve gen",
     generation,
     "target",
@@ -640,7 +641,7 @@ async function fetchLayerAnnotations(
   if (!map) {
     // Cache miss — fire the batch.  buildAnnotateMap already dedups
     // + trims, so we can hand it the raw events list.
-    console.log(
+    logDev(
       "[Loom Annotate] batch start for layer=" +
         opts.layerName +
         " lang=" +
@@ -661,7 +662,7 @@ async function fetchLayerAnnotations(
       setCachedAnnotateMap(cacheKey, map);
     }
   } else {
-    console.log(
+    logDev(
       "[Loom Annotate] cache hit for layer=" +
         opts.layerName +
         " lang=" +
@@ -767,7 +768,7 @@ async function fetchLayerRomanization(
 
   let map = getCachedRomanizeMap(cacheKey);
   if (!map) {
-    console.log(
+    logDev(
       "[Loom Romanize] batch start for layer=" +
         opts.layerName +
         " lang=" +
@@ -789,7 +790,7 @@ async function fetchLayerRomanization(
       setCachedRomanizeMap(cacheKey, map);
     }
   } else {
-    console.log(
+    logDev(
       "[Loom Romanize] cache hit for layer=" +
         opts.layerName +
         " lang=" +
@@ -832,14 +833,15 @@ async function fetchWithCache(
   // had captions": HTTP error code, pot-rejection, parse failure, or
   // the URL just doesn't carry to this track's lang via swap.
   //
-  // Emitted at console.log (not warn) so it shows under default
-  // Firefox devtools filters — warnings get hidden behind a separate
-  // toggle and we don't want this diagnostic invisible.  Captured URL
+  // Emitted at console.warn (not logDev) so it SURVIVES production's
+  // quiet logging — this failure reason is exactly what a user bug
+  // report needs.  (In dev, the logDev breadcrumbs above give the full
+  // trace.)  Captured URL
   // included separately from swapped URL: if the captured URL's lang
   // param matches the track we tried to swap to, that's a pot-binding
   // mismatch (YT bound the pot to a specific videoId+lang and our
   // swap was a no-op).
-  console.log(
+  console.warn(
     "[Loom Fetch]",
     "0 events for",
     track.languageCode + (tlang ? `→tlang=${tlang}` : ""),

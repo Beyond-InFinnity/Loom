@@ -21,6 +21,7 @@
 //
 // MV3 webRequest is observation-only — we don't block or rewrite.
 
+import { logDev } from "@/lib/env";
 import { pickPotBearingUrl } from "@/lib/captions/url-picker";
 
 interface CapturedReq {
@@ -110,7 +111,7 @@ export default defineBackground(() => {
         // happy path (confirms a pot URL was seen) and for the
         // observability path (if the picker ever returns null we can
         // scroll back and see what was rejected).
-        console.log(
+        logDev(
           "[Loom BG] capture #" + order +
             " video=" + videoId +
             " urlLen=" + details.url.length +

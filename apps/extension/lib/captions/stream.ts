@@ -1,3 +1,5 @@
+import { logDev } from "../env";
+
 import type {
   CaptionEvent,
   StreamChangeDetail,
@@ -70,7 +72,7 @@ export class CaptionStream {
 
       // Diagnostic: log first 3 events of each stream so we can see
       // whether parsed times look right when active-event finding fails.
-      console.log(
+      logDev(
         "[Loom Stream] start — target sample:",
         payload.targetEvents.slice(0, 3).map((e) => ({
           start: e.start,
@@ -79,7 +81,7 @@ export class CaptionStream {
           text: e.text.slice(0, 20),
         })),
       );
-      console.log(
+      logDev(
         "[Loom Stream] start — native sample:",
         payload.nativeEvents.slice(0, 3).map((e) => ({
           start: e.start,
@@ -100,7 +102,7 @@ export class CaptionStream {
       }
       this.#video = video;
       video.addEventListener("timeupdate", this.#onTimeUpdate);
-      console.log(
+      logDev(
         "[Loom Stream] timeupdate listener attached; video currentTime=",
         video.currentTime,
         "paused=",

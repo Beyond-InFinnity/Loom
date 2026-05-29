@@ -1,5 +1,6 @@
 import ReactDOM from "react-dom/client";
 
+import { logDev } from "@/lib/env";
 import { LoomApp } from "@/components/loom-app";
 
 // Content script for YouTube watch pages.
@@ -98,7 +99,7 @@ export default defineContentScript({
     requestAnimationFrame(() => {
       const cs = getComputedStyle(host);
       const r = host.getBoundingClientRect();
-      console.log(
+      logDev(
         "[Loom 5c-verify] host computed style — tag=", host.tagName.toLowerCase(),
         "position=", cs.position,
         "display=", cs.display,
@@ -108,7 +109,7 @@ export default defineContentScript({
       );
     });
 
-    console.log("[Loom] overlay mounted inside", ANCHOR_SELECTOR);
+    logDev("[Loom] overlay mounted inside", ANCHOR_SELECTOR);
   },
 });
 

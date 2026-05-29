@@ -19,6 +19,8 @@
 //
 // Bidirectional postMessage keeps MAIN dependency-free (no browser.*).
 
+import { logDev } from "@/lib/env";
+
 const POLL_INTERVAL_MS = 250;
 const POLL_TIMEOUT_MS = 15_000;
 const CC_FETCH_WAIT_MS = 600;
@@ -57,7 +59,7 @@ export default defineContentScript({
   runAt: "document_idle",
 
   main() {
-    console.log("[Loom MAIN] script loaded");
+    logDev("[Loom MAIN] script loaded");
 
     let lastVideoId: string | null = null;
     let ccTriggerInFlight = false;
@@ -78,7 +80,7 @@ export default defineContentScript({
 
     async function run(): Promise<void> {
       const videoId = readVideoId();
-      console.log("[Loom MAIN] run() for videoId =", videoId);
+      logDev("[Loom MAIN] run() for videoId =", videoId);
 
       const rawTracks = await pollForTracks();
       if (rawTracks === null) {
@@ -90,7 +92,7 @@ export default defineContentScript({
       const tracks = rawTracks
         .map(serializeTrack)
         .filter((t): t is CaptionTrackSerialized => t !== null);
-      console.log("[Loom MAIN]", tracks.length, "tracks normalized");
+      logDev("[Loom MAIN]", tracks.length, "tracks normalized");
 
       if (tracks.length === 0) {
         postPayload({ videoId, status: "no-captions", tracks });
@@ -136,26 +138,26 @@ export default defineContentScript({
       }
 
       const wasOn = btn.getAttribute("aria-pressed") === "true";
-      console.log("[Loom MAIN] CC button initial aria-pressed =", wasOn);
+      logDev("[Loom MAIN] CC button initial aria-pressed =", wasOn);
 
       if (!wasOn) {
         btn.click();
-        console.log("[Loom MAIN] CC clicked ON");
+        logDev("[Loom MAIN] CC clicked ON");
         await sleep(CC_FETCH_WAIT_MS);
         btn.click();
-        console.log("[Loom MAIN] CC clicked OFF");
+        logDev("[Loom MAIN] CC clicked OFF");
       } else {
         // Captions already on (YT remembered from previous session).
         // Toggle off then on to force a fresh fetch.
-        console.log("[Loom MAIN] CC already on; toggling OFF→ON→OFF to force refetch");
+        logDev("[Loom MAIN] CC already on; toggling OFF→ON→OFF to force refetch");
         btn.click();
         await sleep(150);
-        console.log("[Loom MAIN] CC clicked OFF (1/3)");
+        logDev("[Loom MAIN] CC clicked OFF (1/3)");
         btn.click();
-        console.log("[Loom MAIN] CC clicked ON (2/3, expecting fetch)");
+        logDev("[Loom MAIN] CC clicked ON (2/3, expecting fetch)");
         await sleep(CC_FETCH_WAIT_MS);
         btn.click();
-        console.log("[Loom MAIN] CC clicked OFF (3/3)");
+        logDev("[Loom MAIN] CC clicked OFF (3/3)");
       }
       return true;
     }
@@ -165,7 +167,7 @@ export default defineContentScript({
       latestPayload = fullPayload;
       reemittedForCurrentPayload = false;
       window.postMessage(fullPayload, location.origin);
-      console.log("[Loom MAIN] tracklist posted");
+      logDev("[Loom MAIN] tracklist posted");
     }
 
     // Listen for messages from ISO:
@@ -184,11 +186,11 @@ export default defineContentScript({
 
       if (data.type === "trigger-cc") {
         if (ccTriggerInFlight) {
-          console.log("[Loom MAIN] trigger-cc already in flight; ignoring");
+          logDev("[Loom MAIN] trigger-cc already in flight; ignoring");
           return;
         }
         ccTriggerInFlight = true;
-        console.log("[Loom MAIN] ISO requested CC trigger");
+        logDev("[Loom MAIN] ISO requested CC trigger");
         triggerCaptionFetch().finally(() => {
           ccTriggerInFlight = false;
         });
@@ -197,7 +199,7 @@ export default defineContentScript({
 
       if (data.type === "request-tracklist") {
         if (latestPayload && !reemittedForCurrentPayload) {
-          console.log("[Loom MAIN] ISO requested tracklist re-emit");
+          logDev("[Loom MAIN] ISO requested tracklist re-emit");
           reemittedForCurrentPayload = true;
           window.postMessage(latestPayload, location.origin);
         }

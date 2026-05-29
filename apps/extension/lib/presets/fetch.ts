@@ -11,6 +11,7 @@
 // the same lang regardless of which video the user is on.  Sharing
 // across tabs / videos via module scope is correct.
 
+import { logDev } from "../env";
 import { getApiClient } from "../api-client";
 import type { PresetCatalog } from "./types";
 
@@ -73,7 +74,7 @@ async function doFetch(
     }
     const catalog = data as PresetCatalog;
     cache.set(langKey, catalog);
-    console.log(
+    logDev(
       "[Loom Presets] catalog loaded — lang=" + (langKey || "(universal)"),
       "groups=" + catalog.groups.length,
       "presets=" + catalog.presets.length,

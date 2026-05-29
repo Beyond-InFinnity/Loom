@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { getApiClient } from "@/lib/api-client";
+import { API_BASE_URL } from "@/lib/env";
 import { getOwnerKey, setOwnerKey } from "@/lib/owner-key";
 
 type CheckStatus =
@@ -103,7 +104,7 @@ export function App() {
 
       <footer>
         <p className="footnote">
-          API: <code>api.loom.nerv-analytic.ai</code>
+          API: <code>{new URL(API_BASE_URL).host}</code>
         </p>
       </footer>
     </div>

@@ -16,6 +16,7 @@
 // the resulting Map — the overlay renders nothing in the Romanization
 // slot for those events, never a missing-key error.
 
+import { logDev } from "../env";
 import { getApiClient } from "../api-client";
 import { getOwnerKey } from "../owner-key";
 import type { RomanizeMap } from "./types";
@@ -63,7 +64,7 @@ export async function buildRomanizeMap(
 
   const client = getApiClient();
   const ownerKey = await getOwnerKey();
-  console.log(
+  logDev(
     "[Loom Romanize] batch start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
@@ -124,7 +125,7 @@ export async function buildRomanizeMap(
       // Backend already returned all-empty results; surface the fact
       // in the log so a confused operator can tell "no phonetic line"
       // from "phonetic line failed to fetch".
-      console.log(
+      logDev(
         "[Loom Romanize] lang=" + opts.langCode +
         " has no phonetic layer — returning empty map.",
       );
@@ -143,7 +144,7 @@ export async function buildRomanizeMap(
     }
 
     const dt = Math.round(performance.now() - t0);
-    console.log(
+    logDev(
       "[Loom Romanize] batch done:",
       "lang=" + opts.langCode,
       "requested=" + unique.length,

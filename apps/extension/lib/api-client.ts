@@ -12,8 +12,7 @@
 import { createLoomClient, type LoomClient } from "@loom/api-client";
 
 import { getOwnerKey } from "./owner-key";
-
-const API_BASE_URL = "https://api.loom.nerv-analytic.ai";
+import { API_BASE_URL } from "./env";
 
 let cached: LoomClient | null = null;
 

@@ -21,6 +21,7 @@
 // in the result, positionally aligned with the request — they show
 // as plain rendering, not missing entries.
 
+import { logDev } from "../env";
 import { getApiClient } from "../api-client";
 import { getOwnerKey } from "../owner-key";
 import type { AnnotateMap, AnnotateSpan } from "./types";
@@ -64,7 +65,7 @@ export async function buildAnnotateMap(
 
   const client = getApiClient();
   const ownerKey = await getOwnerKey();
-  console.log(
+  logDev(
     "[Loom Annotate] batch start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
@@ -130,7 +131,7 @@ export async function buildAnnotateMap(
     }
 
     const dt = Math.round(performance.now() - t0);
-    console.log(
+    logDev(
       "[Loom Annotate] batch done:",
       "lang=" + opts.langCode,
       "requested=" + unique.length,

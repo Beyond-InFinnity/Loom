@@ -81,6 +81,13 @@ MAIN-world hook is a declarative `world: "MAIN"` content script, not
 > bodies, no blocking. That specificity is the difference between fast approval
 > and a multi-week reviewer back-and-forth.
 
+**Data collection (Firefox consent).** The manifest declares
+`browser_specific_settings.gecko.data_collection_permissions.required = ["websiteContent"]`
+— the subtitle text sent to the API for romanization/annotation. AMO requires
+this disclosure (it rejects the upload without it); Firefox shows a one-time
+consent prompt at install. No other categories are collected — matches the
+privacy policy.
+
 ---
 
 ## Screenshots (capture at 1920×1080, lossless PNG) — TODO, needs live extension

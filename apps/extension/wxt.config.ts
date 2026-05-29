@@ -54,6 +54,15 @@ export default defineConfig({
       browser_specific_settings: {
         gecko: {
           id: dev ? "loom-dev@nerv-analytic.ai" : "loom@nerv-analytic.ai",
+          // AMO requires a data-collection disclosure (Firefox built-in data
+          // consent). Loom transmits subtitle text — "website content" — to the
+          // API for romanization/annotation; that's required for the core
+          // feature, and is the ONLY thing collected. Surfaces a one-time
+          // consent prompt at install. Matches /privacy + STORE_LISTING.md.
+          // https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
+          data_collection_permissions: {
+            required: ["websiteContent"],
+          },
         },
       },
       action: { default_title: dev ? "Loom (Dev)" : "Loom" },

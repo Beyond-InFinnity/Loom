@@ -244,4 +244,8 @@ Icons now derive from the Nerv-Analytica brand favicon (purple-neuron mark) via 
 
 Still needs a human: screenshots (live extension) and the Step-1 side-by-side Firefox install check.  None block the *first* ship (AMO self-distribution just signs a `build:firefox:prod` XPI — listing copy + screenshots aren't needed until the public-listing / Chrome steps).
 
+### 2026-05-30 — AMO upload: data-collection disclosure required
+
+First AMO self-distribution upload of `0.1.0` failed validation: *"the 'data_collection_permissions' property is missing."*  This is a current AMO requirement (Firefox built-in data consent), **not** a Loom bug — our manifest predated it.  Fixed by declaring `browser_specific_settings.gecko.data_collection_permissions.required = ["websiteContent"]` in `wxt.config.ts` (subtitle text = "website content"; required for the core feature; the only category collected).  Rebuilt + re-zipped; `0.1.0` was never accepted so no version bump.  Firefox now shows a one-time data-consent prompt at install.  Valid category strings come from WXT's `FirefoxDataCollectionType` (matches the AMO contract).
+
 <!-- New entries below this line, newest at the bottom -->

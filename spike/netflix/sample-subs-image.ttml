@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample — HAND-AUTHORED for the Loom Netflix spike. Mirrors the
+     TTML v2 IMAGE profile some CJK/Greek/Hebrew titles ship: cues reference
+     PNG bitmaps, carry NO text. parse-ttml.mjs must flag imageBased=true and
+     return zero events (these tracks are OCR-only, out of scope). -->
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    xmlns:smpte="http://www.smpte-ra.org/schemas/2052-1/2010/smpte-tt"
+    ttp:tickRate="10000000" xml:lang="ja">
+  <head>
+    <metadata>
+      <smpte:image xml:id="img1" imagetype="PNG" encoding="Base64">iVBORw0KGgoAAAANSUhEUg==</smpte:image>
+      <smpte:image xml:id="img2" imagetype="PNG" encoding="Base64">iVBORw0KGgoAAAANSUhEUg==</smpte:image>
+    </metadata>
+  </head>
+  <body>
+    <div>
+      <p begin="64730000t" end="104430000t" smpte:backgroundImage="#img1"/>
+      <p begin="110000000t" end="135000000t" smpte:backgroundImage="#img2"/>
+    </div>
+  </body>
+</tt>

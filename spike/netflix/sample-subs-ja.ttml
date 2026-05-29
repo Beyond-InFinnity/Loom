@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample — HAND-AUTHORED for the Loom Netflix spike, NOT captured
+     from Netflix. Mirrors a dfxp-ls-sdh track: tick-based timing with
+     ttp:tickRate, <span> styling, <br/> line breaks. Same 5 cues / same
+     times as sample-subs-ja.vtt so parse-test.mjs can assert VTT/TTML parity. -->
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    ttp:tickRate="10000000" xml:lang="ja">
+  <body>
+    <div>
+      <p begin="64730000t" end="104430000t">おはよう、東京。</p>
+      <p begin="110000000t" end="135000000t">今日は<span tts:fontStyle="italic">いい天気</span>ですね。</p>
+      <p begin="141000000t" end="179000000t">電車が来ました。<br/>急ぎましょう！</p>
+      <p begin="180000000t" end="200000000t">ありがとう。</p>
+      <p begin="622500000t" end="650000000t">また明日。</p>
+    </div>
+  </body>
+</tt>

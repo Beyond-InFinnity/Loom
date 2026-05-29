@@ -1,0 +1,29 @@
+WEBVTT
+
+NOTE
+Synthetic sample — HAND-AUTHORED for the Loom Netflix spike, NOT captured
+from Netflix. Mirrors the shape of a webvtt-lssdh-ios8 track: cue settings
+on the timing line, <c.*> / <i> inline tags, multi-line cues, a bidi mark.
+Replace with a real capture (via capture-kit.js → __loomNflx.fetchSample)
+once an authenticated session is available.
+
+1
+00:00:06.473 --> 00:00:10.443 position:50.00% line:84.00% align:center
+<c.bg_transparent>おはよう、東京。</c>
+
+2
+00:00:11.000 --> 00:00:13.500
+今日は<i>いい天気</i>ですね。
+
+3
+00:00:14.100 --> 00:00:17.900
+電車が来ました。
+急ぎましょう！
+
+4
+00:00:18.000 --> 00:00:20.000
+&lrm;ありがとう。
+
+5
+00:01:02.250 --> 00:01:05.000
+また明日。

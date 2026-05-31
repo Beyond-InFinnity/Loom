@@ -62,7 +62,10 @@ export async function fetchTrackEventsViaSwap(
   track: CaptionTrack,
   opts: FanoutOptions = {},
 ): Promise<FanoutTrackResult> {
-  const url = cloneWithLang(capturedUrl, track.languageCode, opts);
+  const url = cloneWithLang(capturedUrl, track.languageCode, {
+    tlang: opts.tlang,
+    kind: track.kind,
+  });
   const isTlang = typeof opts.tlang === "string";
 
   try {
@@ -152,17 +155,28 @@ export async function fanoutTracks(
 }
 
 /** Clone a captured timedtext URL and swap `lang` (+ optionally
-    `tlang`) + force `fmt=json3`.  Preserves pot, c, cver, signature,
-    sparams, expire — DO NOT touch those, they're what makes the
-    request work. */
+    `tlang`) + force `fmt=json3`.  Sets/clears `kind=asr` to match the
+    target track (auto-generated vs manual).  Preserves pot, c, cver,
+    signature, sparams, expire — DO NOT touch those, they're what makes
+    the request work. */
 export function cloneWithLang(
   capturedUrl: string,
   lang: string,
-  opts: { tlang?: string; fmt?: string } = {},
+  opts: { tlang?: string; fmt?: string; kind?: "manual" | "asr" } = {},
 ): string {
   const url = new URL(capturedUrl);
   url.searchParams.set("lang", lang);
   url.searchParams.set("fmt", opts.fmt ?? "json3");
+  // ASR (auto-generated) tracks are fetched with `&kind=asr`; manual tracks
+  // carry no `kind` param.  The captured URL inherits whatever kind YouTube
+  // happened to prefetch, so set/clear it PER TARGET TRACK — otherwise an
+  // ASR-only language (very common on Japanese videos) gets requested as a
+  // manual track that doesn't exist → empty body → no subtitles.
+  if (opts.kind === "asr") {
+    url.searchParams.set("kind", "asr");
+  } else {
+    url.searchParams.delete("kind");
+  }
   if (opts.tlang) {
     url.searchParams.set("tlang", opts.tlang);
   } else {

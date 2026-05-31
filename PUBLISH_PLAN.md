@@ -248,4 +248,12 @@ Still needs a human: screenshots (live extension) and the Step-1 side-by-side Fi
 
 First AMO self-distribution upload of `0.1.0` failed validation: *"the 'data_collection_permissions' property is missing."*  This is a current AMO requirement (Firefox built-in data consent), **not** a Loom bug — our manifest predated it.  Fixed by declaring `browser_specific_settings.gecko.data_collection_permissions.required = ["websiteContent"]` in `wxt.config.ts` (subtitle text = "website content"; required for the core feature; the only category collected).  Rebuilt + re-zipped; `0.1.0` was never accepted so no version bump.  Firefox now shows a one-time data-consent prompt at install.  Valid category strings come from WXT's `FirefoxDataCollectionType` (matches the AMO contract).
 
+### 2026-05-31 — 0.1.1 ASR fix REVERTED (broke auto-translate) → 0.1.2
+
+0.1.1's `kind=asr` change to `cloneWithLang` (commit `66f5fd3`) caused a **catastrophic production regression**: auto-translate (`tlang`) stopped working across languages (JA + ZH — Three Body `3-UO8jbrIoM`, Brian Tseng `ipFfj4BZxiY`, `kJxNx38yF08` all failed). The change set/cleared `kind` on EVERY fetch including the `tlang` path; reverting to the inherited-kind behavior restores it. **Reverted in 0.1.2** — `fanout.ts` runtime logic is now byte-identical to 0.1.0 (verified `git diff e82bc7c`); the regression code is confirmed gone from the bundle.
+
+**Process failure, owned:** the 0.1.1 fix was "verified" only by unit tests (URL construction) + a bundle grep — neither exercises real YouTube `tlang` behavior, so they passed while prod broke. **Lesson (locked in the `cloneWithLang` comment + a memory): caption-acquisition changes can't be validated by unit tests alone — they need real production request/response data (devtools Network on a failing video).** The original ASR-only-language "no subs" bug is **still open**; the next attempt must START from captured network data, not guessed URL math.
+
+**Owner directive:** testing/observation is **production-only** for now (the signed AMO build). The dev build's behavior has diverged from prod and isn't trusted to surface prod issues — it stays, but it's not the test surface. Caption-acquisition fixes therefore iterate through re-signed prod builds; minimize speculative changes.
+
 <!-- New entries below this line, newest at the bottom -->

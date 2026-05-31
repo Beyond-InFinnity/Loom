@@ -62,10 +62,7 @@ export async function fetchTrackEventsViaSwap(
   track: CaptionTrack,
   opts: FanoutOptions = {},
 ): Promise<FanoutTrackResult> {
-  const url = cloneWithLang(capturedUrl, track.languageCode, {
-    tlang: opts.tlang,
-    kind: track.kind,
-  });
+  const url = cloneWithLang(capturedUrl, track.languageCode, opts);
   const isTlang = typeof opts.tlang === "string";
 
   try {
@@ -155,28 +152,25 @@ export async function fanoutTracks(
 }
 
 /** Clone a captured timedtext URL and swap `lang` (+ optionally
-    `tlang`) + force `fmt=json3`.  Sets/clears `kind=asr` to match the
-    target track (auto-generated vs manual).  Preserves pot, c, cver,
-    signature, sparams, expire — DO NOT touch those, they're what makes
-    the request work. */
+    `tlang`) + force `fmt=json3`.  Preserves pot, c, cver, signature,
+    sparams, expire — DO NOT touch those, they're what makes the
+    request work.
+
+    DELIBERATELY does NOT touch `kind`.  A 0.1.1 attempt to set
+    `kind=asr` per target track (to fix ASR-only languages showing no
+    subs) instead broke auto-translate (`tlang`) across languages in
+    production and was reverted in 0.1.2.  The ASR-track acquisition
+    issue is real but needs actual production request/response data
+    (devtools Network on a failing video) before another attempt — the
+    URL math is not reliably guessable.  See PUBLISH_PLAN tracking log. */
 export function cloneWithLang(
   capturedUrl: string,
   lang: string,
-  opts: { tlang?: string; fmt?: string; kind?: "manual" | "asr" } = {},
+  opts: { tlang?: string; fmt?: string } = {},
 ): string {
   const url = new URL(capturedUrl);
   url.searchParams.set("lang", lang);
   url.searchParams.set("fmt", opts.fmt ?? "json3");
-  // ASR (auto-generated) tracks are fetched with `&kind=asr`; manual tracks
-  // carry no `kind` param.  The captured URL inherits whatever kind YouTube
-  // happened to prefetch, so set/clear it PER TARGET TRACK — otherwise an
-  // ASR-only language (very common on Japanese videos) gets requested as a
-  // manual track that doesn't exist → empty body → no subtitles.
-  if (opts.kind === "asr") {
-    url.searchParams.set("kind", "asr");
-  } else {
-    url.searchParams.delete("kind");
-  }
   if (opts.tlang) {
     url.searchParams.set("tlang", opts.tlang);
   } else {

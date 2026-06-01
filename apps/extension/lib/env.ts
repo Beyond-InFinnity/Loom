@@ -23,9 +23,13 @@ export const API_BASE_URL: string =
     ? __LOOM_API_BASE__
     : "https://api.loom.nerv-analytic.ai";
 
-/** Verbose, dev-only logging. No-op in production builds so the shipped
- *  extension stays quiet in the user's console. Use `console.warn` /
- *  `console.error` (always on) for anything a user bug report would need. */
+/** Verbose `[Loom …]` logging.
+ *
+ *  TEMPORARILY ALWAYS-ON, production included (was `if (IS_DEV)`-gated).
+ *  Quieting production was premature: a production-only caption bug (only
+ *  Japanese renders; Chinese / ASR tracks fail) is undiagnosable with a silent
+ *  build. Re-gate behind `IS_DEV` before the public launch.
+ *  See feedback_extension_caption_verification + PUBLISH_PLAN tracking log. */
 export function logDev(...args: unknown[]): void {
-  if (IS_DEV) console.log(...args);
+  console.log(...args);
 }

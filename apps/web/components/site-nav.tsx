@@ -22,6 +22,9 @@ export function SiteNav() {
           Loom
         </Link>
         <nav className="flex items-center gap-5 text-sm text-muted-foreground">
+          <Link href="/extension" className="hover:text-primary transition-colors">
+            Extension
+          </Link>
           <Link href="/generate" className="hover:text-primary transition-colors">
             Generate
           </Link>

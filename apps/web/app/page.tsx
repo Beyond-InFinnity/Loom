@@ -37,16 +37,34 @@ export default function Home() {
               a stitched subtitle file with phonetic readings layered above the
               foreign script — all in your browser, no upload required.
             </p>
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-stretch">
               <Link
-                href="/generate"
-                className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-5 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20 hover:border-primary"
+                href="/extension"
+                className="inline-flex flex-col rounded-md border border-primary/40 bg-primary/10 px-5 py-3 text-left transition-colors hover:bg-primary/20 hover:border-primary"
               >
-                Open the generator →
+                <span className="text-sm font-medium text-primary">
+                  Browser Extension →
+                </span>
+                <span className="mt-0.5 text-xs text-muted-foreground">
+                  Dual subtitles + romanization, live on YouTube
+                </span>
               </Link>
               <Link
+                href="/generate"
+                className="inline-flex flex-col rounded-md border border-border px-5 py-3 text-left transition-colors hover:border-muted-foreground"
+              >
+                <span className="text-sm font-medium text-foreground">
+                  Web application →
+                </span>
+                <span className="mt-0.5 text-xs text-muted-foreground">
+                  For video files, subtitle files, and container formats
+                </span>
+              </Link>
+            </div>
+            <div className="mt-4 flex justify-center">
+              <Link
                 href="/ffmpeg-test"
-                className="inline-flex items-center gap-2 rounded-md border border-border px-5 py-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground hover:border-muted-foreground"
+                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 Diagnostics
               </Link>

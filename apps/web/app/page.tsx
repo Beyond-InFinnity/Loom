@@ -61,7 +61,14 @@ export default function Home() {
                 </span>
               </Link>
             </div>
-            <div className="mt-4 flex justify-center">
+            <div className="mt-4 flex items-center justify-center gap-4">
+              <Link
+                href="/support"
+                className="text-xs text-muted-foreground transition-colors hover:text-primary"
+              >
+                ☕ Support Loom
+              </Link>
+              <span className="text-xs text-border">·</span>
               <Link
                 href="/ffmpeg-test"
                 className="text-xs text-muted-foreground transition-colors hover:text-foreground"

@@ -14,7 +14,7 @@ submission — see **Open decisions** at the bottom.
 | Field | Value |
 |---|---|
 | Extension name | **Loom** (dev build: "Loom (Dev)") |
-| Version | `0.1.4` (listed-channel submission; `0.1.x` already consumed on the unlisted channel) |
+| Version | `0.1.5` (listed-channel submission; includes the stale-captured-URL fix; `0.1.x` already consumed on the unlisted channel) |
 | Homepage / Support URL | `https://loom.nerv-analytic.ai` |
 | Privacy policy URL | `https://loom.nerv-analytic.ai/privacy` ✅ (page shipped — `apps/web/app/privacy/page.tsx`) |
 | Source code | `https://github.com/Beyond-InFinnity/Loom` (public) |

@@ -1,6 +1,6 @@
 {
   "name": "@loom/extension",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Loom browser extension — dual subs with romanization on YouTube.",

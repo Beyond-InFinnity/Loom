@@ -51,6 +51,48 @@ describe("pickPotBearingUrl", () => {
     expect(pickPotBearingUrl(arr)?.order).toBe(0);
   });
 
+  // Expiry (the "previously-watched videos break" bug): the persistent
+  // MV2 background keeps a stale first-watch URL; a fresh re-watch URL is
+  // appended after it. First-pot-by-order returned the expired one (→ 404).
+  const NOW = 2_000_000_000_000; // fixed clock for deterministic tests
+  const expireParam = (unixSeconds: number) =>
+    `https://yt/api/timedtext?lang=zh&pot=abc&expire=${unixSeconds}`;
+
+  it("skips an expired pot URL in favor of a later non-expired pot URL", () => {
+    const stale = Math.floor(NOW / 1000) - 3600; // expired 1h ago
+    const fresh = Math.floor(NOW / 1000) + 3600; // valid for 1h
+    const arr = [
+      req(0, expireParam(stale), 112), // first-watch, now expired
+      req(1, expireParam(fresh), 112), // re-watch, fresh
+    ];
+    const picked = pickPotBearingUrl(arr, NOW);
+    expect(picked?.order).toBe(1);
+  });
+
+  it("keeps the first pot URL when its expire is still in the future", () => {
+    const fresh = Math.floor(NOW / 1000) + 3600;
+    const arr = [
+      req(0, expireParam(fresh), 112),
+      req(1, expireParam(fresh), 112),
+    ];
+    expect(pickPotBearingUrl(arr, NOW)?.order).toBe(0);
+  });
+
+  it("never skips a pot URL that has no expire param (back-compat)", () => {
+    const arr = [req(0, "first-pot-no-expire", 112), req(1, "later-pot", 112)];
+    expect(pickPotBearingUrl(arr, NOW)?.order).toBe(0);
+  });
+
+  it("falls back to the first pot URL when every pot URL is expired", () => {
+    const stale = Math.floor(NOW / 1000) - 3600;
+    const arr = [
+      req(0, expireParam(stale), 112),
+      req(1, expireParam(stale), 112),
+    ];
+    // No fresh sibling exists; least-bad is the prior first-pot behavior.
+    expect(pickPotBearingUrl(arr, NOW)?.order).toBe(0);
+  });
+
   it("preserves the full original shape via the type parameter", () => {
     // Picker accepts wider shapes (e.g., background's CapturedReq) and
     // returns the original element by reference — no field loss.

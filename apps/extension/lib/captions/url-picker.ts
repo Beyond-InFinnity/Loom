@@ -30,15 +30,45 @@ export interface CapturedReqMin {
   params: { potLen: number };
 }
 
-/** Return the FIRST captured request (by firing order) whose pot value
-    is non-empty, or null if no captured request carries a pot.  Does
-    NOT fall back to a no-pot URL — empty pot reliably produces empty
-    response bodies, so returning one is worse than returning null. */
+/** Return the first captured request (by firing order) whose pot value
+    is non-empty AND whose signed URL has not expired, or null if no
+    captured request carries a pot.  Does NOT fall back to a no-pot URL —
+    empty pot reliably produces empty response bodies, so returning one
+    is worse than returning null.
+
+    EXPIRY (2026-06-04): the background page is persistent in Firefox MV2,
+    so `capturedAll` survives page reloads + new tabs for the whole
+    browser session.  Re-watching a video appends a fresh prefetch URL to
+    an array that still holds the FIRST watch's URL — and plain
+    first-pot-by-order then returns that hours-old, now-expired URL, which
+    YouTube 404s.  (New videos worked; previously-watched ones broke, with
+    no page-level reload able to fix it — the staleness lives in the
+    background, not the page.)  YouTube stamps `&expire=<unix seconds>` in
+    the signed URL; we skip any pot URL whose expire is in the past so the
+    freshly-captured sibling wins.  URLs with no `expire` param are never
+    skipped (back-compat — only drop one when we positively know it's
+    dead).  `now` is injectable for tests. */
 export function pickPotBearingUrl<T extends CapturedReqMin>(
   arr: readonly T[],
+  now: number = Date.now(),
 ): T | null {
+  let firstPot: T | null = null;
   for (const req of arr) {
-    if (req.params.potLen > 0) return req;
+    if (req.params.potLen <= 0) continue;
+    if (firstPot === null) firstPot = req;
+    if (!isExpiredUrl(req.url, now)) return req;
   }
-  return null;
+  // Every pot-bearing URL is expired (or there are none).  Returning the
+  // first pot URL preserves the prior behavior for that edge case; in the
+  // common re-watch case the loop above already returned the fresh one.
+  return firstPot;
+}
+
+/** True only when the URL carries an `expire=<unix seconds>` param that
+    is in the past.  No param → not expired (we don't guess). */
+function isExpiredUrl(url: string, now: number): boolean {
+  const m = /[?&]expire=(\d+)/.exec(url);
+  if (!m) return false;
+  const expireMs = Number(m[1]) * 1000;
+  return Number.isFinite(expireMs) && expireMs <= now;
 }

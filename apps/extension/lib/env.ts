@@ -23,13 +23,13 @@ export const API_BASE_URL: string =
     ? __LOOM_API_BASE__
     : "https://api.loom.nerv-analytic.ai";
 
-/** Verbose `[Loom …]` logging.
+/** Verbose `[Loom …]` logging — dev builds only.
  *
- *  TEMPORARILY ALWAYS-ON, production included (was `if (IS_DEV)`-gated).
- *  Quieting production was premature: a production-only caption bug (only
- *  Japanese renders; Chinese / ASR tracks fail) is undiagnosable with a silent
- *  build. Re-gate behind `IS_DEV` before the public launch.
- *  See feedback_extension_caption_verification + PUBLISH_PLAN tracking log. */
+ *  Gated behind `IS_DEV` so production ships quiet. (This was temporarily
+ *  always-on in 0.1.3 to diagnose a production-only caption bug — Chinese /
+ *  ASR tracks failing while Japanese rendered — which 0.1.3 resolved; re-gated
+ *  here for the public listing.) Vite folds `IS_DEV` to a constant in a real
+ *  build, so this whole call is dead-code-eliminated from prod. */
 export function logDev(...args: unknown[]): void {
-  console.log(...args);
+  if (IS_DEV) console.log(...args);
 }

@@ -14,7 +14,7 @@ submission — see **Open decisions** at the bottom.
 | Field | Value |
 |---|---|
 | Extension name | **Loom** (dev build: "Loom (Dev)") |
-| Version | `0.1.0` |
+| Version | `0.1.4` (listed-channel submission; `0.1.x` already consumed on the unlisted channel) |
 | Homepage / Support URL | `https://loom.nerv-analytic.ai` |
 | Privacy policy URL | `https://loom.nerv-analytic.ai/privacy` ✅ (page shipped — `apps/web/app/privacy/page.tsx`) |
 | Source code | `https://github.com/Beyond-InFinnity/Loom` (public) |
@@ -90,16 +90,26 @@ privacy policy.
 
 ---
 
-## Screenshots (capture at 1920×1080, lossless PNG) — TODO, needs live extension
+## Screenshots — captured 2026-06-04 (on `~/Desktop`, suffix `*_Loom_Preview.png`)
 
-1. **Headline.** Loom active on a Japanese video: Bottom (English) + Top
-   (Japanese) + furigana annotation + romanization line.
-2. **Settings panel** open: track pickers + style controls.
-3. **Traditional Chinese** video showing the alternate-orthography under-ruby
-   (Simplified beneath Traditional).
-4. **Non-CJK** video (Russian or Thai): the pure-romanization path (full
-   phonetic line, no ruby).
-5. Reserved — color presets in action, or a before/after comparison.
+Recommended AMO upload order (first = hero/gallery cover):
+
+1. **`Hikaru_Utada_Loom_Preview.png`** (1735×1599) — HERO. Japanese music video
+   showing the full 4-layer stack: romanization line + per-kanji furigana +
+   Japanese + English. Best single image of what Loom does.
+2. **`Three_Body_Chinese_Loom_Preview.png`** (1436×1077) — Simplified Chinese
+   drama, Pinyin ruby above the Chinese + English below.
+3. **`Brian_Tseng_Loom_Preview.png`** (1312×1078) — Taiwan Mandarin talk show,
+   Pinyin ruby + English.
+4. **`User_Interface_Loom_Preview.png`** (310×599) — settings panel: native /
+   target track pickers (AUTO/MANUAL badges) + position grid. ⚠️ **Low-res**
+   (310 px wide) — acceptable but will look soft in the gallery; recapture at a
+   higher device-pixel-ratio for a crisp version if desired.
+
+**Gaps vs the original plan (optional, not blockers):** no Traditional-Chinese
+*alternate-orthography under-ruby* shot, and no *non-CJK* (Russian / Thai)
+pure-romanization shot. The four above are CJK-only. Screenshots are NOT
+required to submit a listed AMO add-on — these can be added/expanded post-launch.
 
 ---
 
@@ -129,4 +139,4 @@ privacy policy.
 - ✅ **Feedback channel** — GitHub Issues (repo is public). Linked from the settings-panel footer.
 - ✅ **Icons** — derived from the Nerv-Analytica brand favicon (the purple-neuron mark): native 16/32/48 frames used verbatim, 96/128 Lanczos-upscaled; dev variant carries a red corner badge. Regenerate via `npm run icons` (`scripts/gen-icons.py`; needs Pillow + the nerv-analytica-website favicon). *Minor:* 96/128 are slightly soft (the favicon source maxes at 48px) — optional future polish is compositing the high-res neuron for a crisp 128.
 - ✅ **Repo public** — `github.com/Beyond-InFinnity/Loom`; source link available for AMO review.
-- ⬜ **Screenshots** — still TODO (need the live extension). Required only for the public AMO listing + Chrome, NOT for AMO self-distribution.
+- ✅ **Screenshots** — 4 captured 2026-06-04 (`~/Desktop/*_Loom_Preview.png`); see the Screenshots section for upload order. CJK-only; non-CJK + alt-orthography shots optional/post-launch. The settings-panel shot is low-res (310 px) — recapture for crispness if desired.

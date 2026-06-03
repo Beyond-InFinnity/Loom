@@ -31,7 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from .routes import annotate, health, language, romanize
+from .routes import annotate, health, language, romanize, styles
 
 app = FastAPI(
     title="Loom Web API",
@@ -157,3 +157,8 @@ app.include_router(health.router)
 app.include_router(language.router)
 app.include_router(romanize.router)
 app.include_router(annotate.router)
+# /styles/presets (lang-scoped color presets) + /styles/fonts. The extension's
+# settings panel fetches /styles/presets on open; without this the slim API
+# 404s it (color presets silently fail to load). color_presets + styles are
+# pure-Python (no ffmpeg/playwright), so mounting here is safe for the slim API.
+app.include_router(styles.router)

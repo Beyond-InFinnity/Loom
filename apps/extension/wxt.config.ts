@@ -32,7 +32,7 @@ export default defineConfig({
     },
   }),
 
-  manifest: ({ mode }) => {
+  manifest: ({ mode, browser }) => {
     const dev = isDev(mode);
     const variant = dev ? "dev" : "prod";
     return {
@@ -49,22 +49,30 @@ export default defineConfig({
         "*://*.youtube.com/*",
         dev ? `${DEV_API}/*` : `${PROD_API}/*`,
       ],
-      // WXT strips browser_specific_settings for Chrome builds; this only
-      // affects the Firefox output.
-      browser_specific_settings: {
-        gecko: {
-          id: dev ? "loom-dev@nerv-analytic.ai" : "loom@nerv-analytic.ai",
-          // AMO requires a data-collection disclosure (Firefox built-in data
-          // consent). Loom transmits subtitle text — "website content" — to the
-          // API for romanization/annotation; that's required for the core
-          // feature, and is the ONLY thing collected. Surfaces a one-time
-          // consent prompt at install. Matches /privacy + STORE_LISTING.md.
-          // https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
-          data_collection_permissions: {
-            required: ["websiteContent"],
-          },
-        },
-      },
+      // Firefox-only block: the gecko `id` (required for AMO signing) + the
+      // AMO data-collection disclosure (`websiteContent` — subtitle text sent
+      // to the API for romanization/annotation; the ONLY thing collected;
+      // surfaces a one-time install consent). Matches /privacy + STORE_LISTING.
+      // https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
+      //
+      // Gated on the firefox target: WXT 0.20.26 does NOT strip
+      // browser_specific_settings from the Chrome build (verified in the built
+      // .output/chrome-mv3/manifest.json), so leaving it unconditional ships
+      // Firefox-only keys in the Chrome package that the Web Store may flag.
+      ...(browser === "firefox"
+        ? {
+            browser_specific_settings: {
+              gecko: {
+                id: dev
+                  ? "loom-dev@nerv-analytic.ai"
+                  : "loom@nerv-analytic.ai",
+                data_collection_permissions: {
+                  required: ["websiteContent"],
+                },
+              },
+            },
+          }
+        : {}),
       action: { default_title: dev ? "Loom (Dev)" : "Loom" },
       // Explicit per-variant icons (defu gives the user manifest precedence
       // over WXT's public/icon auto-discovery). Regenerate via `npm run icons`.

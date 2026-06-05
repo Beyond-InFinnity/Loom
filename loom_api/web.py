@@ -62,7 +62,18 @@ _origins = [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
-    allow_origin_regex=r"chrome-extension://.*|moz-extension://.*",
+    # The browser extension fetches from a content script. On Chrome MV3 that
+    # fetch carries the *page* origin of the streaming site (e.g.
+    # https://www.youtube.com), NOT chrome-extension:// — so the sites the
+    # extension runs on must be allow-listed here too, or annotate/romanize
+    # 400 under CORS. (Firefox MV2 content scripts bypass CORS, which masked
+    # this — it worked on Firefox but not Chrome.) Add a new streaming site's
+    # origin here when the extension gains support for it (e.g. Netflix).
+    allow_origin_regex=(
+        r"chrome-extension://.*"
+        r"|moz-extension://.*"
+        r"|https://[a-z0-9-]+\.youtube\.com"
+    ),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],

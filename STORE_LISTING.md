@@ -63,8 +63,9 @@ MAIN-world hook is a declarative `world: "MAIN"` content script, not
 `chrome.scripting` — so it is NOT requested and needs no justification.)
 
 - **`storage`** — Saves your display preferences (colors, fonts, sizes, layer
-  toggles, track choices) and the optional owner key. Local to the browser;
-  nothing is synced or sent.
+  toggles, track choices) and the global on/off toggle for this browser. Local
+  to the browser; nothing is synced or sent. (No owner key is stored by the
+  published build — that field is dev-only; see the note below.)
 - **`webRequest`** (observe mode only) — Reads the *URL* of YouTube's own
   caption-track requests so Loom can fetch the second subtitle track in the
   language you're learning. Loom does not block, redirect, or modify any
@@ -80,6 +81,16 @@ MAIN-world hook is a declarative `world: "MAIN"` content script, not
 > justification above is intentionally specific: observe-mode, URL-only, no
 > bodies, no blocking. That specificity is the difference between fast approval
 > and a multi-week reviewer back-and-forth.
+
+**Owner key is dev-only (since 0.1.6).** The published (production) build has
+NO owner-key field — the popup's only control is the global on/off toggle. The
+`X-Loom-Auth` bypass key remains in the development build for testing, gated
+behind `IS_DEV` and dead-code-eliminated from the prod bundle (verified absent
+from `.output/firefox-mv2` + `.output/chrome-mv3`). Consequences for the
+submission forms: the Chrome **"Authentication information"** data box is
+unambiguously **No**, and the `storage` justification covers only display
+preferences + the on/off toggle. (The companion *web app* still offers the
+owner key — that's a separate surface, covered by the privacy policy.)
 
 **Data collection (Firefox consent).** The manifest declares
 `browser_specific_settings.gecko.data_collection_permissions.required = ["websiteContent"]`

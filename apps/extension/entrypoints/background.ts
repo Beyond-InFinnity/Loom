@@ -21,6 +21,7 @@
 //
 // MV3 webRequest is observation-only — we don't block or rewrite.
 
+import { getEnabled, onEnabledChanged } from "@/lib/enabled";
 import { logDev } from "@/lib/env";
 import { pickPotBearingUrl } from "@/lib/captions/url-picker";
 
@@ -85,8 +86,27 @@ function paramBreakdown(u: URL): CapturedReq["params"] {
 }
 
 export default defineBackground(() => {
+  // Cached mirror of the global kill switch (lib/enabled.ts). The
+  // webRequest listener is synchronous, so it can't await storage — we keep
+  // a module-local boolean primed at startup and kept fresh via
+  // onEnabledChanged. When Loom is off, the listener early-returns and
+  // captures nothing, so a disabled browser does zero timedtext observation.
+  // Defaults to true (fail-open) until the first read resolves.
+  let enabled = true;
+  getEnabled()
+    .then((e) => {
+      enabled = e;
+    })
+    .catch(() => {
+      enabled = true;
+    });
+  onEnabledChanged((e) => {
+    enabled = e;
+  });
+
   browser.webRequest.onBeforeRequest.addListener(
     (details): undefined => {
+      if (!enabled) return undefined;
       try {
         const u = new URL(details.url);
         const videoId = u.searchParams.get("v");

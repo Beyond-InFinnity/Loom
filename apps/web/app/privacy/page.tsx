@@ -12,7 +12,7 @@ export const metadata = {
 // extension's actual data flow (subtitle text + optional owner key only); keep
 // this page in lockstep if the extension ever sends anything new.
 
-const LAST_UPDATED = "30 May 2026";
+const LAST_UPDATED = "14 June 2026";
 const CONTACT_EMAIL = "privacy@nerv-analytic.ai";
 
 function Section({
@@ -87,15 +87,17 @@ export default function Privacy() {
               </p>
             </Section>
 
-            <Section title="Optional owner key">
+            <Section title="Optional owner key (web app only)">
               <p>
-                If you set an owner key (via{" "}
+                The companion web app supports an optional owner key — set via{" "}
                 <code className="font-mono text-foreground/80">
                   loom.nerv-analytic.ai/?owner_key=…
-                </code>
-                ), that key is sent as an HTTP header on API requests to bypass
-                rate limits. It is stored only in your browser’s local storage
-                and is removed when you uninstall the extension or clear it.
+                </code>{" "}
+                — which is sent as an HTTP header on API requests to bypass rate
+                limits. It is stored only in your browser’s local storage and is
+                removed when you clear it. The published browser extension does
+                not offer or transmit an owner key; its only stored data is your
+                display preferences and the on/off toggle.
               </p>
             </Section>
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { getApiClient } from "@/lib/api-client";
-import { API_BASE_URL } from "@/lib/env";
+import { getEnabled, setEnabled } from "@/lib/enabled";
+import { API_BASE_URL, IS_DEV } from "@/lib/env";
 import { getOwnerKey, setOwnerKey } from "@/lib/owner-key";
 
 type CheckStatus =
@@ -11,11 +12,27 @@ type CheckStatus =
   | { kind: "err"; message: string };
 
 export function App() {
+  // Global on/off for this browser (both builds). Defaults on; persisted to
+  // browser.storage.local; the content script subscribes and tears down live.
+  const [enabled, setEnabledState] = useState<boolean>(true);
+
+  // Owner key is DEV-ONLY (the input section below is gated on IS_DEV). The
+  // state + effect stay unconditional — harmless in prod where the section
+  // never renders and getOwnerKey resolves to null (public rate limits).
   const [keyInput, setKeyInput] = useState("");
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [check, setCheck] = useState<CheckStatus>({ kind: "idle" });
 
   useEffect(() => {
+    getEnabled()
+      .then(setEnabledState)
+      .catch((e) => {
+        console.error("[Loom] failed to read enabled flag from storage:", e);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!IS_DEV) return;
     getOwnerKey()
       .then((stored) => {
         setSavedKey(stored);
@@ -25,6 +42,17 @@ export function App() {
         console.error("[Loom] failed to read owner key from storage:", e);
       });
   }, []);
+
+  async function handleToggle() {
+    const next = !enabled;
+    setEnabledState(next); // optimistic
+    try {
+      await setEnabled(next);
+    } catch (e) {
+      setEnabledState(!next); // roll back on failure
+      console.error("[Loom] failed to persist enabled flag:", e);
+    }
+  }
 
   async function handleSave() {
     await setOwnerKey(keyInput);
@@ -64,25 +92,39 @@ export function App() {
       </header>
 
       <section>
-        <label htmlFor="owner-key">Owner key</label>
-        <input
-          id="owner-key"
-          type="password"
-          value={keyInput}
-          onChange={(e) => setKeyInput(e.target.value)}
-          placeholder="Paste your X-Loom-Auth bypass key"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button onClick={handleSave} type="button">
-          Save
+        <label>Loom on this browser</label>
+        <button onClick={handleToggle} type="button">
+          {enabled ? "Turn Loom off" : "Turn Loom on"}
         </button>
-        <p className={savedKey ? "status status-on" : "status status-off"}>
-          {savedKey
-            ? "Owner mode: ON — bypasses rate limits"
-            : "Owner mode: off — using public rate limits"}
+        <p className={enabled ? "status status-on" : "status status-off"}>
+          {enabled
+            ? "ON — the Loom pill appears on YouTube videos."
+            : "OFF — Loom runs nowhere until you turn it back on."}
         </p>
       </section>
+
+      {IS_DEV && (
+        <section>
+          <label htmlFor="owner-key">Owner key (dev)</label>
+          <input
+            id="owner-key"
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="Paste your X-Loom-Auth bypass key"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button onClick={handleSave} type="button">
+            Save
+          </button>
+          <p className={savedKey ? "status status-on" : "status status-off"}>
+            {savedKey
+              ? "Owner mode: ON — bypasses rate limits"
+              : "Owner mode: off — using public rate limits"}
+          </p>
+        </section>
+      )}
 
       <section>
         <button

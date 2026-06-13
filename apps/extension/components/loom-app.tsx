@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { getEnabled, onEnabledChanged } from "@/lib/enabled";
 import { CaptionOverlay } from "./caption-overlay";
 import { CaptionStreamProvider } from "./caption-context";
 import { DormantPill } from "./dormant-pill";
@@ -42,7 +43,29 @@ function writeActivated(active: boolean): void {
 }
 
 export function LoomApp() {
+  // Global per-browser kill switch (lib/enabled.ts).  `null` = not yet
+  // loaded from storage; render nothing until known so a disabled browser
+  // never flashes the pill on page load.  Subscribed so toggling the popup
+  // switch tears down (or brings up) the whole tree live, without a reload.
+  const [enabled, setEnabledState] = useState<boolean | null>(null);
   const [active, setActiveState] = useState<boolean>(readInitialActivated);
+
+  useEffect(() => {
+    let cancelled = false;
+    getEnabled()
+      .then((e) => {
+        if (!cancelled) setEnabledState(e);
+      })
+      .catch(() => {
+        // Fail open — a storage read error shouldn't silently disable Loom.
+        if (!cancelled) setEnabledState(true);
+      });
+    const unsubscribe = onEnabledChanged((e) => setEnabledState(e));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const activate = useCallback(() => {
     setActiveState(true);
@@ -53,6 +76,14 @@ export function LoomApp() {
     setActiveState(false);
     writeActivated(false);
   }, []);
+
+  // Kill switch off (or still loading) → render nothing at all.  When this
+  // flips from true→false the active subtree below unmounts, firing every
+  // cleanup useEffect (CaptionStream stop, ResizeObserver disconnect, MAIN
+  // unsubscribe) — same teardown path as deactivate.
+  if (enabled !== true) {
+    return null;
+  }
 
   if (!active) {
     return <DormantPill onActivate={activate} />;

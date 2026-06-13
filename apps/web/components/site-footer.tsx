@@ -14,9 +14,14 @@ export function SiteFooter() {
             nerv-analytic.ai
           </Link>
         </span>
-        <Link href="/support" className="hover:text-primary transition-colors">
-          ☕ Support Loom
-        </Link>
+        <span className="flex items-center gap-4">
+          <Link href="/support" className="hover:text-primary transition-colors">
+            Support
+          </Link>
+          <Link href="/donate" className="hover:text-primary transition-colors">
+            ☕ Donate
+          </Link>
+        </span>
         <span>
           built by{" "}
           <Link

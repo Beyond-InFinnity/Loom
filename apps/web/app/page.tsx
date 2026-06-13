@@ -63,10 +63,10 @@ export default function Home() {
             </div>
             <div className="mt-4 flex items-center justify-center gap-4">
               <Link
-                href="/support"
+                href="/donate"
                 className="text-xs text-muted-foreground transition-colors hover:text-primary"
               >
-                ☕ Support Loom
+                ☕ Donate
               </Link>
               <span className="text-xs text-border">·</span>
               <Link

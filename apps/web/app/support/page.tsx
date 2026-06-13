@@ -3,68 +3,57 @@ import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
 
 export const metadata = {
-  title: "Support Loom",
+  title: "Support — Loom",
   description:
-    "Support the development of Loom — dual-language subtitles with romanization for language learners.",
+    "How to use the Loom browser extension, common questions, and troubleshooting for dual-language subtitles with romanization.",
 };
 
-// Hosted at loom.nerv-analytic.ai/support — the "Support Loom" buttons (footer +
-// landing page) point here.
+// Hosted at loom.nerv-analytic.ai/support — the technical-support / FAQ surface,
+// and the canonical "Support" URL listed on the Firefox AMO + Chrome Web Store
+// submissions. (Donations live separately at /donate.)
 //
-// Fill in the three handles below to take a method live. An empty string ("")
-// hides that method's card, so the page is always safe to ship — it just shows
-// whatever is configured (or a "coming soon" note if none are).
-//   PayPal   → paypal.me/<PAYPAL_ME>
-//   Venmo    → venmo.com/u/<VENMO_USER>
-//   Cash App → cash.app/$<CASHAPP_TAG>
-const PAYPAL_ME = "ConnorMFinnerty"; // paypal.me/ConnorMFinnerty
-const VENMO_USER = "Connor-Finnerty-1"; // venmo.com/u/Connor-Finnerty-1
-const CASHAPP_TAG = ""; // off for now — PayPal + Venmo cover 95%+ of cases
+// Keep the troubleshooting answers in lockstep with the extension's real
+// behaviour: per-tab activation via the "Loom" pill, a single batch fetch on
+// activation (~3-4s, then quiet), webRequest-based caption acquisition. If the
+// activation flow or a known failure mode changes, update the matching Q here.
 
-type Method = { name: string; handle: string; url: string; blurb: string };
+const CONTACT_EMAIL = "support@nerv-analytic.ai";
 
-const METHODS: Method[] = (
-  [
-    PAYPAL_ME && {
-      name: "PayPal",
-      handle: `paypal.me/${PAYPAL_ME}`,
-      url: `https://paypal.me/${PAYPAL_ME}`,
-      blurb: "One-click via PayPal.Me — any amount.",
-    },
-    VENMO_USER && {
-      name: "Venmo",
-      handle: `@${VENMO_USER}`,
-      url: `https://venmo.com/u/${VENMO_USER}`,
-      blurb: "Send a tip on Venmo.",
-    },
-    CASHAPP_TAG && {
-      name: "Cash App",
-      handle: `$${CASHAPP_TAG}`,
-      url: `https://cash.app/$${CASHAPP_TAG}`,
-      blurb: "Send a tip on Cash App.",
-    },
-  ] as (Method | "" | false)[]
-).filter(Boolean) as Method[];
-
-function MethodCard({ method }: { method: Method }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <Link
-      href={method.url}
-      rel="noopener noreferrer"
-      target="_blank"
-      className="group flex w-full flex-col rounded-lg border border-border/60 bg-background/40 p-6 transition-colors hover:border-primary/60 hover:bg-primary/5 sm:w-72"
-    >
-      <h3 className="font-serif text-2xl font-medium text-foreground">
-        {method.name}
+    <section className="mt-10">
+      <h2 className="font-serif text-2xl font-light tracking-tight text-foreground">
+        {title}
+      </h2>
+      <div className="mt-3 space-y-3 text-sm leading-relaxed text-muted-foreground sm:text-base">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Faq({
+  question,
+  children,
+}: {
+  question: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 p-5">
+      <h3 className="font-serif text-lg font-medium text-foreground">
+        {question}
       </h3>
-      <p className="mt-1 font-mono text-xs text-accent">{method.handle}</p>
-      <p className="mt-3 flex-1 text-sm leading-relaxed text-muted-foreground">
-        {method.blurb}
-      </p>
-      <span className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-primary">
-        Open {method.name} →
-      </span>
-    </Link>
+      <div className="mt-2 space-y-2 text-sm leading-relaxed text-muted-foreground">
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -73,47 +62,168 @@ export default function Support() {
     <>
       <SiteNav />
       <main className="flex flex-1 flex-col">
-        <section className="px-6 py-16 sm:py-20">
+        <section className="px-6 py-12 sm:py-16">
           <div className="mx-auto max-w-3xl">
             <p className="font-mono text-xs uppercase tracking-[0.3em] text-accent">
-              support loom
+              support
             </p>
-            <h1 className="mt-4 font-serif text-4xl font-light tracking-tight text-foreground sm:text-5xl">
-              ☕ Support Loom
+            <h1 className="mt-4 font-serif text-4xl font-light tracking-tight sm:text-5xl">
+              Support
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              Loom is a free, ad-free research project — dual-language subtitles
-              with romanization for anyone learning a language through video. If
-              it&rsquo;s been useful to you, a small tip helps cover the hosting
-              that keeps the romanization API running and funds new features.
-              Entirely optional, always appreciated.
-            </p>
-
-            {METHODS.length > 0 ? (
-              <div className="mt-12 flex flex-wrap justify-center gap-6">
-                {METHODS.map((method) => (
-                  <MethodCard key={method.name} method={method} />
-                ))}
-              </div>
-            ) : (
-              <p className="mt-12 rounded-lg border border-border/60 bg-background/40 p-6 text-sm text-muted-foreground">
-                Tip links are being set up — check back shortly.
-              </p>
-            )}
-
-            <p className="mt-10 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Prefer to contribute in other ways? Loom is open source —
-              bug reports and ideas at{" "}
-              <Link
-                href="https://github.com/Beyond-InFinnity/Loom/issues"
-                rel="noopener noreferrer"
-                target="_blank"
+            <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+              Loom adds dual-language subtitles with phonetic readings —
+              furigana, Pinyin, Zhuyin, Jyutping, Korean romanization, and a
+              romanization line for every supported script — on top of YouTube
+              playback. This page covers getting started and the questions that
+              come up most. Still stuck?{" "}
+              <a
+                href={`mailto:${CONTACT_EMAIL}`}
                 className="text-primary hover:underline"
               >
-                GitHub Issues
-              </Link>{" "}
-              are just as valuable.
+                Email us
+              </a>
+              .
             </p>
+
+            <Section title="Getting started">
+              <ol className="ml-5 list-decimal space-y-2">
+                <li>
+                  Install the extension from the{" "}
+                  <Link href="/extension" className="text-primary hover:underline">
+                    extension page
+                  </Link>{" "}
+                  (Firefox first; Chrome and Edge follow).
+                </li>
+                <li>Open a video on YouTube that has subtitles/captions.</li>
+                <li>
+                  Click the small <strong className="text-foreground">“Loom”</strong>{" "}
+                  pill that appears over the player to activate it for that tab.
+                  Nothing runs until you click — each tab starts dormant.
+                </li>
+                <li>
+                  Wait a few seconds while Loom fetches readings for the whole
+                  video in one batch, then watch — the extra subtitle layers
+                  render as the video plays.
+                </li>
+                <li>
+                  Open the settings panel to pick languages, swap layer
+                  positions, toggle the annotation and romanization lines, and
+                  restyle every layer (color, font, size, outline, glow).
+                </li>
+              </ol>
+            </Section>
+
+            <Section title="Frequently asked questions">
+              <div className="mt-2 space-y-4">
+                <Faq question="Is Loom free?">
+                  <p>
+                    Yes — Loom is a free, ad-free research project. If it&rsquo;s
+                    useful to you,{" "}
+                    <Link href="/donate" className="text-primary hover:underline">
+                      donations are welcome
+                    </Link>{" "}
+                    but entirely optional.
+                  </p>
+                </Faq>
+
+                <Faq question="Which sites and browsers does Loom support?">
+                  <p>
+                    Today Loom works on <strong className="text-foreground">YouTube</strong>.
+                    It&rsquo;s built and tested on Firefox; a Chrome/Edge
+                    (Manifest&nbsp;V3) build is in progress. Other streaming
+                    sites are on the roadmap.
+                  </p>
+                </Faq>
+
+                <Faq question="Which languages can it romanize?">
+                  <p>
+                    Chinese (Pinyin / Zhuyin / Jyutping), Japanese (furigana +
+                    romaji), Korean, plus a romanization line for Cyrillic, Thai,
+                    several Indic scripts, Hebrew, and Arabic / Persian / Urdu.
+                    Per-character readings appear above the foreign text for CJK
+                    and Korean; other scripts get the full-line romanization.
+                  </p>
+                </Faq>
+
+                <Faq question="No extra subtitles appear after I click “Loom.”">
+                  <p>
+                    The most common cause is that the video has no captions to
+                    work from. Confirm YouTube&rsquo;s own CC button offers
+                    captions for the video. Loom reads the caption tracks the
+                    site already serves — if there are none (or only in a
+                    language Loom can&rsquo;t yet process), there&rsquo;s nothing
+                    to annotate. Reloading the page and re-activating clears most
+                    transient cases.
+                  </p>
+                </Faq>
+
+                <Faq question="The romanization line didn’t load.">
+                  <p>
+                    Readings are fetched once, in a single batch, right after you
+                    activate Loom — it takes a few seconds, then goes quiet for
+                    the rest of playback. If a layer is missing, re-activate (or
+                    reload the tab) to retry the fetch. A slow or offline
+                    connection during those first few seconds is the usual
+                    culprit.
+                  </p>
+                </Faq>
+
+                <Faq question="The subtitles are out of sync or look stale.">
+                  <p>
+                    Loom anchors its overlay to YouTube&rsquo;s player, so
+                    fullscreen and theater mode are supported. If timing looks off
+                    after jumping between videos quickly, reload the page to reset
+                    the overlay for the current video.
+                  </p>
+                </Faq>
+
+                <Faq question="What data does Loom send?">
+                  <p>
+                    Only the subtitle text (and a target language code) needed for
+                    romanization — nothing about your account, history, or device.
+                    Full detail is in the{" "}
+                    <Link href="/privacy" className="text-primary hover:underline">
+                      privacy policy
+                    </Link>
+                    .
+                  </p>
+                </Faq>
+
+                <Faq question="I have a video file, not a YouTube link.">
+                  <p>
+                    Use the{" "}
+                    <Link href="/generate" className="text-primary hover:underline">
+                      web application
+                    </Link>{" "}
+                    to build dual-language subtitle files (.ass / .sup) from your
+                    own subtitle and video files.
+                  </p>
+                </Faq>
+              </div>
+            </Section>
+
+            <Section title="Report a bug or request a feature">
+              <p>
+                Found a problem or have an idea? Open an issue on{" "}
+                <Link
+                  href="https://github.com/Beyond-InFinnity/Loom/issues"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  className="text-primary hover:underline"
+                >
+                  GitHub
+                </Link>
+                , or email{" "}
+                <a
+                  href={`mailto:${CONTACT_EMAIL}`}
+                  className="text-primary hover:underline"
+                >
+                  {CONTACT_EMAIL}
+                </a>
+                . When reporting a caption problem, the video URL and your browser
+                help a lot.
+              </p>
+            </Section>
           </div>
         </section>
       </main>

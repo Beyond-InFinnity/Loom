@@ -187,6 +187,12 @@ const BUILD_INFO: string = (() => {
   }
 })();
 
+// Donations page on the companion web app (☕ "Support Loom" link at the top
+// of the panel). Hardcoded rather than derived from API_BASE_URL — the web app
+// lives on a different host (loom.* vs api.loom.*) and only the prod web app
+// has the page.
+const SUPPORT_URL = "https://loom.nerv-analytic.ai/donate";
+
 export function SettingsPanel({
   open,
   onClose,
@@ -334,6 +340,16 @@ export function SettingsPanel({
           which our shadow tree doesn't inherit.  Inline the CSS so the
           color wheel actually has shape + colors. */}
       <style>{REACT_COLORFUL_CSS}</style>
+
+      <a
+        href={SUPPORT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={supportLinkStyle()}
+      >
+        <span aria-hidden="true">☕</span>
+        <span>Support Loom</span>
+      </a>
 
       <div style={headerStyle()}>
         <span>Loom settings</span>
@@ -1843,6 +1859,26 @@ function headerStyle(): React.CSSProperties {
     fontSize: "13px",
     fontWeight: 600,
     letterSpacing: "0.02em",
+  };
+}
+
+function supportLinkStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    marginBottom: "10px",
+    padding: "6px 8px",
+    borderRadius: "6px",
+    background: "rgba(255, 213, 121, 0.12)",
+    border: "1px solid rgba(255, 213, 121, 0.25)",
+    color: "#ffd479",
+    fontSize: "12px",
+    fontWeight: 600,
+    textDecoration: "none",
+    cursor: "pointer",
+    pointerEvents: "auto",
   };
 }
 

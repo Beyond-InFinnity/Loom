@@ -1,24 +1,5 @@
-# Loom 0.1.7 — store submission fields
+# Release notes
 
-Two copy-paste blocks for the AMO (and Chrome) submission forms. Everything
-inside a `─── COPY ───` / `─── END ───` fence is the literal field content;
-the surrounding text is guidance for you, not for the form.
-
-**Upload checklist (AMO listed version):**
-- Add-on package (first slot, the one that validates) → `loomextension-0.1.7-firefox.zip`
-- Source code (after AMO asks about minifiers/bundlers — answer **Yes**) → **`loom-source-0.1.7.zip`**
-  - ⚠️ Do **not** upload `loomextension-0.1.7-sources.zip` here. It contains only
-    `apps/extension/` and omits the two workspace packages + the lockfile, so a
-    reviewer cannot rebuild it. `loom-source-0.1.7.zip` is the full monorepo
-    snapshot and rebuilds cleanly with the steps in the reviewer notes below.
-
----
-
-## 1) Release notes  (field: "Release notes for this version" / "What's new")
-
-User-facing, shown on the version page. Plain text.
-
-─────────────────────────── COPY ───────────────────────────
 Loom shows a second, learner-facing subtitle line on top of YouTube videos: the
 original-language captions plus phonetic readings — furigana for Japanese,
 Pinyin / Zhuyin / Jyutping for Chinese, Revised Romanization for Korean, and a
@@ -40,15 +21,9 @@ In this version:
 
 Loom only sends subtitle text out of your browser, and only for romanization.
 See the privacy policy: https://loom.nerv-analytic.ai/privacy
-──────────────────────────── END ────────────────────────────
 
----
+# Notes for reviewers
 
-## 2) Notes for reviewers  (field: "Notes for Reviewers")
-
-Required because the add-on is bundled/minified (WXT + Vite). Plain text.
-
-─────────────────────────── COPY ───────────────────────────
 WHAT THE ADD-ON DOES
 Loom overlays a second subtitle track on YouTube watch pages: the video's
 original-language captions plus phonetic readings (furigana, Pinyin, etc.).
@@ -78,7 +53,7 @@ This is an npm-workspaces monorepo. The extension (apps/extension) depends on tw
 local workspace packages (@loom/api-client, @loom/orthography-tables), so the
 build must run from the repository root using the included package-lock.json.
 
-From the root of the provided source archive (loom-source-0.1.7.zip):
+From the root of the provided source archive:
   1. npm ci
   2. cd apps/extension
   3. npm run build:firefox:prod
@@ -120,4 +95,3 @@ sent to the romanization API. This matches the declared data collection
 https://loom.nerv-analytic.ai/privacy.
 
 Public source repository: https://github.com/Beyond-InFinnity/Loom
-──────────────────────────── END ────────────────────────────

@@ -1,9 +1,9 @@
 {
   "name": "@loom/extension",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Loom browser extension — dual subs with romanization on YouTube.",
+  "description": "Loom browser extension — dual subs with romanization on YouTube and Netflix.",
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",

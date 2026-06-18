@@ -3,7 +3,12 @@ import { HexColorPicker } from "react-colorful";
 
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
-import { classifyLang, type LangSupport } from "@/lib/captions/lang-support";
+import {
+  classifyLang,
+  phoneticSystemsFor,
+  sameBaseLang,
+  type LangSupport,
+} from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
 import {
   resolveOrthographyVariants,
@@ -237,6 +242,10 @@ export function SettingsPanel({
     topAlpha,
     bottomAlpha,
     annotationAlpha,
+    romanizationAlpha,
+    topGroupOpacityLinked,
+    topLineEnabled,
+    bottomLineEnabled,
     topOutlineColor,
     bottomOutlineColor,
     annotationOutlineColor,
@@ -255,6 +264,10 @@ export function SettingsPanel({
     setTopAlpha,
     setBottomAlpha,
     setAnnotationAlpha,
+    setRomanizationAlpha,
+    setTopGroupOpacityLinked,
+    setTopLineEnabled,
+    setBottomLineEnabled,
     setTopOutlineColor,
     setBottomOutlineColor,
     setAnnotationOutlineColor,
@@ -308,6 +321,8 @@ export function SettingsPanel({
     setVariantColor,
     setVariantCleanColor,
     setVariantCollapseColor,
+    variantColorSameAsTop,
+    setVariantColorSameAsTop,
   } = useCaptionStream();
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -416,171 +431,228 @@ export function SettingsPanel({
         </p>
       </Section>
 
-      <Section title="Annotations">
+      {/* ---- The four line-cards (C-1) ----------------------------
+          Each box owns ALL of one line's controls: its enable toggles,
+          phonetic-system / alt-orth options, AND its styling.  Presets
+          sit above since they paint across the lines at once. */}
+      <Section title="Color presets">
+        <PresetPicker
+          catalog={presetCatalog}
+          activeId={activePresetId}
+          onApply={applyPreset}
+        />
+      </Section>
+
+      {/* Bottom — native text */}
+      <LayerStyleBlock
+        label="Bottom (native)"
+        color={bottomColor}
+        onColorChange={setBottomColor}
+        fontFamily={bottomFontFamily}
+        onFontFamilyChange={setBottomFontFamily}
+        sizeMode="px"
+        sizeValue={bottomFontSizePx}
+        onSizeChange={setBottomFontSizePx}
+        opacity={{ value: bottomAlpha, onChange: setBottomAlpha }}
+        advanced={{
+          alpha: bottomAlpha,
+          onAlphaChange: setBottomAlpha,
+          outlineColor: bottomOutlineColor,
+          onOutlineColorChange: setBottomOutlineColor,
+          outlineAlpha: bottomOutlineAlpha,
+          onOutlineAlphaChange: setBottomOutlineAlpha,
+          glowRadius: bottomGlowRadius,
+          onGlowRadiusChange: setBottomGlowRadius,
+          glowColor: bottomGlowColor,
+          onGlowColorChange: setBottomGlowColor,
+          glowAlpha: bottomGlowAlpha,
+          onGlowAlphaChange: setBottomGlowAlpha,
+        }}
+      >
+        <ToggleRow
+          label="Show Bottom line"
+          value={bottomLineEnabled}
+          onChange={setBottomLineEnabled}
+        />
+      </LayerStyleBlock>
+
+      {/* Top — foreign text + its alternate-orthography ruby */}
+      <LayerStyleBlock
+        label="Top (foreign)"
+        color={topColor}
+        onColorChange={setTopColor}
+        fontFamily={topFontFamily}
+        onFontFamilyChange={setTopFontFamily}
+        sizeMode="px"
+        sizeValue={topFontSizePx}
+        onSizeChange={setTopFontSizePx}
+        opacity={{ value: topAlpha, onChange: setTopAlpha }}
+        advancedExtra={
+          <div style={layerStyleRowStyle()}>
+            <div style={variantInlineLabelRowStyle()}>
+              <span style={layerStyleRowLabelStyle()}>
+                Link opacity (Annotation + Romanization + alt-orth)
+              </span>
+              <Switch
+                on={topGroupOpacityLinked}
+                onToggle={setTopGroupOpacityLinked}
+                ariaLabel="Link Top group opacity"
+              />
+            </div>
+          </div>
+        }
+        advanced={{
+          alpha: topAlpha,
+          onAlphaChange: setTopAlpha,
+          outlineColor: topOutlineColor,
+          onOutlineColorChange: setTopOutlineColor,
+          outlineAlpha: topOutlineAlpha,
+          onOutlineAlphaChange: setTopOutlineAlpha,
+          glowRadius: topGlowRadius,
+          onGlowRadiusChange: setTopGlowRadius,
+          glowColor: topGlowColor,
+          onGlowColorChange: setTopGlowColor,
+          glowAlpha: topGlowAlpha,
+          onGlowAlphaChange: setTopGlowAlpha,
+        }}
+      >
+        <ToggleRow
+          label="Show Top line"
+          value={topLineEnabled}
+          onChange={setTopLineEnabled}
+        />
+        <VariantSection
+          selectedTarget={selectedTarget}
+          selectedNative={selectedNative}
+          targetEnabled={targetVariantEnabled}
+          nativeEnabled={nativeVariantEnabled}
+          highlightEnabled={variantHighlightEnabled}
+          variantColor={variantColor}
+          cleanColor={variantCleanColor}
+          collapseColor={variantCollapseColor}
+          variantColorSameAsTop={variantColorSameAsTop}
+          topColor={topColor}
+          onTargetToggle={setTargetVariantEnabled}
+          onNativeToggle={setNativeVariantEnabled}
+          onHighlightToggle={setVariantHighlightEnabled}
+          onVariantColorChange={setVariantColor}
+          onCleanColorChange={setVariantCleanColor}
+          onCollapseColorChange={setVariantCollapseColor}
+          onVariantColorSameAsTopToggle={setVariantColorSameAsTop}
+        />
+      </LayerStyleBlock>
+
+      {/* Annotation — per-token readings above the foreign text */}
+      <LayerStyleBlock
+        label="Annotation"
+        color={annotationColor}
+        onColorChange={setAnnotationColor}
+        fontFamily={annotationFontFamily}
+        onFontFamilyChange={setAnnotationFontFamily}
+        sizeMode="ratio"
+        sizeValue={annotationFontRatio}
+        onSizeChange={setAnnotationFontRatio}
+        opacity={{
+          value: annotationAlpha,
+          onChange: setAnnotationAlpha,
+          show: !topGroupOpacityLinked,
+        }}
+        advanced={{
+          alpha: annotationAlpha,
+          onAlphaChange: setAnnotationAlpha,
+          outlineColor: annotationOutlineColor,
+          onOutlineColorChange: setAnnotationOutlineColor,
+          outlineAlpha: annotationOutlineAlpha,
+          onOutlineAlphaChange: setAnnotationOutlineAlpha,
+          glowRadius: annotationGlowRadius,
+          onGlowRadiusChange: setAnnotationGlowRadius,
+          glowColor: annotationGlowColor,
+          onGlowColorChange: setAnnotationGlowColor,
+          glowAlpha: annotationGlowAlpha,
+          onGlowAlphaChange: setAnnotationGlowAlpha,
+        }}
+      >
         <AnnotateRow
           label="Target"
           track={selectedTarget}
           enabled={targetAnnotateEnabled}
           onToggle={setTargetAnnotateEnabled}
-          phoneticSystem={targetPhoneticSystem}
-          onPickPhoneticSystem={setTargetPhoneticSystem}
         />
-        <AnnotateRow
-          label="Native"
-          track={selectedNative}
-          enabled={nativeAnnotateEnabled}
-          onToggle={setNativeAnnotateEnabled}
-          phoneticSystem={nativePhoneticSystem}
-          onPickPhoneticSystem={setNativePhoneticSystem}
-        />
+        <AdvancedDisclosure label="Native annotations">
+          <AnnotateRow
+            label="Native"
+            track={selectedNative}
+            enabled={nativeAnnotateEnabled}
+            onToggle={setNativeAnnotateEnabled}
+          />
+        </AdvancedDisclosure>
         <p style={hintStyle()}>
           Per-character readings (furigana, Pinyin/Zhuyin/Jyutping, RR).
-          Only CJK + Korean supported in this build.  Phonetic system
-          only takes effect on Chinese tracks.
+          Only CJK + Korean supported in this build.  Size is a ratio of
+          the Top size (0.5 = half).
         </p>
-      </Section>
+      </LayerStyleBlock>
 
-      <Section title="Romanization">
+      {/* Romanization — full-utterance phonetic line */}
+      <LayerStyleBlock
+        label="Romanization"
+        color={romanizationColor}
+        onColorChange={setRomanizationColor}
+        fontFamily={romanizationFontFamily}
+        onFontFamilyChange={setRomanizationFontFamily}
+        sizeMode="ratio"
+        sizeValue={romanizationFontRatio}
+        onSizeChange={setRomanizationFontRatio}
+        opacity={{
+          value: romanizationAlpha,
+          onChange: setRomanizationAlpha,
+          show: !topGroupOpacityLinked,
+        }}
+        // Advanced outline / glow inherits from the parent line it sits
+        // above — a separate advanced surface is a follow-up if asked.
+        advanced={null}
+      >
         <RomanizeRow
           label="Target"
           track={selectedTarget}
           enabled={targetRomanizeEnabled}
           onToggle={setTargetRomanizeEnabled}
         />
-        <RomanizeRow
-          label="Native"
-          track={selectedNative}
-          enabled={nativeRomanizeEnabled}
-          onToggle={setNativeRomanizeEnabled}
+        <PhoneticSystemRow
+          label="Target"
+          track={selectedTarget}
+          value={targetPhoneticSystem}
+          onChange={setTargetPhoneticSystem}
         />
-        <JapaneseLongVowelRow
-          mode={longVowelMode}
-          onPickMode={setLongVowelMode}
-        />
+        {[selectedTarget, selectedNative].some(
+          (t) => !!t && sameBaseLang(t.languageCode, "ja"),
+        ) && (
+          <JapaneseLongVowelRow
+            mode={longVowelMode}
+            onPickMode={setLongVowelMode}
+          />
+        )}
+        <AdvancedDisclosure label="Native romanization">
+          <RomanizeRow
+            label="Native"
+            track={selectedNative}
+            enabled={nativeRomanizeEnabled}
+            onToggle={setNativeRomanizeEnabled}
+          />
+          <PhoneticSystemRow
+            label="Native"
+            track={selectedNative}
+            value={nativePhoneticSystem}
+            onChange={setNativePhoneticSystem}
+          />
+        </AdvancedDisclosure>
         <p style={hintStyle()}>
           Full-utterance phonetic line above the foreign text.  Covers
-          every language Loom supports — CJK (above the ruby), Cyrillic,
-          Thai, Indic, Hebrew, and the Arabic-Persian-Urdu family.
-          Long-vowel mode only affects Japanese.
+          CJK, Cyrillic, Thai, Indic, Hebrew, and Arabic / Persian /
+          Urdu.  The phonetic-system picker appears only where there’s a
+          choice.  Size is a ratio of the parent line.
         </p>
-      </Section>
-
-      <VariantSection
-        selectedTarget={selectedTarget}
-        selectedNative={selectedNative}
-        targetEnabled={targetVariantEnabled}
-        nativeEnabled={nativeVariantEnabled}
-        highlightEnabled={variantHighlightEnabled}
-        variantColor={variantColor}
-        cleanColor={variantCleanColor}
-        collapseColor={variantCollapseColor}
-        onTargetToggle={setTargetVariantEnabled}
-        onNativeToggle={setNativeVariantEnabled}
-        onHighlightToggle={setVariantHighlightEnabled}
-        onVariantColorChange={setVariantColor}
-        onCleanColorChange={setVariantCleanColor}
-        onCollapseColorChange={setVariantCollapseColor}
-      />
-
-      <Section title="Styles">
-        <PresetPicker
-          catalog={presetCatalog}
-          activeId={activePresetId}
-          onApply={applyPreset}
-        />
-        <LayerStyleBlock
-          label="Bottom"
-          color={bottomColor}
-          onColorChange={setBottomColor}
-          fontFamily={bottomFontFamily}
-          onFontFamilyChange={setBottomFontFamily}
-          sizeMode="px"
-          sizeValue={bottomFontSizePx}
-          onSizeChange={setBottomFontSizePx}
-          advanced={{
-            alpha: bottomAlpha,
-            onAlphaChange: setBottomAlpha,
-            outlineColor: bottomOutlineColor,
-            onOutlineColorChange: setBottomOutlineColor,
-            outlineAlpha: bottomOutlineAlpha,
-            onOutlineAlphaChange: setBottomOutlineAlpha,
-            glowRadius: bottomGlowRadius,
-            onGlowRadiusChange: setBottomGlowRadius,
-            glowColor: bottomGlowColor,
-            onGlowColorChange: setBottomGlowColor,
-            glowAlpha: bottomGlowAlpha,
-            onGlowAlphaChange: setBottomGlowAlpha,
-          }}
-        />
-        <LayerStyleBlock
-          label="Top"
-          color={topColor}
-          onColorChange={setTopColor}
-          fontFamily={topFontFamily}
-          onFontFamilyChange={setTopFontFamily}
-          sizeMode="px"
-          sizeValue={topFontSizePx}
-          onSizeChange={setTopFontSizePx}
-          advanced={{
-            alpha: topAlpha,
-            onAlphaChange: setTopAlpha,
-            outlineColor: topOutlineColor,
-            onOutlineColorChange: setTopOutlineColor,
-            outlineAlpha: topOutlineAlpha,
-            onOutlineAlphaChange: setTopOutlineAlpha,
-            glowRadius: topGlowRadius,
-            onGlowRadiusChange: setTopGlowRadius,
-            glowColor: topGlowColor,
-            onGlowColorChange: setTopGlowColor,
-            glowAlpha: topGlowAlpha,
-            onGlowAlphaChange: setTopGlowAlpha,
-          }}
-        />
-        <LayerStyleBlock
-          label="Annotation"
-          color={annotationColor}
-          onColorChange={setAnnotationColor}
-          fontFamily={annotationFontFamily}
-          onFontFamilyChange={setAnnotationFontFamily}
-          sizeMode="ratio"
-          sizeValue={annotationFontRatio}
-          onSizeChange={setAnnotationFontRatio}
-          advanced={{
-            alpha: annotationAlpha,
-            onAlphaChange: setAnnotationAlpha,
-            outlineColor: annotationOutlineColor,
-            onOutlineColorChange: setAnnotationOutlineColor,
-            outlineAlpha: annotationOutlineAlpha,
-            onOutlineAlphaChange: setAnnotationOutlineAlpha,
-            glowRadius: annotationGlowRadius,
-            onGlowRadiusChange: setAnnotationGlowRadius,
-            glowColor: annotationGlowColor,
-            onGlowColorChange: setAnnotationGlowColor,
-            glowAlpha: annotationGlowAlpha,
-            onGlowAlphaChange: setAnnotationGlowAlpha,
-          }}
-        />
-        <LayerStyleBlock
-          label="Romanization"
-          color={romanizationColor}
-          onColorChange={setRomanizationColor}
-          fontFamily={romanizationFontFamily}
-          onFontFamilyChange={setRomanizationFontFamily}
-          sizeMode="ratio"
-          sizeValue={romanizationFontRatio}
-          onSizeChange={setRomanizationFontRatio}
-          // Advanced (alpha / outline / glow) inherits from the parent
-          // layer's text-shadow + alpha — a separate advanced surface
-          // would let users dim only the romanization line, but that's
-          // a follow-up if anyone asks.
-          advanced={null}
-        />
-        <p style={hintStyle()}>
-          Annotation + Romanization sizes are ratios of the parent
-          layer's size (0.5 = half).  Romanization inherits outline +
-          alpha from the parent layer it sits above.
-        </p>
-      </Section>
+      </LayerStyleBlock>
 
       <div style={deactivateRowStyle()}>
         <button
@@ -1049,6 +1121,21 @@ interface LayerStyleBlockProps {
     glowAlpha: number;
     onGlowAlphaChange: (value: number) => void;
   } | null;
+  /** Per-line behavior controls (toggles, phonetic-system, alt-orth…)
+      rendered directly under the card header, above the styling rows —
+      so each line owns ALL its controls in one box (C-1). */
+  children?: React.ReactNode;
+  /** First-class opacity slider (C-5).  `show:false` hides it (e.g. an
+      Annotation/Romanization line whose opacity is currently linked to
+      the Top group). */
+  opacity?: {
+    value: number;
+    onChange: (v: number) => void;
+    show?: boolean;
+  };
+  /** Extra controls rendered at the TOP of the Advanced block — e.g. the
+      Top card's "link opacity" toggle. */
+  advancedExtra?: React.ReactNode;
 }
 
 function LayerStyleBlock({
@@ -1061,6 +1148,9 @@ function LayerStyleBlock({
   sizeValue,
   onSizeChange,
   advanced,
+  children,
+  opacity,
+  advancedExtra,
 }: LayerStyleBlockProps) {
   const sizeLabel = sizeMode === "px" ? "Size (px)" : "Size (ratio of Top)";
   const sizeMin = sizeMode === "px" ? 12 : 0.2;
@@ -1070,6 +1160,7 @@ function LayerStyleBlock({
   return (
     <div style={layerStyleBlockStyle()}>
       <div style={layerStyleHeaderStyle()}>{label}</div>
+      {children}
       <div style={layerStyleRowStyle()}>
         <span style={layerStyleRowLabelStyle()}>Color</span>
         <ColorRow label="" value={color} onChange={onColorChange} />
@@ -1097,7 +1188,14 @@ function LayerStyleBlock({
           style={numberInputStyle()}
         />
       </div>
-      {advanced && (
+      {opacity && (opacity.show ?? true) && (
+        <PercentSliderRow
+          label="Opacity"
+          value={opacity.value}
+          onChange={opacity.onChange}
+        />
+      )}
+      {(advanced || advancedExtra) && (
         <>
           <button
             type="button"
@@ -1109,11 +1207,9 @@ function LayerStyleBlock({
           </button>
           {advancedOpen && (
             <div style={advancedBlockStyle()}>
-              <PercentSliderRow
-                label="Layer alpha"
-                value={advanced.alpha}
-                onChange={advanced.onAlphaChange}
-              />
+              {advancedExtra}
+              {advanced && (
+                <>
               <div style={layerStyleRowStyle()}>
                 <span style={layerStyleRowLabelStyle()}>Outline color</span>
                 <ColorRow
@@ -1155,6 +1251,8 @@ function LayerStyleBlock({
                     value={advanced.glowAlpha}
                     onChange={advanced.onGlowAlphaChange}
                   />
+                </>
+              )}
                 </>
               )}
             </div>
@@ -1264,6 +1362,113 @@ function PositionRow({ label, value, onChange }: PositionRowProps) {
   );
 }
 
+// ---- Switch — dot-in-pill on/off toggle -----------------------------
+//
+// Replaces the old "ON / OFF" text buttons (C-4).  A track with a dot
+// that sits left when off, right when on: desaturated greyed-gold off,
+// neon purple on.  Pure CSS transition (no backdrop-filter — see the
+// Tripwires note: this renders over the continuously-repainting player).
+// role="switch" + aria-checked for a11y; the caller owns the label.
+function Switch({
+  on,
+  onToggle,
+  ariaLabel,
+}: {
+  on: boolean;
+  onToggle: (v: boolean) => void;
+  ariaLabel?: string;
+}) {
+  const TRACK_W = 34;
+  const TRACK_H = 18;
+  const DOT = 14;
+  const PAD = 2;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={ariaLabel}
+      onClick={() => onToggle(!on)}
+      style={{
+        position: "relative",
+        flex: "0 0 auto",
+        width: `${TRACK_W}px`,
+        height: `${TRACK_H}px`,
+        padding: 0,
+        border: "none",
+        borderRadius: `${TRACK_H / 2}px`,
+        cursor: "pointer",
+        // off: desaturated greyed-gold · on: neon purple
+        background: on ? "#b026ff" : "#7d7048",
+        boxShadow: on ? "0 0 6px rgba(176, 38, 255, 0.55)" : "none",
+        transition: "background 120ms ease, box-shadow 120ms ease",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: `${PAD}px`,
+          left: on ? `${TRACK_W - DOT - PAD}px` : `${PAD}px`,
+          width: `${DOT}px`,
+          height: `${DOT}px`,
+          borderRadius: "50%",
+          background: "#ffffff",
+          transition: "left 120ms ease",
+        }}
+      />
+    </button>
+  );
+}
+
+// ---- ToggleRow — labelled switch row inside a line-card -------------
+// Used for the per-line master enable (C-8).
+function ToggleRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div style={layerStyleRowStyle()}>
+      <div style={variantInlineLabelRowStyle()}>
+        <span style={layerStyleRowLabelStyle()}>{label}</span>
+        <Switch on={value} onToggle={onChange} ariaLabel={label} />
+      </div>
+    </div>
+  );
+}
+
+// ---- AdvancedDisclosure — collapsible "Advanced ▾" sub-block --------
+//
+// Reuses the per-layer Advanced toggle styling for an in-section
+// disclosure (e.g. tucking the Native/Bottom annotation toggle away as
+// an edge case — accessible, but out of the primary flow; C-4).
+function AdvancedDisclosure({
+  children,
+  label = "Advanced",
+}: {
+  children: React.ReactNode;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={advancedToggleStyle(open)}
+        aria-expanded={open}
+      >
+        {label} {open ? "▴" : "▾"}
+      </button>
+      {open && <div style={advancedBlockStyle()}>{children}</div>}
+    </>
+  );
+}
+
 // ---- AnnotateRow ----------------------------------------------------
 
 interface AnnotateRowProps {
@@ -1274,30 +1479,9 @@ interface AnnotateRowProps {
   track: CaptionTrack | null;
   enabled: boolean;
   onToggle: (v: boolean) => void;
-  phoneticSystem: string | null;
-  onPickPhoneticSystem: (code: string | null) => void;
 }
 
-/** Phonetic-system options for the annotation dropdown.  "" sentinel
-    represents "Auto" (null on the wire — backend picks the lang's
-    default).  pinyin/zhuyin/jyutping are the meaningful overrides for
-    Chinese variants; selecting them on ja/ko is harmless (backend
-    falls back to default).  Thai's paiboon/rtgs/ipa are deferred
-    until Thai annotation lands. */
-const PHONETIC_SYSTEM_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: "pinyin", label: "Pinyin (Mandarin Simplified default)" },
-  { code: "zhuyin", label: "Zhuyin (Mandarin Traditional default)" },
-  { code: "jyutping", label: "Jyutping (Cantonese)" },
-];
-
-function AnnotateRow({
-  label,
-  track,
-  enabled,
-  onToggle,
-  phoneticSystem,
-  onPickPhoneticSystem,
-}: AnnotateRowProps) {
+function AnnotateRow({ label, track, enabled, onToggle }: AnnotateRowProps) {
   const annotatable = track
     ? classifyLang(track.languageCode).processing === "annotate-romanize"
     : false;
@@ -1310,14 +1494,7 @@ function AnnotateRow({
     <div style={annotateRowStyle(dim)}>
       <div style={annotateHeaderStyle()}>
         <span style={annotateLabelStyle()}>{label}</span>
-        <button
-          type="button"
-          onClick={() => onToggle(!enabled)}
-          style={annotateToggleStyle(enabled)}
-          aria-pressed={enabled}
-        >
-          {enabled ? "On" : "Off"}
-        </button>
+        <Switch on={enabled} onToggle={onToggle} ariaLabel={`${label} toggle`} />
       </div>
       {!annotatable && (
         <p style={hintStyle()}>
@@ -1326,19 +1503,41 @@ function AnnotateRow({
             : "(pick a track first)"}
         </p>
       )}
-      {annotatable && (
-        <div style={annotateSystemRowStyle()}>
-          <span style={annotateSystemLabelStyle()}>Phonetic system</span>
-          <LangSelect
-            value={phoneticSystem ?? ""}
-            onChange={(code) =>
-              onPickPhoneticSystem(code === "" ? null : code)
-            }
-            options={PHONETIC_SYSTEM_OPTIONS}
-            emptyOption={{ label: "Auto (from track language)" }}
-          />
-        </div>
-      )}
+    </div>
+  );
+}
+
+// ---- PhoneticSystemRow (capability-driven, I-1 / C-2) ---------------
+//
+// `phonetic_system` governs the romanization LINE for every multi-system
+// language (and, for CJK, the ruby too) — so the picker is driven by the
+// track's actual capability via phoneticSystemsFor(), NOT bolted to the
+// annotation row.  Renders nothing for single-system langs (Korean,
+// Cyrillic, Indic, Hebrew, Japanese) where there's no choice to make.
+interface PhoneticSystemRowProps {
+  label: string;
+  track: CaptionTrack | null;
+  value: string | null;
+  onChange: (code: string | null) => void;
+}
+
+function PhoneticSystemRow({
+  label,
+  track,
+  value,
+  onChange,
+}: PhoneticSystemRowProps) {
+  const systems = track ? phoneticSystemsFor(track.languageCode) : [];
+  if (systems.length < 2) return null;
+  return (
+    <div style={annotateSystemRowStyle()}>
+      <span style={annotateSystemLabelStyle()}>{label} phonetic system</span>
+      <LangSelect
+        value={value ?? ""}
+        onChange={(code) => onChange(code === "" ? null : code)}
+        options={systems}
+        emptyOption={{ label: "Auto (default for language)" }}
+      />
     </div>
   );
 }
@@ -1369,14 +1568,7 @@ function RomanizeRow({ label, track, enabled, onToggle }: RomanizeRowProps) {
     <div style={annotateRowStyle(dim)}>
       <div style={annotateHeaderStyle()}>
         <span style={annotateLabelStyle()}>{label}</span>
-        <button
-          type="button"
-          onClick={() => onToggle(!enabled)}
-          style={annotateToggleStyle(enabled)}
-          aria-pressed={enabled}
-        >
-          {enabled ? "On" : "Off"}
-        </button>
+        <Switch on={enabled} onToggle={onToggle} ariaLabel={`${label} toggle`} />
       </div>
       {!romanizable && (
         <p style={hintStyle()}>
@@ -1430,17 +1622,15 @@ function JapaneseLongVowelRow({
 
 // ---- VariantSection — alternate-orthography ruby ------------------
 //
-// Section is ALWAYS visible — same UX shape as AnnotateRow (which
-// stays mounted but dims + explains itself when the active track's
-// language isn't supported).  This way the feature is discoverable
-// on every video; users see what's possible without having to load a
-// Chinese video first.
+// Capability-gated (C-2): the section renders only when a selected
+// track has a registered orthography variant (today: the Traditional-
+// Chinese family → Simplified).  On any other video it returns null —
+// language-specific controls appear only for the language they apply to.
 //
-// Data-driven gate: each per-layer row resolves its toggle's enabled
-// state via @loom/orthography-tables.  When a layer's track has a
-// registered variant (today: Traditional Chinese only), its toggle is
-// live + the row carries variant-specific copy.  Otherwise the row
-// dims, the toggle is read-only, and a hint explains why.
+// Data-driven: per-layer toggle state resolves via
+// @loom/orthography-tables.  A layer whose track has no variant dims its
+// row + explains why, but the section as a whole stays hidden unless at
+// least one side qualifies.
 //
 // Shared controls (highlight + colours) appear only when at least
 // one layer is actually enabled — no point exposing color pickers
@@ -1455,12 +1645,18 @@ interface VariantSectionProps {
   variantColor: string;
   cleanColor: string;
   collapseColor: string;
+  /** When true, the Simplified-char swatch is locked to the Top color. */
+  variantColorSameAsTop: boolean;
+  /** Top layer color — shown as the effective Simplified-char color while
+      "same as Top" is checked. */
+  topColor: string;
   onTargetToggle: (v: boolean) => void;
   onNativeToggle: (v: boolean) => void;
   onHighlightToggle: (v: boolean) => void;
   onVariantColorChange: (hex: string) => void;
   onCleanColorChange: (hex: string) => void;
   onCollapseColorChange: (hex: string) => void;
+  onVariantColorSameAsTopToggle: (v: boolean) => void;
 }
 
 function VariantSection({
@@ -1472,12 +1668,15 @@ function VariantSection({
   variantColor,
   cleanColor,
   collapseColor,
+  variantColorSameAsTop,
+  topColor,
   onTargetToggle,
   onNativeToggle,
   onHighlightToggle,
   onVariantColorChange,
   onCleanColorChange,
   onCollapseColorChange,
+  onVariantColorSameAsTopToggle,
 }: VariantSectionProps) {
   const targetVariant = selectedTarget
     ? resolveOrthographyVariants(selectedTarget.languageCode)[0] ?? null
@@ -1486,12 +1685,21 @@ function VariantSection({
     ? resolveOrthographyVariants(selectedNative.languageCode)[0] ?? null
     : null;
 
+  // Capability-gated (C-2): the whole section is hidden unless a
+  // selected track actually has an orthography variant (today: only the
+  // Traditional-Chinese family).  No more always-mounted dimmed rows on
+  // every video — the feature surfaces exactly when it applies.
+  if (!targetVariant && !nativeVariant) return null;
+
   // Effective-enabled: a toggle only counts when its track ALSO has a
   // variant.  Stops a stale "on" toggle from claiming the feature is
   // active when the user has since switched to a non-Chinese track.
   const targetEffective = targetEnabled && !!targetVariant;
   const nativeEffective = nativeEnabled && !!nativeVariant;
   const anyEnabled = targetEffective || nativeEffective;
+  // The Simplified glyph tracks the Top color while "same as Top" is on
+  // (the live overlay resolves the same way in caption-overlay).
+  const effectiveVariantColor = variantColorSameAsTop ? topColor : variantColor;
 
   return (
     <Section title="Alternate orthography">
@@ -1514,7 +1722,7 @@ function VariantSection({
           <div style={layerStyleHeaderStyle()}>Highlight &amp; colors</div>
 
           <VariantPreview
-            variantColor={variantColor}
+            variantColor={effectiveVariantColor}
             cleanColor={cleanColor}
             collapseColor={collapseColor}
             highlightEnabled={highlightEnabled}
@@ -1525,20 +1733,57 @@ function VariantSection({
               <span style={layerStyleRowLabelStyle()}>
                 Color-code differing chars
               </span>
-              <button
-                type="button"
-                onClick={() => onHighlightToggle(!highlightEnabled)}
-                style={annotateToggleStyle(highlightEnabled)}
-                aria-pressed={highlightEnabled}
-              >
-                {highlightEnabled ? "On" : "Off"}
-              </button>
+              <Switch
+                on={highlightEnabled}
+                onToggle={onHighlightToggle}
+                ariaLabel="Color-code differing chars"
+              />
             </div>
           </div>
 
           <div style={layerStyleRowStyle()}>
-            <span style={layerStyleRowLabelStyle()}>Under-ruby color</span>
-            <ColorRow label="" value={variantColor} onChange={onVariantColorChange} />
+            <div style={variantInlineLabelRowStyle()}>
+              <span style={layerStyleRowLabelStyle()}>
+                Simplified char: same as Top
+              </span>
+              <Switch
+                on={variantColorSameAsTop}
+                onToggle={onVariantColorSameAsTopToggle}
+                ariaLabel="Simplified char same as Top"
+              />
+            </div>
+          </div>
+
+          <div style={layerStyleRowStyle()}>
+            <span style={layerStyleRowLabelStyle()}>Simplified char color</span>
+            {variantColorSameAsTop ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  opacity: 0.7,
+                  fontSize: 11,
+                }}
+              >
+                <span
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 3,
+                    background: topColor,
+                    border: "1px solid rgba(255,255,255,0.3)",
+                  }}
+                />
+                matches Top
+              </span>
+            ) : (
+              <ColorRow
+                label=""
+                value={variantColor}
+                onChange={onVariantColorChange}
+              />
+            )}
           </div>
 
           {highlightEnabled && (
@@ -1681,26 +1926,19 @@ function VariantToggleRow({
   // switching to a track that DOES support it.
   const dim = !variant;
   const labelText = variant
-    ? `${label}: show ${variant.targetLabel} below`
+    ? `${label}: show ${variant.targetLabel} above`
     : `${label}: alternate orthography`;
   return (
     <div style={annotateRowStyle(dim)}>
       <div style={annotateHeaderStyle()}>
         <span style={annotateLabelStyle()}>{labelText}</span>
-        <button
-          type="button"
-          onClick={() => onToggle(!enabled)}
-          style={annotateToggleStyle(enabled)}
-          aria-pressed={enabled}
-        >
-          {enabled ? "On" : "Off"}
-        </button>
+        <Switch on={enabled} onToggle={onToggle} ariaLabel={`${label} toggle`} />
       </div>
       {variant ? (
         <p style={hintStyle()}>
           Reading aid for {variant.sourceHint}: each character that
-          differs in {variant.targetHint} renders a small under-ruby of
-          the {variant.targetLabel} form.
+          differs in {variant.targetHint} floats a small auxiliary ruby
+          of the {variant.targetLabel} form above the reading.
         </p>
       ) : (
         <p style={hintStyle()}>
@@ -2346,26 +2584,6 @@ function annotateLabelStyle(): React.CSSProperties {
   };
 }
 
-function annotateToggleStyle(enabled: boolean): React.CSSProperties {
-  return {
-    minWidth: "48px",
-    padding: "4px 10px",
-    borderRadius: "999px",
-    border: enabled
-      ? "1px solid rgba(93, 255, 170, 0.45)"
-      : "1px solid rgba(255, 255, 255, 0.18)",
-    background: enabled
-      ? "rgba(93, 255, 170, 0.18)"
-      : "rgba(255, 255, 255, 0.05)",
-    color: enabled ? "#5dffaa" : "rgba(255, 255, 255, 0.6)",
-    fontSize: "11px",
-    fontFamily: "inherit",
-    fontWeight: 600,
-    letterSpacing: "0.04em",
-    cursor: "pointer",
-    textTransform: "uppercase",
-  };
-}
 
 function annotateSystemRowStyle(): React.CSSProperties {
   return {

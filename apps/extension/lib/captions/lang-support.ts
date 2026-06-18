@@ -154,6 +154,62 @@ export function classifyLang(code: string): LangSupport {
   };
 }
 
+// ---- Phonetic-system options (capability-driven picker) -------------
+//
+// `phonetic_system` is accepted end-to-end by /annotate/batch +
+// /romanize/batch and drives the romanization LINE (and, for CJK, the
+// ruby) — see loom_core/romanize.py for the authoritative per-language
+// system lists this table mirrors.  Only languages with MORE THAN ONE
+// system need a picker; everything else (Korean, Cyrillic, Indic,
+// Hebrew, Japanese) has a single system and returns [] so the UI shows
+// no choice.  Japanese long-vowel mode is a separate control.
+
+export interface PhoneticSystemOption {
+  code: string;
+  label: string;
+}
+
+const CHINESE_SYSTEMS: PhoneticSystemOption[] = [
+  { code: "pinyin", label: "Pinyin" },
+  { code: "zhuyin", label: "Zhuyin (Bopomofo)" },
+  { code: "jyutping", label: "Jyutping (Cantonese)" },
+];
+const THAI_SYSTEMS: PhoneticSystemOption[] = [
+  { code: "paiboon", label: "Paiboon+ (with tones)" },
+  { code: "rtgs", label: "RTGS (ASCII)" },
+  { code: "ipa", label: "IPA" },
+];
+const ARABIC_SYSTEMS: PhoneticSystemOption[] = [
+  { code: "learner", label: "Learner" },
+  { code: "din", label: "DIN 31635 (scholarly)" },
+  { code: "loose", label: "Loose (ASCII)" },
+];
+const PERSIAN_SYSTEMS: PhoneticSystemOption[] = [
+  { code: "learner", label: "Learner" },
+  { code: "dmg", label: "DMG (scholarly)" },
+];
+const URDU_SYSTEMS: PhoneticSystemOption[] = [
+  { code: "learner", label: "Learner (Hunterian)" },
+  { code: "ala-lc", label: "ALA-LC (scholarly)" },
+];
+
+/** Phonetic-system choices for a language, or [] when there's only one
+    (or none) — in which case the UI surfaces no picker.  Arabic-script
+    languages branch on base lang (ar / fa / ur each have distinct
+    systems); CJK-Han covers all Chinese variants (Japanese is `kana`
+    family, Korean `hangul`, so both correctly fall through to []). */
+export function phoneticSystemsFor(code: string): PhoneticSystemOption[] {
+  const cls = classifyLang(code);
+  if (cls.family === "cjk-han") return CHINESE_SYSTEMS;
+  if (cls.family === "thai") return THAI_SYSTEMS;
+  if (cls.family === "arabic") {
+    if (cls.base === "fa" || cls.base === "prs") return PERSIAN_SYSTEMS;
+    if (cls.base === "ur") return URDU_SYSTEMS;
+    return ARABIC_SYSTEMS;
+  }
+  return [];
+}
+
 /** Two BCP-47 codes share a base language.  Used for regional-variant
     collapse: en + en-US + en-GB + en-AU + en-IN are all "English";
     pt + pt-BR + pt-PT are all "Portuguese"; es + es-MX + es-419 +

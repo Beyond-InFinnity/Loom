@@ -76,6 +76,10 @@ const STORAGE_KEY_VARIANT_HIGHLIGHT = "loom_variant_highlight_enabled";
 const STORAGE_KEY_VARIANT_COLOR = "loom_variant_color";
 const STORAGE_KEY_VARIANT_CLEAN_COLOR = "loom_variant_clean_color";
 const STORAGE_KEY_VARIANT_COLLAPSE_COLOR = "loom_variant_collapse_color";
+// When true (default), the Simplified auxiliary-ruby glyph tracks the Top
+// layer's color so the two read as one unit; uncheck to color it freely.
+const STORAGE_KEY_VARIANT_COLOR_SAME_AS_TOP =
+  "loom_variant_color_same_as_top";
 const STORAGE_KEY_ACTIVE_PRESET = "loom_active_preset_id";
 // Advanced per-layer styling — alpha, outline (4-corner text-shadow
 // stroke), glow (0 0 Npx text-shadow halo).  All match the desktop's
@@ -100,9 +104,27 @@ const STORAGE_KEY_ANNOTATION_GLOW_COLOR = "loom_annotation_glow_color";
 const STORAGE_KEY_TOP_GLOW_ALPHA = "loom_top_glow_alpha";
 const STORAGE_KEY_BOTTOM_GLOW_ALPHA = "loom_bottom_glow_alpha";
 const STORAGE_KEY_ANNOTATION_GLOW_ALPHA = "loom_annotation_glow_alpha";
-const DEFAULT_TOP_COLOR = "#ffffff";
-const DEFAULT_BOTTOM_COLOR = "#ffffff";
-const DEFAULT_ANNOTATION_COLOR = "#ffffff";
+// Opacity model (C-5): Bottom is independent.  The Top group (Top +
+// Annotation + Romanization + alt-orth) shares one opacity by default —
+// `topGroupOpacityLinked` true means the Top alpha drives the whole
+// group; false lets Annotation + Romanization take their own alpha.
+const STORAGE_KEY_ROMANIZATION_ALPHA = "loom_romanization_alpha";
+const STORAGE_KEY_TOP_GROUP_OPACITY_LINKED = "loom_top_group_opacity_linked";
+// Per-line master enable (C-8): turn the whole Top (foreign) or Bottom
+// (native) line on/off, so Loom doubles as a subtitle customizer — e.g.
+// foreign + annotations only, no native line.  Top off hides its
+// annotation / romanization / alt-orth too (nothing to attach to).
+const STORAGE_KEY_TOP_LINE_ENABLED = "loom_top_line_enabled";
+const STORAGE_KEY_BOTTOM_LINE_ENABLED = "loom_bottom_line_enabled";
+// Default palette — soft pastels (they read well together and against
+// video, and give a brand-new user an informative color-coded layout
+// instead of an overwhelming wall of white).  Per-line: Bottom = warm
+// custard/cream, Top = pastel purple, Annotation = pastel red,
+// Romanization = pastel green, plus the alt-orth tier colors below.
+// Fresh installs only — a user's saved customization is never stomped.
+const DEFAULT_TOP_COLOR = "#bdb2ff";        // pastel purple — foreign text
+const DEFAULT_BOTTOM_COLOR = "#fbf3c4";     // custard/cream — native text
+const DEFAULT_ANNOTATION_COLOR = "#ffadad"; // pastel red — per-token reading
 /** "auto" sentinel means use the overlay's default cross-script
     Noto-fallback FONT_STACK from caption-overlay.tsx.  Any other
     string is a CSS font-family value used verbatim. */
@@ -118,10 +140,13 @@ const DEFAULT_ANNOTATION_FONT_RATIO = 0.5;
     Top.  Slightly larger than annotation since the romanization line
     is a full utterance — more reading load, bigger glyphs help. */
 const DEFAULT_ROMANIZATION_FONT_RATIO = 0.55;
-const DEFAULT_ROMANIZATION_COLOR = "#ffffff";
-const DEFAULT_VARIANT_COLOR = "#ffffff";
-const DEFAULT_VARIANT_CLEAN_COLOR = "#5cffff";       // soft cyan — 1:1 mapping
-const DEFAULT_VARIANT_COLLAPSE_COLOR = "#ffcc5c";   // soft amber — forward-collapse
+const DEFAULT_ROMANIZATION_COLOR = "#caffbf";        // pastel green — phonetic line
+const DEFAULT_VARIANT_COLOR = "#bdb2ff";             // pastel purple — Simplified glyph (= Top by default)
+const DEFAULT_VARIANT_CLEAN_COLOR = "#a0c4ff";       // pastel blue — 1:1 / distinct mapping
+const DEFAULT_VARIANT_COLLAPSE_COLOR = "#fdffb6";   // pastel yellow — forward-collapse / merged
+/** Simplified auxiliary-ruby color tracks the Top color by default so
+    the pair reads as one unit; the user can uncheck to set it freely. */
+const DEFAULT_VARIANT_COLOR_SAME_AS_TOP = true;
 // Defaults for advanced layer styling.  Match desktop's LayerColors
 // defaults from loom_core/color_presets.py::_L() so presets behave
 // identically across surfaces.
@@ -131,6 +156,9 @@ const DEFAULT_OUTLINE_ALPHA = 90;
 const DEFAULT_GLOW_RADIUS = 0;                       // 0 disables glow rendering
 const DEFAULT_GLOW_COLOR = "#ffffff";
 const DEFAULT_GLOW_ALPHA = 100;
+/** Top group opacity is linked by default — one slider dims the foreign
+    line and its readings together. */
+const DEFAULT_TOP_GROUP_OPACITY_LINKED = true;
 
 /** Slot a track occupies on screen.
     - top-1    : top of player, upper line of top zone (visually highest)
@@ -245,6 +273,17 @@ interface CaptionContextValue {
   topAlpha: number;
   bottomAlpha: number;
   annotationAlpha: number;
+  /** Romanization line opacity — only consulted when the Top group is
+      UNLINKED; while linked it follows topAlpha. */
+  romanizationAlpha: number;
+  /** When true (default), Top alpha drives the whole Top group
+      (Top + Annotation + Romanization + alt-orth).  When false, each
+      sub-line uses its own alpha. */
+  topGroupOpacityLinked: boolean;
+  /** Master per-line enable (C-8).  When false the whole line is hidden;
+      Top off also hides its annotation / romanization / alt-orth. */
+  topLineEnabled: boolean;
+  bottomLineEnabled: boolean;
   /** Per-layer outline color + alpha — the 4-corner text-shadow stroke
       that emulates ASS outline.  Default black @ 90%. */
   topOutlineColor: string;
@@ -291,6 +330,10 @@ interface CaptionContextValue {
   variantColor: string;
   variantCleanColor: string;
   variantCollapseColor: string;
+  /** When true (default), the Simplified auxiliary-ruby glyph uses the
+      Top layer's color (so the pair reads as one unit).  When false, it
+      uses `variantColor` verbatim. */
+  variantColorSameAsTop: boolean;
 
   /** Setters wired into discover.ts.  Pass null to revert to
       auto-pick. */
@@ -319,6 +362,10 @@ interface CaptionContextValue {
   setTopAlpha: (v: number) => void;
   setBottomAlpha: (v: number) => void;
   setAnnotationAlpha: (v: number) => void;
+  setRomanizationAlpha: (v: number) => void;
+  setTopGroupOpacityLinked: (v: boolean) => void;
+  setTopLineEnabled: (v: boolean) => void;
+  setBottomLineEnabled: (v: boolean) => void;
   setTopOutlineColor: (hex: string) => void;
   setBottomOutlineColor: (hex: string) => void;
   setAnnotationOutlineColor: (hex: string) => void;
@@ -352,6 +399,7 @@ interface CaptionContextValue {
   setVariantColor: (hex: string) => void;
   setVariantCleanColor: (hex: string) => void;
   setVariantCollapseColor: (hex: string) => void;
+  setVariantColorSameAsTop: (v: boolean) => void;
 }
 
 const CaptionContext = createContext<CaptionContextValue | null>(null);
@@ -449,6 +497,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [variantCollapseColor, setVariantCollapseColorState] = useState(
     DEFAULT_VARIANT_COLLAPSE_COLOR,
   );
+  const [variantColorSameAsTop, setVariantColorSameAsTopState] = useState(
+    DEFAULT_VARIANT_COLOR_SAME_AS_TOP,
+  );
   const [presetCatalog, setPresetCatalog] = useState<PresetCatalog | null>(
     null,
   );
@@ -456,6 +507,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [topAlpha, setTopAlphaState] = useState(DEFAULT_LAYER_ALPHA);
   const [bottomAlpha, setBottomAlphaState] = useState(DEFAULT_LAYER_ALPHA);
   const [annotationAlpha, setAnnotationAlphaState] = useState(DEFAULT_LAYER_ALPHA);
+  const [romanizationAlpha, setRomanizationAlphaState] =
+    useState(DEFAULT_LAYER_ALPHA);
+  const [topGroupOpacityLinked, setTopGroupOpacityLinkedState] = useState(
+    DEFAULT_TOP_GROUP_OPACITY_LINKED,
+  );
+  const [topLineEnabled, setTopLineEnabledState] = useState(true);
+  const [bottomLineEnabled, setBottomLineEnabledState] = useState(true);
   const [topOutlineColor, setTopOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
   const [bottomOutlineColor, setBottomOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
   const [annotationOutlineColor, setAnnotationOutlineColorState] = useState(DEFAULT_OUTLINE_COLOR);
@@ -574,6 +632,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_VARIANT_COLOR,
           STORAGE_KEY_VARIANT_CLEAN_COLOR,
           STORAGE_KEY_VARIANT_COLLAPSE_COLOR,
+          STORAGE_KEY_VARIANT_COLOR_SAME_AS_TOP,
           STORAGE_KEY_ACTIVE_PRESET,
           STORAGE_KEY_TOP_ALPHA,
           STORAGE_KEY_BOTTOM_ALPHA,
@@ -596,6 +655,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_ROMANIZATION_COLOR,
           STORAGE_KEY_ROMANIZATION_FONT_FAMILY,
           STORAGE_KEY_ROMANIZATION_FONT_RATIO,
+          STORAGE_KEY_ROMANIZATION_ALPHA,
+          STORAGE_KEY_TOP_GROUP_OPACITY_LINKED,
+          STORAGE_KEY_TOP_LINE_ENABLED,
+          STORAGE_KEY_BOTTOM_LINE_ENABLED,
         ]);
         const top = result[STORAGE_KEY_TOP_COLOR];
         const bottom = result[STORAGE_KEY_BOTTOM_COLOR];
@@ -663,6 +726,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setVariantCleanColorState(vClean);
         if (typeof vColl === "string" && vColl.length > 0)
           setVariantCollapseColorState(vColl);
+        const vSame = result[STORAGE_KEY_VARIANT_COLOR_SAME_AS_TOP];
+        if (typeof vSame === "boolean") setVariantColorSameAsTopState(vSame);
         const ap = result[STORAGE_KEY_ACTIVE_PRESET];
         if (typeof ap === "string") setActivePresetIdState(ap);
         // Advanced styling — clamp numerics, validate hex strings.
@@ -696,6 +761,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
         loadAlpha(STORAGE_KEY_TOP_GLOW_ALPHA, setTopGlowAlphaState);
         loadAlpha(STORAGE_KEY_BOTTOM_GLOW_ALPHA, setBottomGlowAlphaState);
         loadAlpha(STORAGE_KEY_ANNOTATION_GLOW_ALPHA, setAnnotationGlowAlphaState);
+        loadAlpha(STORAGE_KEY_ROMANIZATION_ALPHA, setRomanizationAlphaState);
+        const linked = result[STORAGE_KEY_TOP_GROUP_OPACITY_LINKED];
+        if (typeof linked === "boolean") setTopGroupOpacityLinkedState(linked);
+        const tLine = result[STORAGE_KEY_TOP_LINE_ENABLED];
+        const bLine = result[STORAGE_KEY_BOTTOM_LINE_ENABLED];
+        if (typeof tLine === "boolean") setTopLineEnabledState(tLine);
+        if (typeof bLine === "boolean") setBottomLineEnabledState(bLine);
       } catch (e) {
         console.warn("[Loom] failed to load presentation prefs:", e);
       }
@@ -976,6 +1048,33 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     makeNumberSetter(setAnnotationAlphaState, STORAGE_KEY_ANNOTATION_ALPHA, 0, 100),
     [],
   );
+  const setRomanizationAlpha = useCallback(
+    makeNumberSetter(
+      setRomanizationAlphaState,
+      STORAGE_KEY_ROMANIZATION_ALPHA,
+      0,
+      100,
+    ),
+    [],
+  );
+  const setTopGroupOpacityLinked = useCallback((v: boolean) => {
+    setTopGroupOpacityLinkedState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TOP_GROUP_OPACITY_LINKED]: v })
+      .catch((e) => console.warn("[Loom] persist topGroupOpacityLinked:", e));
+  }, []);
+  const setTopLineEnabled = useCallback((v: boolean) => {
+    setTopLineEnabledState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_TOP_LINE_ENABLED]: v })
+      .catch((e) => console.warn("[Loom] persist topLineEnabled:", e));
+  }, []);
+  const setBottomLineEnabled = useCallback((v: boolean) => {
+    setBottomLineEnabledState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_BOTTOM_LINE_ENABLED]: v })
+      .catch((e) => console.warn("[Loom] persist bottomLineEnabled:", e));
+  }, []);
   const setTopOutlineColor = useCallback(
     makeHexSetter(setTopOutlineColorState, STORAGE_KEY_TOP_OUTLINE_COLOR),
     [],
@@ -1073,6 +1172,12 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       .set({ [STORAGE_KEY_VARIANT_COLLAPSE_COLOR]: hex })
       .catch((e) => console.warn("[Loom] persist variantCollapseColor:", e));
   }, []);
+  const setVariantColorSameAsTop = useCallback((v: boolean) => {
+    setVariantColorSameAsTopState(v);
+    void browser.storage.local
+      .set({ [STORAGE_KEY_VARIANT_COLOR_SAME_AS_TOP]: v })
+      .catch((e) => console.warn("[Loom] persist variantColorSameAsTop:", e));
+  }, []);
 
   const setTargetAnnotateEnabled = useCallback((v: boolean) => {
     discoverSetTargetAnnotateEnabled(v);
@@ -1164,6 +1269,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       variantColor,
       variantCleanColor,
       variantCollapseColor,
+      variantColorSameAsTop,
       presetCatalog,
       activePresetId,
       applyPreset,
@@ -1171,6 +1277,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topAlpha,
       bottomAlpha,
       annotationAlpha,
+      romanizationAlpha,
+      topGroupOpacityLinked,
+      topLineEnabled,
+      bottomLineEnabled,
       topOutlineColor,
       bottomOutlineColor,
       annotationOutlineColor,
@@ -1189,6 +1299,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopAlpha,
       setBottomAlpha,
       setAnnotationAlpha,
+      setRomanizationAlpha,
+      setTopGroupOpacityLinked,
+      setTopLineEnabled,
+      setBottomLineEnabled,
       setTopOutlineColor,
       setBottomOutlineColor,
       setAnnotationOutlineColor,
@@ -1236,6 +1350,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setVariantColor,
       setVariantCleanColor,
       setVariantCollapseColor,
+      setVariantColorSameAsTop,
     }),
     [
       status,
@@ -1281,6 +1396,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       variantColor,
       variantCleanColor,
       variantCollapseColor,
+      variantColorSameAsTop,
       presetCatalog,
       activePresetId,
       applyPreset,
@@ -1288,6 +1404,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topAlpha,
       bottomAlpha,
       annotationAlpha,
+      romanizationAlpha,
+      topGroupOpacityLinked,
+      topLineEnabled,
+      bottomLineEnabled,
       topOutlineColor,
       bottomOutlineColor,
       annotationOutlineColor,
@@ -1306,6 +1426,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopAlpha,
       setBottomAlpha,
       setAnnotationAlpha,
+      setRomanizationAlpha,
+      setTopGroupOpacityLinked,
+      setTopLineEnabled,
+      setBottomLineEnabled,
       setTopOutlineColor,
       setBottomOutlineColor,
       setAnnotationOutlineColor,
@@ -1353,6 +1477,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setVariantColor,
       setVariantCleanColor,
       setVariantCollapseColor,
+      setVariantColorSameAsTop,
     ],
   );
 

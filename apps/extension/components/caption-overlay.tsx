@@ -89,6 +89,10 @@ interface Layer {
   romanizationLine: string | null;
   romanizationRatio: number;
   romanizationColor: string;
+  /** 0–100 opacity for the romanization line.  Resolved by the overlay
+      from the Top-group link state (follows the base alpha when linked,
+      its own when unlinked). */
+  romanizationAlpha: number;
   romanizationFontFamily: string | null;
   /** Color of the under-ruby <rt> (alternate-orthography variant). */
   variantColor: string;
@@ -134,9 +138,10 @@ export function CaptionOverlay() {
     targetVariantEnabled,
     nativeVariantEnabled,
     variantHighlightEnabled,
-    variantColor,
+    variantColor: variantColorRaw,
     variantCleanColor,
     variantCollapseColor,
+    variantColorSameAsTop,
     topAlpha,
     bottomAlpha,
     annotationAlpha,
@@ -155,8 +160,21 @@ export function CaptionOverlay() {
     topGlowAlpha,
     bottomGlowAlpha,
     annotationGlowAlpha,
+    romanizationAlpha,
+    topGroupOpacityLinked,
+    topLineEnabled,
+    bottomLineEnabled,
   } = useCaptionStream();
-  void annotationAlpha;
+  // Simplified auxiliary-ruby color: tracks the Top color by default so
+  // the pair reads as one unit (C-3); falls back to its own color when
+  // the user unchecks "same as Top".
+  const variantColor = variantColorSameAsTop ? topColor : variantColorRaw;
+  // Opacity model (C-5): the Top group (annotation + romanization +
+  // alt-orth) follows topAlpha while linked (default); when unlinked the
+  // annotation + romanization sub-lines take their own alpha.  The Bottom
+  // side is always independent — its children follow bottomAlpha.
+  const topAnnoAlpha = topGroupOpacityLinked ? topAlpha : annotationAlpha;
+  const topRomanAlpha = topGroupOpacityLinked ? topAlpha : romanizationAlpha;
   void annotationOutlineColor;
   void annotationOutlineAlpha;
   void annotationGlowRadius;
@@ -168,8 +186,11 @@ export function CaptionOverlay() {
   const scale = usePlayerScale();
 
   if (status.kind !== "tracking") return null;
-  const topText = target?.text ?? "";
-  const bottomText = native?.text ?? "";
+  // Per-line master enable (C-8): a disabled line contributes no text, so
+  // its whole layer — base + annotation + romanization + alt-orth — is
+  // skipped, and its slot isn't reserved below.
+  const topText = topLineEnabled ? target?.text ?? "" : "";
+  const bottomText = bottomLineEnabled ? native?.text ?? "" : "";
   if (!topText && !bottomText) return null;
 
   // Look up spans for the currently-active event text.  When the
@@ -238,12 +259,18 @@ export function CaptionOverlay() {
   // that's what keeps the sibling slot from "bouncing" to the zone
   // anchor when both layers are in the same zone but only one has
   // content.
-  slots[targetPosition].configured = true;
-  slots[targetPosition].reservedFontSize = topFontSizePx;
-  slots[targetPosition].reservedFontFamily = topFontFamily;
-  slots[nativePosition].configured = true;
-  slots[nativePosition].reservedFontSize = bottomFontSizePx;
-  slots[nativePosition].reservedFontFamily = bottomFontFamily;
+  // Only reserve a slot for a line that's enabled — a disabled line
+  // leaves no gap.
+  if (topLineEnabled) {
+    slots[targetPosition].configured = true;
+    slots[targetPosition].reservedFontSize = topFontSizePx;
+    slots[targetPosition].reservedFontFamily = topFontFamily;
+  }
+  if (bottomLineEnabled) {
+    slots[nativePosition].configured = true;
+    slots[nativePosition].reservedFontSize = bottomFontSizePx;
+    slots[nativePosition].reservedFontFamily = bottomFontFamily;
+  }
 
   if (topText) {
     slots[targetPosition].layer = {
@@ -258,13 +285,14 @@ export function CaptionOverlay() {
       fontSizePx: topFontSizePx,
       fontFamily: topFontFamily,
       annotationRatio: annotationFontRatio,
-      annotationColor,
+      annotationColor: hexToRgba(annotationColor, topAnnoAlpha),
       annotationFontFamily,
       romanizationLine: targetRomanizationLine,
       romanizationRatio: romanizationFontRatio,
       romanizationColor,
+      romanizationAlpha: topRomanAlpha,
       romanizationFontFamily,
-      variantColor,
+      variantColor: hexToRgba(variantColor, topAnnoAlpha),
       variantFontFamily: null,
       variantHighlightEnabled,
       variantCleanHighlightColor: variantCleanColor,
@@ -287,13 +315,14 @@ export function CaptionOverlay() {
       // target — the panel exposes one set of annotation controls
       // shared across both layers since native is rarely annotated.
       annotationRatio: annotationFontRatio,
-      annotationColor,
+      annotationColor: hexToRgba(annotationColor, bottomAlpha),
       annotationFontFamily,
       romanizationLine: nativeRomanizationLine,
       romanizationRatio: romanizationFontRatio,
       romanizationColor,
+      romanizationAlpha: bottomAlpha,
       romanizationFontFamily,
-      variantColor,
+      variantColor: hexToRgba(variantColor, bottomAlpha),
       variantFontFamily: null,
       variantHighlightEnabled,
       variantCleanHighlightColor: variantCleanColor,
@@ -471,10 +500,9 @@ function RomanizationLine({
   scale: number;
 }) {
   const fontPx = layer.fontSizePx * layer.romanizationRatio * scale;
-  // Inherit alpha from the parent layer (use the same hexToRgba pass
-  // so a layer-alpha < 100 dims the romanization line uniformly with
-  // the base text).
-  const color = hexToRgba(layer.romanizationColor, layer.alpha);
+  // Romanization opacity is resolved by the overlay (C-5): it follows the
+  // base alpha while the Top group is linked, or its own when unlinked.
+  const color = hexToRgba(layer.romanizationColor, layer.romanizationAlpha);
   return (
     <div
       style={{

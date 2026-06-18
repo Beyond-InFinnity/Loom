@@ -18,6 +18,17 @@ const DEV_API = "http://localhost:8000";
 
 const isDev = (mode: string) => mode !== "production";
 
+// API base resolution. An explicit LOOM_API_BASE env var wins over the
+// mode default — this DECOUPLES the API endpoint from the build identity,
+// so a dev-IDENTITY build (separate "Loom (Dev)" id + storage + verbose
+// logging, installable alongside the daily-driver) can point at the live
+// Railway API to diagnose BACKEND issues. localhost would only exercise
+// the frontend wiring. Unset (the normal case) → identical to before, so
+// prod CI builds are unaffected.
+//   LOOM_API_BASE=https://api.loom.nerv-analytic.ai npm run build:firefox:dev
+const resolveApiBase = (mode: string): string =>
+  process.env.LOOM_API_BASE || (isDev(mode) ? DEV_API : PROD_API);
+
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   srcDir: ".",
@@ -28,13 +39,14 @@ export default defineConfig({
   vite: ({ mode }) => ({
     define: {
       __LOOM_IS_DEV__: JSON.stringify(isDev(mode)),
-      __LOOM_API_BASE__: JSON.stringify(isDev(mode) ? DEV_API : PROD_API),
+      __LOOM_API_BASE__: JSON.stringify(resolveApiBase(mode)),
     },
   }),
 
   manifest: ({ mode, browser }) => {
     const dev = isDev(mode);
     const variant = dev ? "dev" : "prod";
+    const apiBase = resolveApiBase(mode);
     return {
       name: dev ? "Loom (Dev)" : "Loom",
       description:
@@ -54,7 +66,10 @@ export default defineConfig({
         // GET isn't blocked by the page's CORS.
         "*://*.netflix.com/*",
         "*://*.nflxvideo.net/*",
-        dev ? `${DEV_API}/*` : `${PROD_API}/*`,
+        // Follows the resolved API base (LOOM_API_BASE override or mode
+        // default) so a dev build pointed at prod gets the prod origin
+        // granted for the cross-origin /annotate + /romanize fetches.
+        `${apiBase}/*`,
       ],
       // Firefox-only block: the gecko `id` (required for AMO signing) + the
       // AMO data-collection disclosure (`websiteContent` — subtitle text sent

@@ -6,11 +6,14 @@ const t = (
   languageCode: string,
   kind: "manual" | "asr" = "manual",
   name?: string,
+  isCc = false,
 ): CaptionTrack => ({
+  id: `${languageCode}-${kind}-${isCc ? "cc" : "std"}`,
   languageCode,
   name: name ?? languageCode,
   baseUrl: `https://example.com/?lang=${languageCode}`,
   kind,
+  isCc,
 });
 
 describe("pickNative — regional variant collapse", () => {
@@ -48,6 +51,22 @@ describe("pickNative — regional variant collapse", () => {
     // A user with native="he" should still find it.
     expect(pickNative([t("iw")], "he")?.languageCode).toBe("iw");
   });
+
+  // Netflix exposes both "English (CC)" and plain "English" for one
+  // language.  Default to the clean standard track; CC is a deliberate
+  // user pick, not the auto-default.
+  it("prefers standard subtitles over SDH/CC for the same language", () => {
+    const cc = t("en", "manual", "English (CC)", true);
+    const std = t("en", "manual", "English", false);
+    expect(pickNative([cc, std], "en")?.id).toBe(std.id); // CC listed first
+    expect(pickNative([std, cc], "en")?.id).toBe(std.id); // std listed first
+  });
+
+  it("falls back to CC when it's the only track for the language", () => {
+    // JP-anime / Thai-origin titles ship the origin language as CC only.
+    const ccOnly = t("ja", "manual", "Japanese (CC)", true);
+    expect(pickNative([ccOnly], "ja")?.id).toBe(ccOnly.id);
+  });
 });
 
 describe("pickTarget — tier ordering", () => {
@@ -75,6 +94,14 @@ describe("pickTarget — tier ordering", () => {
     const picked = pickTarget(tracks, "en");
     expect(picked?.kind).toBe("manual");
     expect(picked?.languageCode).toBe("fr");
+  });
+
+  it("prefers a standard target track over its SDH/CC sibling", () => {
+    // zh-Hant video (Crouching Tiger) carrying both a CC and a plain
+    // subtitles track for the target language → default to plain.
+    const cc = t("zh-Hant", "manual", "Chinese (Traditional) (CC)", true);
+    const std = t("zh-Hant", "manual", "Chinese (Traditional)", false);
+    expect(pickTarget([cc, std], "en")?.id).toBe(std.id);
   });
 
   it("skips the user's native language even if tier-1", () => {

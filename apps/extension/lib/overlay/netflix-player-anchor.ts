@@ -2,18 +2,26 @@
 // player-scale.ts's `#movie_player` + hide-yt-captions.ts.
 //
 // Selectors are sourced from the live-capture recon (NETFLIX_RECON.md,
-// 2026-06-18):
-//   - div[data-uia="video-canvas"]  the durable QA-hook player root
-//     (preferred over the churning .watch-video--* class names); it's
-//     the fullscreen element, so usePlayerScale's single ResizeObserver
-//     covers default / fullscreen.
+// 2026-06-18) + the 5h-3 first-run DOM probe (2026-06-18):
+//   - div[data-uia="player"]        the overlay anchor.  It is the lowest
+//     common ancestor of BOTH the <video> (inside data-uia="video-canvas")
+//     AND Netflix's control chrome (back button / bottom bar), confirmed
+//     by the LCA probe.  Anchoring here — rather than the lower
+//     video-canvas — puts Loom's shadow host in the SAME stacking context
+//     as the controls, so its max z-index actually wins and the pill /
+//     settings panel stay clickable while the chrome is up.  (Mounting
+//     inside video-canvas trapped us one context below the controls.)
+//     `player` also wraps video-canvas tightly (same box), so caption
+//     positioning + usePlayerScale are unchanged; and the controls live
+//     inside it, so it's inside whatever Netflix fullscreens.
 //   - #appMountPoint video          the HTML5 media element the playhead
 //     polls (CaptionStream hooks `timeupdate`).
 //   - .player-timedtext             Netflix's own subtitle rail, hidden
 //     while Loom's overlay is active.
 
-/** Player root: overlay shadow-host anchor + usePlayerScale target. */
-export const NETFLIX_PLAYER_ROOT = 'div[data-uia="video-canvas"]';
+/** Player root: overlay shadow-host anchor + usePlayerScale target.
+    The LCA of the video and the control chrome — see header. */
+export const NETFLIX_PLAYER_ROOT = 'div[data-uia="player"]';
 
 /** The HTML5 <video> CaptionStream hooks for the playhead. */
 export const NETFLIX_VIDEO_SELECTOR = "#appMountPoint video";

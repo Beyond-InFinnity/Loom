@@ -245,17 +245,19 @@ let romanizeAbortController: AbortController | null = null;
 // quiet until the user changes tracks / phonetic system.  See
 // lib/annotate/build-map.ts for the batch wire shape.
 
-/** (videoId :: languageCode :: tlang) → parsed events.  Re-pick is
-    instant after the first fetch.  Cleared on video navigation so the
-    map doesn't grow unbounded across long browsing sessions. */
+/** (videoId :: trackId :: tlang) → parsed events.  Re-pick is instant
+    after the first fetch.  Keyed by trackId (NOT languageCode) so two
+    same-language tracks — plain "English" vs "English (CC)" — don't
+    collide on one cache slot.  Cleared on video navigation so the map
+    doesn't grow unbounded across long browsing sessions. */
 const eventsCache = new Map<string, CaptionEvent[]>();
 
 function cacheKey(
   videoId: string,
-  languageCode: string,
+  trackId: string,
   tlang?: string | null,
 ): string {
-  return `${videoId}::${languageCode}::${tlang ?? ""}`;
+  return `${videoId}::${trackId}::${tlang ?? ""}`;
 }
 
 let latest: CaptionPayload | null = null;
@@ -805,7 +807,7 @@ async function fetchWithCache(
   track: CaptionTrack,
   tlang?: string,
 ): Promise<CaptionEvent[] | null> {
-  const key = cacheKey(videoId, track.languageCode, tlang);
+  const key = cacheKey(videoId, track.id, tlang);
   const cached = eventsCache.get(key);
   if (cached) return cached;
 

@@ -1,5 +1,11 @@
 import { useState } from "react";
 
+import { getPillAnchor } from "@/lib/overlay/pill-position";
+import {
+  stopToPlayer,
+  swallowPlayerEventsExceptClick,
+} from "@/lib/overlay/stop-player-events";
+
 // DormantPill — the off-state UI for per-tab activation (5d-perf).
 //
 // Default state of every fresh YouTube tab.  Renders a small, low-
@@ -27,7 +33,11 @@ export function DormantPill({ onActivate }: DormantPillProps) {
   return (
     <button
       type="button"
-      onClick={onActivate}
+      onClick={(e) => {
+        stopToPlayer(e);
+        onActivate();
+      }}
+      {...swallowPlayerEventsExceptClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={containerStyle(hover)}
@@ -60,10 +70,11 @@ function PowerIcon() {
 }
 
 function containerStyle(hover: boolean): React.CSSProperties {
+  const anchor = getPillAnchor();
   return {
     position: "absolute",
-    top: "16px",
-    right: "16px",
+    top: `${anchor.top}px`,
+    right: `${anchor.right}px`,
     zIndex: 2147483647,
     display: "flex",
     alignItems: "center",

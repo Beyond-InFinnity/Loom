@@ -71,7 +71,7 @@ export function pickNative(
     sameBaseLang(t.languageCode, nativeLang),
   );
   if (matches.length === 0) return null;
-  return preferManual(matches);
+  return preferStandard(matches);
 }
 
 /** Pick the foreign-language target track.  Anything that isn't the
@@ -94,13 +94,30 @@ export function pickTarget(
       (t) => classifyLang(t.languageCode).processing === tier,
     );
     if (tierMatches.length === 0) continue;
-    return preferManual(tierMatches);
+    return preferStandard(tierMatches);
   }
   // TIER_ORDER covers every Processing value so this is structurally
   // unreachable; the explicit return keeps the type checker happy.
   return foreign[0];
 }
 
-function preferManual(tracks: CaptionTrack[]): CaptionTrack {
-  return tracks.find((t) => t.kind === "manual") ?? tracks[0];
+/** Rank a track for auto-pick: manual beats ASR, and a plain `subtitles`
+    track beats an SDH `closedcaptions` one.  Higher score = better.
+
+    This is what makes a video with both "English" and "English (CC)"
+    (Netflix) — or a manual + ASR pair (YouTube) — default to the clean
+    standard track, while still letting the user pick the other in the
+    settings panel.  When CC is the ONLY track for a language (JP anime /
+    Thai origin), it still wins by default since nothing outscores it. */
+function trackScore(t: CaptionTrack): number {
+  return (t.kind === "manual" ? 2 : 0) + (t.isCc ? 0 : 1);
+}
+
+/** Highest-scoring track; ties keep tracklist order (strict `>`). */
+function preferStandard(tracks: CaptionTrack[]): CaptionTrack {
+  let best = tracks[0];
+  for (let i = 1; i < tracks.length; i++) {
+    if (trackScore(tracks[i]) > trackScore(best)) best = tracks[i];
+  }
+  return best;
 }

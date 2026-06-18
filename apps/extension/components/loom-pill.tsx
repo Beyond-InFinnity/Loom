@@ -2,6 +2,11 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import { useCaptionStream } from "./caption-context";
 import { SettingsPanel } from "./settings-panel";
+import { getPillAnchor } from "@/lib/overlay/pill-position";
+import {
+  stopToPlayer,
+  swallowPlayerEventsExceptClick,
+} from "@/lib/overlay/stop-player-events";
 import type { DiscoveryStatus } from "@/lib/captions/discover";
 
 // Status pill + settings entry point.  Anchored top-right of the
@@ -87,7 +92,11 @@ const PillButton = memo(function PillButton({
     <button
       ref={pillRef}
       type="button"
-      onClick={onToggle}
+      onClick={(e) => {
+        stopToPlayer(e);
+        onToggle();
+      }}
+      {...swallowPlayerEventsExceptClick}
       style={containerStyle(tone, open)}
       aria-label="Loom settings"
       aria-expanded={open}
@@ -126,10 +135,11 @@ function renderStatus(status: DiscoveryStatus): { label: string; tone: Tone } {
 
 function containerStyle(tone: Tone, open: boolean): React.CSSProperties {
   const accent = toneAccent(tone);
+  const anchor = getPillAnchor();
   return {
     position: "absolute",
-    top: "16px",
-    right: "16px",
+    top: `${anchor.top}px`,
+    right: `${anchor.right}px`,
     zIndex: 2147483647,
     display: "flex",
     alignItems: "center",

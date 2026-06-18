@@ -40,10 +40,12 @@ const ISO_SOURCE = "loom-iso";
 const WEBVTT_PROFILE = "webvtt-lssdh-ios8";
 
 interface CaptionTrackSerialized {
+  id: string;
   languageCode: string;
   name: string;
   baseUrl: string;
   kind: "manual" | "asr";
+  isCc: boolean;
 }
 
 // Loose shapes for the Netflix manifest — field names are stable in
@@ -56,9 +58,11 @@ interface TtDownloadable {
 interface TimedTextTrack {
   language?: string;
   languageDescription?: string;
-  rawTrackType?: string;
+  rawTrackType?: string; // "subtitles" | "closedcaptions"
   isForcedNarrative?: boolean;
   isNoneTrack?: boolean;
+  new_track_id?: string;
+  trackId?: string;
   ttDownloadables?: Record<string, TtDownloadable>;
 }
 interface NetflixManifest {
@@ -226,19 +230,28 @@ export default defineContentScript({
     Drops forced-narrative + "none" tracks (5h-4 will further prefer plain
     subtitles over SDH closedcaptions) and any track without a fetchable
     WebVTT URL (image-based / OCR-only). */
-function serializeTrack(raw: TimedTextTrack): CaptionTrackSerialized | null {
+function serializeTrack(
+  raw: TimedTextTrack,
+  index: number,
+): CaptionTrackSerialized | null {
   if (!raw || raw.isForcedNarrative || raw.isNoneTrack) return null;
   if (!raw.language) return null;
   const dl = raw.ttDownloadables?.[WEBVTT_PROFILE];
   const url = urlFromDownloadable(dl);
   if (!url) return null;
   return {
+    // Stable per-track id from the manifest (trackId is unique across the
+    // 2–4 per-language variants); index fallback is purely defensive.
+    id: raw.new_track_id || raw.trackId || `nf-${index}-${raw.language}`,
     languageCode: raw.language,
     name: raw.languageDescription || raw.language,
     baseUrl: url,
     // Netflix tracks are author-provided (subtitles / closedcaptions);
-    // none are ASR.  The subtitles-vs-SDH distinction lands in 5h-4.
+    // none are ASR.
     kind: "manual",
+    // SDH / closed-captions carry "[music]"-style non-speech cues;
+    // auto-pick prefers a plain `subtitles` track when one exists.
+    isCc: raw.rawTrackType === "closedcaptions",
   };
 }
 

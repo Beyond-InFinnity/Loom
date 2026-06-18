@@ -31,10 +31,13 @@ interface CaptionTrackRaw {
   baseUrl?: string;
   languageCode?: string;
   kind?: string;
+  /** YouTube's stable per-track id (".en", "a.en", ".en-US", …). */
+  vssId?: string;
   name?: { simpleText?: string } | { runs?: Array<{ text: string }> };
 }
 
 interface CaptionTrackSerialized {
+  id: string;
   languageCode: string;
   name: string;
   baseUrl: string;
@@ -241,11 +244,15 @@ export default defineContentScript({
 
 function serializeTrack(raw: CaptionTrackRaw): CaptionTrackSerialized | null {
   if (!raw.baseUrl || !raw.languageCode) return null;
+  const kind = raw.kind === "asr" ? "asr" : "manual";
   return {
+    // vssId is YouTube's stable per-track id; fall back to lang+kind
+    // (rare to have two same-(lang,kind) tracks without a vssId).
+    id: raw.vssId || `${raw.languageCode}::${kind}`,
     languageCode: raw.languageCode,
     name: extractName(raw.name) ?? raw.languageCode,
     baseUrl: raw.baseUrl,
-    kind: raw.kind === "asr" ? "asr" : "manual",
+    kind,
   };
 }
 

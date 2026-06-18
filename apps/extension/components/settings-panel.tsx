@@ -10,6 +10,8 @@ import {
   type VariantDescriptor,
 } from "@loom/orthography-tables";
 import type { Preset, PresetCatalog } from "@/lib/presets/types";
+import { getPillAnchor } from "@/lib/overlay/pill-position";
+import { swallowPlayerEvents } from "@/lib/overlay/stop-player-events";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -331,7 +333,7 @@ export function SettingsPanel({
   if (!open) return null;
 
   return (
-    <div ref={panelRef} style={panelStyle()}>
+    <div ref={panelRef} style={panelStyle()} {...swallowPlayerEvents}>
       {/* Scoped scrollbar styling for nested LangSelect lists.  Lives
           inside the shadow root via this <style> element; no external
           stylesheet. */}
@@ -850,12 +852,14 @@ function TrackList({
         />
       )}
       {tracks.map((track) => {
-        const isSelected =
-          selected !== null && selected.languageCode === track.languageCode;
+        // Identity is the track id, NOT languageCode — a video can carry
+        // several tracks per language (plain "English" vs "English (CC)"),
+        // and matching on languageCode highlighted them all as selected.
+        const isSelected = selected !== null && selected.id === track.id;
         const classification = classifyLang(track.languageCode);
         return (
           <TrackRow
-            key={`${track.languageCode}::${track.kind}`}
+            key={track.id}
             isSelected={isSelected}
             isAuto={!isUserPicked && isSelected}
             onClick={() => onPick(track)}
@@ -1819,18 +1823,23 @@ function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
 // ---- Styles ---------------------------------------------------------
 
 function panelStyle(): React.CSSProperties {
+  // Anchor the panel just below the pill.  Pill height ≈ 36px, so the
+  // panel top tracks the pill's top + 36 (platform-resolved — Netflix
+  // drops the pill below its report flag, and the panel follows).
+  const anchor = getPillAnchor();
+  const panelTop = anchor.top + 36;
   return {
     position: "absolute",
-    top: "52px",
-    right: "16px",
+    top: `${panelTop}px`,
+    right: `${anchor.right}px`,
     width: "320px",
-    // The shadow host is sized to #movie_player (which has
+    // The shadow host is sized to the player root (which has
     // overflow: hidden), so anything taller than the player gets
-    // clipped at the bottom.  calc(100% - 72px) ensures the panel
-    // never exceeds the player height minus the 52px top offset and
+    // clipped at the bottom.  calc(100% - panelTop - 20) ensures the
+    // panel never exceeds the player height minus its top offset and
     // ~20px bottom buffer — fits on default-mode players (~480-720px
     // tall) without the bottom UI being cut off.
-    maxHeight: "min(75vh, 640px, calc(100% - 72px))",
+    maxHeight: `min(75vh, 640px, calc(100% - ${panelTop + 20}px))`,
     overflowY: "auto",
     zIndex: 2147483647,
     // No backdrop-filter — see file header.  rgba(...) at 0.97 reads

@@ -19,6 +19,7 @@ import { logDev } from "../../env";
 import { fetchTrackEventsViaSwap } from "../fanout";
 import type { FanoutTrackResult } from "../fanout";
 import type { CaptionTrack } from "../types";
+import { hideYtCaptions, restoreYtCaptions } from "../../overlay/hide-yt-captions";
 import type {
   CaptionPlatform,
   FetchTrackOpts,
@@ -62,6 +63,13 @@ function requestCcTrigger(): void {
 export const youtubePlatform: CaptionPlatform = {
   id: "youtube",
   supportsTranslate: true,
+
+  // Overlay seam (5h-3) — the selectors + native-caption hiding that
+  // used to be hardcoded in player-scale.ts / stream.ts / caption-context.
+  playerRootSelector: "#movie_player",
+  videoSelector: "video.html5-main-video",
+  hideNativeCaptions: hideYtCaptions,
+  restoreNativeCaptions: restoreYtCaptions,
 
   async acquireSession(videoId: string | null): Promise<SessionAcquisition> {
     // Phase 1: rely on YT's natural prefetch.

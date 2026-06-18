@@ -20,6 +20,12 @@
 import { parseVtt } from "../netflix/parse-vtt";
 import type { FanoutTrackResult } from "../fanout";
 import type { CaptionTrack } from "../types";
+import {
+  NETFLIX_PLAYER_ROOT,
+  NETFLIX_VIDEO_SELECTOR,
+  hideNetflixCaptions,
+  restoreNetflixCaptions,
+} from "../../overlay/netflix-player-anchor";
 import type {
   CaptionPlatform,
   FetchTrackOpts,
@@ -29,6 +35,13 @@ import type {
 export const netflixPlatform: CaptionPlatform = {
   id: "netflix",
   supportsTranslate: false,
+
+  // Overlay seam (5h-3).  Selectors + native-caption hiding from the
+  // live-capture recon; see lib/overlay/netflix-player-anchor.ts.
+  playerRootSelector: NETFLIX_PLAYER_ROOT,
+  videoSelector: NETFLIX_VIDEO_SELECTOR,
+  hideNativeCaptions: hideNetflixCaptions,
+  restoreNativeCaptions: restoreNetflixCaptions,
 
   acquireSession(): Promise<SessionAcquisition> {
     // Nothing to acquire — each track already carries its own signed

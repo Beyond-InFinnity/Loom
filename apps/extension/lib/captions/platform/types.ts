@@ -70,4 +70,30 @@ export interface CaptionPlatform {
       YouTube: true.  Netflix: false (each track is its own URL; there
       is no MT-on-the-fly equivalent). */
   readonly supportsTranslate: boolean;
+
+  // ---- Overlay seam (5h-3) ------------------------------------------
+  // The shared overlay (caption-overlay, player-scale, stream's playhead)
+  // anchors + scales + suppresses-native-captions against the page's
+  // player.  These three knobs let one overlay implementation serve any
+  // site without baking in per-site selectors.
+
+  /** CSS selector for the player ROOT element — both the overlay's
+      shadow-host anchor AND the element usePlayerScale observes to scale
+      typography to the rendered player height.  It must be the element
+      that becomes fullscreen, so a single ResizeObserver covers default
+      / theater / fullscreen.  YouTube: "#movie_player".  Netflix:
+      'div[data-uia="video-canvas"]'. */
+  readonly playerRootSelector: string;
+
+  /** CSS selector for the <video> element CaptionStream hooks for the
+      playhead.  YouTube: "video.html5-main-video".  Netflix:
+      "#appMountPoint video". */
+  readonly videoSelector: string;
+
+  /** Hide / restore the site's OWN caption rail while Loom's overlay is
+      active.  Implemented by injecting + removing a document-level
+      <style> (the rule targets the host page's DOM, so it can't live in
+      the content script's shadow root). */
+  hideNativeCaptions(): void;
+  restoreNativeCaptions(): void;
 }

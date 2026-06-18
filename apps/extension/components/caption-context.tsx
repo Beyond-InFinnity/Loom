@@ -30,10 +30,17 @@ import type { AnnotateMap } from "@/lib/annotate/types";
 import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
 import type { Preset, PresetCatalog } from "@/lib/presets/types";
-import {
-  hideYtCaptions,
-  restoreYtCaptions,
-} from "@/lib/overlay/hide-yt-captions";
+import { getPlatform } from "@/lib/captions/platform";
+
+// Native-caption suppression is platform-resolved (5h-3): YouTube hides
+// `.ytp-caption-window-container`, Netflix hides `.player-timedtext`.
+// Resolve lazily per call so a null platform (unsupported host) no-ops.
+function hideNativeCaptions(): void {
+  getPlatform()?.hideNativeCaptions();
+}
+function restoreNativeCaptions(): void {
+  getPlatform()?.restoreNativeCaptions();
+}
 
 // Color + position preferences live in caption-context (not discover.ts)
 // because they're presentation state, not caption-discovery state.
@@ -513,7 +520,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
 
       const s = payload.status;
       if (s.kind === "tracking" && payload.targetEvents) {
-        hideYtCaptions();
+        hideNativeCaptions();
         stream.start({
           targetEvents: payload.targetEvents,
           nativeEvents: payload.nativeEvents ?? [],
@@ -521,10 +528,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           nativeLang: s.nativeLang,
         });
       } else if (s.kind === "unsupported") {
-        restoreYtCaptions();
+        restoreNativeCaptions();
         stream.setUnsupported(s.reason);
       } else if (s.kind === "error") {
-        restoreYtCaptions();
+        restoreNativeCaptions();
         stream.setError(s.message);
       } else if (s.kind === "discovering") {
         // Keep current stream state — re-resolve is in flight.  When
@@ -536,7 +543,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       unsubscribe();
-      restoreYtCaptions();
+      restoreNativeCaptions();
       stream.stop();
     };
   }, [stream]);

@@ -1,4 +1,5 @@
 import { logDev } from "../env";
+import { getPlatform } from "./platform";
 
 import type {
   CaptionEvent,
@@ -12,8 +13,15 @@ import type {
 // just receives a `(targetEvents, nativeEvents)` pair, hooks
 // <video>.timeupdate, and emits "active caption changed" via direct
 // callbacks.
+//
+// The <video> selector is platform-resolved (5h-3): YouTube's
+// "video.html5-main-video", Netflix's "#appMountPoint video".  Both
+// fire native HTML5 `timeupdate` (~4×/s), which is the same cadence
+// YouTube has always used — so Netflix reuses this path verbatim rather
+// than the rAF poll the recon tentatively sketched.  (If live testing
+// shows Netflix's timeupdate is too coarse, the seam to switch is here.)
 
-const VIDEO_SELECTOR = "video.html5-main-video";
+const FALLBACK_VIDEO_SELECTOR = "video.html5-main-video";
 const VIDEO_WAIT_TIMEOUT_MS = 10_000;
 
 export interface CaptionStreamCallbacks {
@@ -188,12 +196,14 @@ export class CaptionStream {
   }
 
   async #waitForVideo(signal: AbortSignal): Promise<HTMLVideoElement | null> {
-    const existing = document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR);
+    const selector =
+      getPlatform()?.videoSelector ?? FALLBACK_VIDEO_SELECTOR;
+    const existing = document.querySelector<HTMLVideoElement>(selector);
     if (existing) return existing;
 
     return new Promise<HTMLVideoElement | null>((resolve) => {
       const observer = new MutationObserver(() => {
-        const video = document.querySelector<HTMLVideoElement>(VIDEO_SELECTOR);
+        const video = document.querySelector<HTMLVideoElement>(selector);
         if (video) {
           observer.disconnect();
           clearTimeout(timeoutId);

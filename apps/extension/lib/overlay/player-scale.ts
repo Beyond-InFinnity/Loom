@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
-// usePlayerScale — observe #movie_player's size, return playerHeight/1080.
+import { getPlatform } from "../captions/platform";
+
+// usePlayerScale — observe the player root's size, return playerHeight/1080.
 //
 // Mirrors the desktop convention from apps/web/lib/raster/build-html.ts
 // (scale = target_height / 1080).  Every typography measurement in the
@@ -8,18 +10,20 @@ import { useEffect, useState } from "react";
 // player's actual rendered size — small in default mode, real-sized
 // in theater mode, full-sized in fullscreen.
 //
-// #movie_player IS the fullscreen element, so a single ResizeObserver
-// on it covers default mode, theater mode, and fullscreen transitions
-// without any explicit fullscreenchange handling.
+// The player root (YouTube's #movie_player, Netflix's video-canvas) IS
+// the fullscreen element, so a single ResizeObserver on it covers default
+// mode, theater mode, and fullscreen transitions without any explicit
+// fullscreenchange handling.  The selector is platform-resolved (5h-3).
 
-const PLAYER_SELECTOR = "#movie_player";
+const FALLBACK_SELECTOR = "#movie_player";
 const REFERENCE_HEIGHT = 1080;
 
 export function usePlayerScale(): number {
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    const player = document.querySelector<HTMLElement>(PLAYER_SELECTOR);
+    const selector = getPlatform()?.playerRootSelector ?? FALLBACK_SELECTOR;
+    const player = document.querySelector<HTMLElement>(selector);
     if (!player) return;
 
     const update = () => {

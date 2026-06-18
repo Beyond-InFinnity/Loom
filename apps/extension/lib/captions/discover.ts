@@ -28,7 +28,7 @@
 
 import { logDev } from "../env";
 import { autoPick } from "./auto-pick";
-import { fetchTrackEventsViaSwap } from "./fanout";
+import { getPlatform } from "./platform";
 import { classifyLang } from "./lang-support";
 import type { CaptionEvent, CaptionTrack } from "./types";
 import { buildAnnotateMap } from "../annotate/build-map";
@@ -48,14 +48,6 @@ import type { RomanizeMap } from "../romanize/types";
 
 const MAIN_SOURCE = "loom-main";
 const ISO_SOURCE = "loom-iso";
-const URL_POLL_INTERVAL_MS = 200;
-/** First-pass poll: rely on YT's natural prefetch.  If the prefetch
-    fired (the common case), the pot URL is captured well before this
-    window expires. */
-const PREFETCH_POLL_TIMEOUT_MS = 2000;
-/** Second-pass poll, after we've asked MAIN to click CC.  Longer
-    because YT's fetch can take 600ms+ to fire after the click. */
-const TRIGGER_POLL_TIMEOUT_MS = 4000;
 const NATIVE_LANG_PREF_STORAGE_KEY = "loom_native_lang_pref";
 const DEFAULT_NATIVE_LANG = "en";
 
@@ -178,7 +170,13 @@ type Listener = (payload: CaptionPayload) => void;
 interface Session {
   videoId: string | null;
   tracks: CaptionTrack[];
-  capturedUrl: string | null;
+  /** True once the platform has acquired session-level state, so tracks
+      are fetchable.  For YouTube this coincides with a captured pot URL;
+      for Netflix the handle is null but acquired is still true. */
+  acquired: boolean;
+  /** Opaque platform acquisition handle (YouTube: pot-bearing timedtext
+      URL that every track is lang-swapped off; Netflix: null). */
+  acquisitionHandle: string | null;
   /** User-selected source track for the Top layer.  null = auto-pick. */
   targetOverride: CaptionTrack | null;
   /** User-selected source track for the Bottom layer.  null = auto-pick. */
@@ -196,7 +194,8 @@ function emptySession(): Session {
   return {
     videoId: null,
     tracks: [],
-    capturedUrl: null,
+    acquired: false,
+    acquisitionHandle: null,
     targetOverride: null,
     nativeOverride: null,
     targetTranslateTo: null,
@@ -350,50 +349,38 @@ async function discoverSession(data: MainTracklist): Promise<void> {
 
   session.tracks = data.tracks;
 
-  // Surface tracks to the UI immediately, even before URL capture.
-  // The settings panel can populate while we wait for the pot URL.
+  // Surface tracks to the UI immediately, even before acquisition.
+  // The settings panel can populate while the platform captures its
+  // session handle.
   emit({ ...buildBasePayload(), status: { kind: "discovering" } });
 
-  // Phase 1: rely on YT's natural prefetch.
-  logDev(
-    "[Loom ISO] polling for pot URL (prefetch phase, up to",
-    PREFETCH_POLL_TIMEOUT_MS,
-    "ms)...",
-  );
-  let capturedUrl = await pollBackgroundForUrl(
-    data.videoId,
-    PREFETCH_POLL_TIMEOUT_MS,
-  );
-
-  if (!capturedUrl) {
-    logDev(
-      "[Loom ISO] no prefetch pot URL — requesting CC trigger from MAIN",
-    );
-    requestCcTrigger();
-    capturedUrl = await pollBackgroundForUrl(
-      data.videoId,
-      TRIGGER_POLL_TIMEOUT_MS,
-    );
+  // Acquire session-level state via the platform.  YouTube captures a
+  // pot-bearing timedtext URL (natural prefetch → CC-trigger fallback);
+  // Netflix returns immediately with a null handle.  Either way,
+  // success means every track is now fetchable.
+  const platform = getPlatform();
+  if (!platform) {
+    emit({
+      ...buildBasePayload(),
+      status: { kind: "error", message: "no caption platform for this host" },
+    });
+    return;
   }
 
-  logDev(
-    "[Loom ISO] poll result:",
-    capturedUrl ? `URL captured, len=${capturedUrl.length}` : "null (timeout)",
-  );
-
-  if (!capturedUrl) {
+  const acq = await platform.acquireSession(data.videoId);
+  if (!acq.ok) {
     emit({
       ...buildBasePayload(),
       status: {
         kind: "error",
-        message:
-          "no pot-bearing timedtext URL captured (prefetch + trigger both failed)",
+        message: acq.errorMessage ?? "caption acquisition failed",
       },
     });
     return;
   }
 
-  session.capturedUrl = capturedUrl;
+  session.acquisitionHandle = acq.handle;
+  session.acquired = true;
   await resolveCaptions();
 }
 
@@ -403,10 +390,10 @@ async function discoverSession(data: MainTracklist): Promise<void> {
     fetches, emit the payload.  Re-runnable: triggered on initial URL
     capture AND on every user override change. */
 async function resolveCaptions(): Promise<void> {
-  if (!session.capturedUrl) {
-    // Tracks known but URL still being captured.  Just surface the
-    // intended selection so the UI reflects user clicks; events will
-    // arrive when discovery completes.
+  if (!session.acquired) {
+    // Tracks known but the platform hasn't finished acquiring its
+    // session handle.  Just surface the intended selection so the UI
+    // reflects user clicks; events arrive when discovery completes.
     emit({ ...buildBasePayload(), status: { kind: "discovering" } });
     return;
   }
@@ -448,13 +435,13 @@ async function resolveCaptions(): Promise<void> {
   const videoId = session.videoId ?? "";
   const targetPromise = fetchWithCache(
     videoId,
-    session.capturedUrl,
+    session.acquisitionHandle,
     target,
     session.targetTranslateTo ?? undefined,
   );
   const nativePromise = fetchWithCache(
     videoId,
-    session.capturedUrl,
+    session.acquisitionHandle,
     nativeSrc,
     nativeTlang ?? undefined,
   );
@@ -814,7 +801,7 @@ async function fetchLayerRomanization(
 
 async function fetchWithCache(
   videoId: string,
-  capturedUrl: string,
+  handle: string | null,
   track: CaptionTrack,
   tlang?: string,
 ): Promise<CaptionEvent[] | null> {
@@ -822,7 +809,9 @@ async function fetchWithCache(
   const cached = eventsCache.get(key);
   if (cached) return cached;
 
-  const result = await fetchTrackEventsViaSwap(capturedUrl, track, { tlang });
+  const platform = getPlatform();
+  if (!platform) return null;
+  const result = await platform.fetchTrackEvents(track, { handle, tlang });
   if (result.events && result.events.length > 0) {
     eventsCache.set(key, result.events);
     return result.events;
@@ -850,36 +839,12 @@ async function fetchWithCache(
     "bodyLen=" + result.bodyLength,
     "error=" + (result.error ?? "(no error string)"),
     "swappedUrl=" + result.url,
-    "capturedUrl=" + capturedUrl,
+    "handle=" + handle,
   );
   return result.events;
 }
 
 // ---- Helpers --------------------------------------------------------
-
-async function pollBackgroundForUrl(
-  videoId: string | null,
-  timeoutMs: number,
-): Promise<string | null> {
-  if (!videoId) return null;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const reply = (await browser.runtime.sendMessage({
-      type: "GET_CAPTURED_URL",
-      videoId,
-    })) as { url: string | null } | undefined;
-    if (reply?.url) return reply.url;
-    await new Promise((resolve) => setTimeout(resolve, URL_POLL_INTERVAL_MS));
-  }
-  return null;
-}
-
-function requestCcTrigger(): void {
-  window.postMessage(
-    { source: ISO_SOURCE, type: "trigger-cc" },
-    location.origin,
-  );
-}
 
 /** Build a payload skeleton from current session state, with empty
     events.  Callers spread + override specific fields. */

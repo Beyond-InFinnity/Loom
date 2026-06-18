@@ -7,6 +7,7 @@
 
 import type { CaptionPlatform } from "./types";
 import { youtubePlatform } from "./youtube";
+import { netflixPlatform } from "./netflix";
 
 let resolved: CaptionPlatform | null | undefined = undefined;
 
@@ -15,8 +16,9 @@ export function getPlatform(): CaptionPlatform | null {
   const host = location.hostname;
   if (host === "youtube.com" || host.endsWith(".youtube.com")) {
     resolved = youtubePlatform;
+  } else if (host === "netflix.com" || host.endsWith(".netflix.com")) {
+    resolved = netflixPlatform;
   } else {
-    // netflix.com lands in 5h-2.
     resolved = null;
   }
   return resolved;

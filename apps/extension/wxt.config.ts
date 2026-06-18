@@ -41,12 +41,19 @@ export default defineConfig({
         "Dual subtitles with romanization for foreign-language video on YouTube.",
       // `storage` for the owner key + display prefs. `webRequest` (observe
       // mode) to learn the YouTube-issued timedtext URL. `scripting` was
-      // dropped — the MAIN-world hook uses a declarative `world: "MAIN"`
-      // content script, not chrome.scripting, so there's one fewer permission
-      // to justify at store review.
+      // dropped — the MAIN-world hooks (YouTube tracklist read + Netflix
+      // manifest JSON.parse/stringify) use declarative `world: "MAIN"`
+      // content scripts, not chrome.scripting, so there's one fewer
+      // permission to justify at store review.
       permissions: ["storage", "webRequest"],
       host_permissions: [
         "*://*.youtube.com/*",
+        // Netflix (5h): the watch page (MAIN manifest hook + ISO overlay)
+        // and the signed WebVTT CDN the ISO-world fetch pulls cue text
+        // from (oca.nflxvideo.net et al) — granted so the cross-origin
+        // GET isn't blocked by the page's CORS.
+        "*://*.netflix.com/*",
+        "*://*.nflxvideo.net/*",
         dev ? `${DEV_API}/*` : `${PROD_API}/*`,
       ],
       // Firefox-only block: the gecko `id` (required for AMO signing) + the

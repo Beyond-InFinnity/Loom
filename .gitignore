@@ -54,6 +54,15 @@ spike/*/stats.txt
 spike/*/frame.html
 spike/*/fonts/
 
+# Real Netflix subtitle captures from capture-kit.js (fetchSample →
+# netflix-<lang>.vtt / -<profile>.<ext>).  Full copyrighted subtitle
+# documents — kept on disk as local parser-validation data, NOT in git
+# history.  The tiny hand-trimmed head excerpts (sample-subs-*-real.vtt)
+# ARE committed as test fixtures.
+spike/netflix/netflix-*.vtt
+spike/netflix/netflix-*.ttml
+spike/netflix/netflix-*.txt
+
 # Bundled resources (3c) — fetched at build time via scripts/setup_bundle.sh.
 # Too large for git history (~600 MB total: fonts ~45 MB, Python runtime +
 # venv ~250 MB, Chromium ~170 MB).  Each subdir has its own fetch step.

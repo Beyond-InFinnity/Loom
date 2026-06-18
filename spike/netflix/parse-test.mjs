@@ -38,6 +38,51 @@ check("MM:SS timestamp (62.25s)", vtt[4]?.start === 62250, `got ${vtt[4]?.start}
 check("sorted ascending by start", vtt.every((e, i) => i === 0 || vtt[i - 1].start <= e.start));
 check("count looks like a real episode? (informational)", true, `${vtt.length} cues (a 50-min ep ≈ 500–1500)`);
 
+console.log("\nWebVTT parser — REAL capture format (PH region, ja CC track, 2026-06-18)");
+// Head of a real netflix-ja.vtt (webvtt-lssdh-ios8) captured live via
+// capture-kit.js. Exercises the format quirks the synthetic sample lacks:
+// NOTE Netflix / Profile / SegmentIndex header blocks, comma-bearing cue
+// settings (position:50.00%,middle), <c.japanese>…</c.japanese> class tags,
+// and inline furigana-in-parens — which we deliberately PRESERVE as text.
+const real = parseVtt(read("sample-subs-ja-real.vtt"));
+check("NOTE/SegmentIndex blocks skipped → exactly 4 cues", real.length === 4, `got ${real.length}`);
+check("first start == 2085ms", real[0]?.start === 2085, `got ${real[0]?.start}`);
+check("first end == 3920ms", real[0]?.end === 3920, `got ${real[0]?.end}`);
+check(
+  "<c.japanese> stripped, inline furigana parens kept",
+  real[0]?.text === "（金田(かなだ)）おい 聞いてんのか？",
+  JSON.stringify(real[0]?.text),
+);
+check(
+  "comma cue setting (position:..,middle) doesn't corrupt end ts",
+  real[1]?.start === 4754 && real[1]?.end === 8383,
+  `${real[1]?.start}/${real[1]?.end}`,
+);
+check(
+  "multi-line cue keeps newline",
+  real[1]?.text === "だから 開きっぱなしなんだよ\nオートロックのドアが！",
+  JSON.stringify(real[1]?.text),
+);
+
+console.log("\nWebVTT parser — REAL Korean SDH/CC track (Squid Game, nested class tags)");
+// Head of a real netflix-ko.vtt (webvtt-lssdh-ios8, closedcaptions/SDH track).
+// Exercises NESTED class wrappers <c.korean><c.bg_transparent>…</c.bg_transparent></c.korean>
+// and SDH non-speech brackets ([음산한 음악]) — both must survive: tags fully
+// stripped, bracketed text + "- " dialogue dashes preserved verbatim.
+const ko = parseVtt(read("sample-subs-ko-real.vtt"));
+check("nested-tag cues → exactly 2", ko.length === 2, `got ${ko.length}`);
+check("first start == 13972ms", ko[0]?.start === 13972, `got ${ko[0]?.start}`);
+check(
+  "nested <c.korean><c.bg_transparent> fully stripped, brackets+dashes kept",
+  ko[0]?.text === "- [덜컹덜컹]\n- [지게차 경보음]",
+  JSON.stringify(ko[0]?.text),
+);
+check(
+  "single SDH bracket cue preserved",
+  ko[1]?.text === "[음산한 음악]",
+  JSON.stringify(ko[1]?.text),
+);
+
 console.log("\nTTML / DFXP parser (fallback path)");
 const { events: ttml, imageBased } = parseTtml(read("sample-subs-ja.ttml"));
 check("event count == 5", ttml.length === 5, `got ${ttml.length}`);

@@ -207,3 +207,51 @@ Done as a desk-research + parser-build spike (no live authenticated capture yet 
 **Knock-on for `PUBLISH_PLAN.md` open question ("one extension or two?"):** GO + ~75% shared code argues for **one extension, two domain activations** (YouTube + Netflix host_permissions in one listing) rather than two listings.  Doesn't block the YouTube-only first release.
 
 <!-- New entries below this line, newest at the bottom -->
+
+### 2026-06-18 — Live authenticated capture (owed owner step). **GO holds; ja/ko/zh all served on native-origin content.**
+
+Ran `capture-kit.js` on a live **Philippines-region** account across **~12 titles** (incl. `81740601`, `83073843`, `81911181`, `81921822`, `81910940`, `81910533`, `81343468`, `81154150`, `81748512`, `81921809`, `82045417`, `82032509`, **`81616251` Squid Game**). Hooks installed cleanly, manifest captured on play every time, no page breakage. Player API + DOM + parser all confirmed on real data.
+
+**Confirmed verbatim:**
+- **DOM anchors:** `div[data-uia="video-canvas"]` ✅, `.watch-video--player-view` ✅, `#appMountPoint video` ✅, `[data-videoid]` → videoId ✅. (`div[data-uia="controls-standard"]` returned **false** — stale selector, but not load-bearing for us.)
+- **Player API:** `netflix.appContext.state.playerApp.getAPI().videoPlayer…getVideoPlayerBySessionId(...)` works. `getCurrentTime()` = `1005609` matched `<video>.currentTime` to the **ms**. **Correction to recon:** `getDuration()` **DOES work** (`1412035` vs `<video>.duration` `1412036`, off by 1 ms) — recon had it "unverified, use `<video>`." Either is fine; `<video>` stays the safer default.
+- **Parser:** real `netflix-ja.vtt` (51,843 bytes, `webvtt-lssdh-ios8`) fetched 200 OK from a signed `oca.nflxvideo.net` URL, no auth header. Format has `NOTE Netflix`/`Profile`/`SegmentIndex` header blocks, a whitespace-only padding block, comma-bearing cue settings (`position:50.00%,middle align:middle size:80.00% line:84.67%`), and `<c.japanese>…</c.japanese>` class wrappers. The spike parser handles all of it — locked as a regression fixture (`sample-subs-ja-real.vtt`, +6 assertions in `parse-test.mjs`, 30/30 green). **Bonus finding:** the JA CC track ships **inline furigana in parens** for some words (`（金田(かなだ)）`) — a gift for the annotation layer (inconsistent, but free where present).
+
+**The finding that reshapes the port — text vs. image is governed by ORIGIN LANGUAGE, not language identity. (A first draft of this entry, from JJK-family anime titles only, wrongly concluded "Korean = image-based everywhere." The Squid Game capture corrected it — see below.)**
+
+Expanded the capture to ~12 titles incl. **Squid Game** (`81616251`, 97 tracks), `82032509` (61), `82045417` (40). The governing rule is now solid and **symmetric**:
+
+> **WebVTT (text) is served for: the title's ORIGIN/primary language (as `closedcaptions` and/or full `subtitles`) + English (always) + Chinese zh-Hans/zh-Hant (consistently, even as a foreign translation — genuine outlier) + some lingua-franca tracks (es-LatAm; `fil` on this PH account) + `forced` tracks (partial, signs only). IMAGE-BASED is served for: most FULL FOREIGN-TRANSLATION tracks.**
+
+The symmetric proof that it's origin-language, not language identity:
+
+| Title (origin) | `ja` track | `ko` track | `zh-*` track |
+|---|---|---|---|
+| **JJK** (JP-origin anime) | CC = **text** ✓ | full subs = **image** ✗ | **text** ✓ |
+| **Squid Game** (KR-origin) | full subs = **image** ✗ | CC **and** full subs = **text** ✓ | **text** ✓ |
+
+Japanese is text on a Japanese title and image on a Korean one; Korean is the exact mirror. Chinese is text on both. `await __loomNflx.fetchSample('ko')` on Squid Game returned a real **201 kB** Korean WebVTT, 200 OK.
+
+**What this means for Loom — the canonical learner flow IS the text-track case:**
+- Learning **Japanese** → watch anime / J-drama (JP-origin) → `ja` track is text ✅
+- Learning **Korean** → watch K-drama (KR-origin) → `ko` track is text ✅
+- Learning **Chinese** → text essentially everywhere ✅✅
+
+Image-based only bites the **off-axis** case — wanting your target language as a *translation of foreign-origin content* (Korean subs on a Japanese anime). That isn't how people learn a language, so it's a far smaller hit than the first draft implied. **Practical reach: Chinese, Japanese, and Korean are all well-served on native-origin content** — i.e. exactly Loom's headline catalog (anime, K-drama, C-drama).
+
+**Remaining genuine constraints (smaller than the first draft):**
+1. **Must watch native-origin content.** Cross-language (target-as-foreign-translation) subs are image-based → OCR-only (Step 6 seam).
+2. **Origin-language text confirmed for ja/ko/en/zh/th/hi.** Added native **Thai** ("My Safe Zone" `82126920` — `th` CC = WebVTT, only `ms`/`vi` image) and native **Hindi** (a 509 kB `netflix-hi.vtt`, **2,836** cues of clean Devanagari) titles. So the origin-language rule holds across JP/KR/CN/TH/IN. Like JP-anime, Thai's origin track is **CC-only** (no plain `th subtitles`) → `auto-pick` must fall back to CC when that's the only text track for the origin language. Only **Arabic**-origin remains unconfirmed (low priority).
+3. **`auto-pick` needs two refinements** the multi-track reality forces: (a) **exclude `forced` + `none`, prefer the non-forced full `webvtt` track** — concretely demonstrated: `fetchSample('th')` on "My Safe Zone" grabbed the **forced** track (first WebVTT in list) → only 19 cues of signs, not the 1000s-cue dialogue CC. Naive "first WebVTT" picks the wrong track. (b) For the origin language, prefer plain **`subtitles` over SDH `closedcaptions`** — the real `netflix-ko.vtt` CC track is full of `[음산한 음악]`-style non-speech SDH brackets, clutter for a learner (Squid Game ships *both* `ko` CC and `ko` subtitles as webvtt, so the choice exists; but JP-anime/Thai are CC-only, so fall back to CC). Many languages show 2–4 variants (trackId tails `;0;0;0/3/4/13;` = SDH/version variants).
+
+**Parser validated at scale on real data.** All 4 real captures parse clean through `parse-vtt.mjs`: `ja` 371 cues, `ko` 1,118, `th` 19 (forced-track artifact, see 3a), `hi` 2,836 — **0 empty cues, 0 reversed timings, all sorted**, Devanagari/Hangul/Thai/kana all intact. Real files saved in `spike/netflix/netflix-{ja,ko,th,hi}.vtt`; head fixtures (`sample-subs-{ja,ko}-real.vtt`) locked into `parse-test.mjs`.
+
+**Image-sub capture wired (for Step-6 OCR, not the port).** `capture-kit.js` now injects `dfxp-ls-sdh` + `imsc1.1` alongside WebVTT and adds `fetchAnySample(lang)` — image-only tracks return empty `ttDownloadables` when only WebVTT is requested, so the broad request is what makes an image track fetchable. The helper sniffs the body (→ `.vtt`/`.ttml`), flags PNG/`<image>` refs, and saves `netflix-<lang>-<profile>.<ext>`. Netflix image subs are **IMSC1.1/TTML carrying PNG bitmaps** (embedded base64 or external segments) — no text, hence OCR-only. Owed: actually run `fetchAnySample('vi')` (or `'ko'` on a JP title) once to capture a real sample over `sample-subs-image.ttml`.
+
+**Region caveat (downgraded).** `fil` being text is PH-specific, but the **origin-language + EN + ZH** pattern is structural, not regional — it held across every title. A second-region capture is still nice-to-have for the lingua-franca edges, no longer load-bearing for the core conclusion.
+
+**Player API reconfirmed** on Squid Game: `getCurrentTime()`/`getDuration()` both work and match `<video>` to the ms (`2379` / `3775229` vs `3775230`). (The all-`false` `dom()`/`time()` at the very top of the log was the kit's eager probe firing on the browse page *before* playback — expected, `player object: undefined` there.)
+
+**Net:** GO, and the language story is **better** than the first draft — Chinese + Japanese + Korean all served on native content.
+
+**Still owed before the port branch:** (1) save the full real `netflix-ja.vtt` + `netflix-ko.vtt` over the samples and re-run `parse-test.mjs` against whole files (cue-count sanity); (2) one real **image-based** track's TTML over `sample-subs-image.ttml` to validate the absence-of-webvtt detection on real data (synthetic-only so far). _(Thai origin-text now confirmed via "My Safe Zone" — was owed item #2, resolved.)_

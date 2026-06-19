@@ -15,10 +15,8 @@ export const metadata = {
 // link. An empty `url` (null) renders the "Coming soon" state instead of an
 // install button — so the page is correct before any store URL exists.
 //
-// Firefox ships first via AMO self-distribution — see apps/extension/SIGNING.md
-// for the signing steps that produce the URL to drop in below. Chrome/Edge
-// follow once the MV3 build is verified and the Chrome Web Store listing lands
-// (PUBLISH_PLAN.md).
+// Firefox (AMO) and Chrome (Chrome Web Store) are both published; Edge installs
+// the Chrome build directly from the Chrome Web Store, so it shares Chrome's URL.
 
 type BrowserTarget = {
   name: string;
@@ -32,19 +30,20 @@ const BROWSER_TARGETS: BrowserTarget[] = [
   {
     name: "Firefox",
     store: "Firefox Add-ons",
-    url: null, // TODO: drop in the AMO listing / signed .xpi URL (see SIGNING.md)
+    url: "https://addons.mozilla.org/en-US/firefox/addon/loom/",
     note: "The first supported browser — Loom is built and tested on Firefox.",
   },
   {
     name: "Chrome",
     store: "Chrome Web Store",
-    url: null, // TODO: Chrome Web Store URL once the MV3 listing lands
-    note: "A Manifest V3 build exists; the store listing is in progress.",
+    url: "https://chromewebstore.google.com/detail/loom/nhibbclhffbjfcbjihgcheojpellpkpj",
+    note: "A Manifest V3 build, published on the Chrome Web Store.",
   },
   {
     name: "Edge",
     store: "Chrome Web Store",
-    url: null, // Edge installs the Chrome build from the Chrome Web Store
+    // Edge installs the Chrome build directly from the Chrome Web Store.
+    url: "https://chromewebstore.google.com/detail/loom/nhibbclhffbjfcbjihgcheojpellpkpj",
     note: "Runs the Chrome build directly from the Chrome Web Store.",
   },
 ];
@@ -66,6 +65,7 @@ function BrowserCard({ target }: { target: BrowserTarget }) {
         {available ? (
           <Link
             href={target.url as string}
+            target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/20"
           >
@@ -109,7 +109,6 @@ export default function Extension() {
             </div>
 
             <p className="mt-10 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Store links go live as each browser&rsquo;s build is published.
               Loom only sends subtitle text out of your browser, for
               romanization — see the{" "}
               <Link href="/privacy" className="text-primary hover:underline">

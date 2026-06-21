@@ -19,13 +19,11 @@
 //
 // Bidirectional postMessage keeps MAIN dependency-free (no browser.*).
 
-import { logDev } from "@/lib/env";
+import { ISO_SOURCE, MAIN_SOURCE, logDev } from "@/lib/env";
 
 const POLL_INTERVAL_MS = 250;
 const POLL_TIMEOUT_MS = 15_000;
 const CC_FETCH_WAIT_MS = 600;
-const MAIN_SOURCE = "loom-main";
-const ISO_SOURCE = "loom-iso";
 
 interface CaptionTrackRaw {
   baseUrl?: string;

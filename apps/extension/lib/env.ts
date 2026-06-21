@@ -23,6 +23,21 @@ export const API_BASE_URL: string =
     ? __LOOM_API_BASE__
     : "https://api.loom.nerv-analytic.ai";
 
+/** postMessage channel tags for the MAIN↔ISO content-script handshake
+ *  (tracklist delivery + re-emit requests).
+ *
+ *  Namespaced by build mode.  A dev build is routinely loaded SIDE-BY-SIDE
+ *  with the prod "Loom" for live testing, and both inject content scripts
+ *  into the same page — which SHARES one `window`, so a `window.postMessage`
+ *  from either build's MAIN is seen by BOTH builds' ISO listeners.  With a
+ *  shared tag, the prod MAIN's (old-code) tracklist leaked into the dev ISO
+ *  and silently overrode the dev build's behavior — e.g. prod posting a
+ *  prefetched next-episode manifest the dev build had correctly held,
+ *  re-triggering the very mid-episode track switch the dev build fixes.
+ *  Distinct tags per build keep the two channels isolated. */
+export const MAIN_SOURCE: string = IS_DEV ? "loom-main-dev" : "loom-main";
+export const ISO_SOURCE: string = IS_DEV ? "loom-iso-dev" : "loom-iso";
+
 /** Verbose `[Loom …]` logging — dev builds only.
  *
  *  Gated behind `IS_DEV` so production ships quiet. (This was temporarily

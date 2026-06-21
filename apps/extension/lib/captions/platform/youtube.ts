@@ -15,7 +15,7 @@
 // `trigger-cc` postMessage to the MAIN-world script.  Both are YouTube
 // protocol details that no longer leak into the shared pipeline.
 
-import { logDev } from "../../env";
+import { ISO_SOURCE, logDev } from "../../env";
 import { fetchTrackEventsViaSwap } from "../fanout";
 import type { FanoutTrackResult } from "../fanout";
 import type { CaptionTrack } from "../types";
@@ -25,8 +25,6 @@ import type {
   FetchTrackOpts,
   SessionAcquisition,
 } from "./types";
-
-const ISO_SOURCE = "loom-iso";
 const URL_POLL_INTERVAL_MS = 200;
 /** First-pass poll: rely on YT's natural prefetch.  If the prefetch
     fired (the common case), the pot URL is captured well before this

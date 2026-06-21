@@ -29,10 +29,12 @@
 //
 // Bidirectional postMessage keeps MAIN dependency-free (no browser.*).
 
-import { logDev } from "@/lib/env";
-
-const MAIN_SOURCE = "loom-main";
-const ISO_SOURCE = "loom-iso";
+import { ISO_SOURCE, MAIN_SOURCE, logDev } from "@/lib/env";
+import {
+  initialTrackerState,
+  reduceManifest,
+  reduceMediaSwap,
+} from "@/lib/captions/netflix/manifest-tracker";
 
 // The WebVTT profile we both REQUEST (via the stringify hook) and read
 // back (from ttDownloadables).  Tracks lacking this profile are
@@ -46,6 +48,20 @@ interface CaptionTrackSerialized {
   baseUrl: string;
   kind: "manual" | "asr";
   isCc: boolean;
+  /** Base code of the video's primary audio language (from the manifest's
+      audio tracks).  Same value on every track of a tracklist; lets ISO's
+      auto-pick default the Top layer to the spoken language.  Omitted when
+      the manifest carries no recognizable audio-track array. */
+  audioLangCode?: string;
+}
+
+/** Tracklist payload posted to ISO (sans the source/type envelope).  This
+    is the opaque payload the manifest-tracker carries through; only its
+    `status` is read by the tracker. */
+interface PostPayload {
+  videoId: string | null;
+  status: "ok" | "no-captions";
+  tracks: CaptionTrackSerialized[];
 }
 
 // Loose shapes for the Netflix manifest — field names are stable in
@@ -65,9 +81,23 @@ interface TimedTextTrack {
   trackId?: string;
   ttDownloadables?: Record<string, TtDownloadable>;
 }
+// Audio tracks live alongside timedtexttracks on the manifest result.
+// Netflix rotates the key names (audio_tracks / audioTracks) and the
+// per-track shape, so we read both defensively and never assume a key.
+interface AudioTrack {
+  language?: string;
+  bcp47?: string;
+  languageDescription?: string;
+  // Best-effort "this is the original/native audio" flags — presence and
+  // naming vary across manifest versions; any truthy one wins.
+  isNative?: boolean;
+  isOriginal?: boolean;
+}
 interface NetflixManifest {
   movieId?: number | string;
   timedtexttracks?: TimedTextTrack[];
+  audio_tracks?: AudioTrack[];
+  audioTracks?: AudioTrack[];
 }
 
 export default defineContentScript({
@@ -84,57 +114,98 @@ export default defineContentScript({
     // manifest fired).  Same role as yt-main's latestPayload.
     let latestPayload: object | null = null;
     let reemittedForCurrentPayload = false;
-    // Dedup: Netflix re-parses the manifest several times per playback.
-    // Once we've posted an OK tracklist for a movieId, skip identical
-    // re-captures.  Empty captures DON'T set this — a later capture
-    // (after the injected profile takes effect) may carry WebVTT tracks.
-    let lastOkMovieId: string | null = null;
+
+    // Which title is ACTUALLY playing — the prefetch-vs-advance decision
+    // lives in the pure reducer (lib/captions/netflix/manifest-tracker.ts,
+    // unit-tested); this script just feeds it manifests + media-swap
+    // events and performs the side effects (postMessage + logging) it
+    // returns.  See that module's header for the full rationale.
+    let tracker = initialTrackerState<PostPayload>();
 
     installStringifyHook();
     installParseHook(onManifest);
+    installMediaSwapWatcher(onMediaSwap);
+
+    /** A <video> loadstart/emptied means the player swapped streams — the
+        episode genuinely changed.  Adopt whatever title we were holding. */
+    function onMediaSwap(kind: string): void {
+      const heldId = tracker.pending?.movieId ?? null;
+      const { state, action } = reduceMediaSwap(tracker);
+      tracker = state;
+      if (action.kind === "post") {
+        logDev("[Loom NFLX MAIN] media swap (", kind, ") → adopting held title", heldId);
+        postPayload(action.payload);
+      } else {
+        logDev("[Loom NFLX MAIN] media swap (", kind, ") — nothing held");
+      }
+    }
 
     function onManifest(manifest: NetflixManifest): void {
       const movieId =
         manifest.movieId != null ? String(manifest.movieId) : null;
+      if (movieId === null) return; // installParseHook guarantees non-null
+
       const rawTracks = Array.isArray(manifest.timedtexttracks)
         ? manifest.timedtexttracks
         : [];
-
+      const audioLang = primaryAudioLang(manifest);
       const tracks = rawTracks
-        .map(serializeTrack)
+        .map((raw, i) => serializeTrack(raw, i, audioLang))
         .filter((t): t is CaptionTrackSerialized => t !== null);
+      const videoId = movieId;
 
-      const videoId = movieId ?? readVideoId();
+      // Rich diagnostics: every manifest event, with everything needed to
+      // reconstruct the prefetch-vs-advance sequence offline.
       logDev(
-        "[Loom NFLX MAIN] manifest captured: movieId =",
+        "[Loom NFLX MAIN] manifest: movieId =",
         movieId,
+        "active =",
+        tracker.activeMovieId ?? "(none)",
+        "urlId =",
+        readVideoId() ?? "(none)",
+        "href =",
+        location.href,
         "rawTracks =",
         rawTracks.length,
-        "webvtt tracks =",
+        "webvtt =",
         tracks.length,
+        "audioLang =",
+        audioLang ?? "(none)",
+        "pending =",
+        tracker.pending?.movieId ?? "(none)",
       );
 
-      if (tracks.length === 0) {
-        // No fetchable WebVTT.  If the manifest carried no text tracks at
-        // all, it's likely a non-final/partial parse — ignore it and wait
-        // for the real one.  If it DID carry text tracks but none are
-        // WebVTT, this is an image-only title → surface no-captions so the
-        // overlay degrades gracefully instead of spinning forever.
-        if (rawTracks.length === 0) return;
-        postPayload({ videoId, status: "no-captions", tracks });
-        return;
-      }
+      // Non-final / partial parse with no text tracks at all → ignore and
+      // wait for the real manifest.
+      if (tracks.length === 0 && rawTracks.length === 0) return;
 
-      if (movieId !== null && movieId === lastOkMovieId) return; // dup
-      lastOkMovieId = movieId;
-      postPayload({ videoId, status: "ok", tracks });
+      // "ok" = fetchable WebVTT; "no-captions" = text tracks exist but all
+      // image-only (OCR-only → overlay degrades gracefully).
+      const status: "ok" | "no-captions" =
+        tracks.length > 0 ? "ok" : "no-captions";
+      const payload: PostPayload = { videoId, status, tracks };
+
+      const { state, action } = reduceManifest(tracker, {
+        movieId,
+        status,
+        payload,
+      });
+      tracker = state;
+      if (action.kind === "post") {
+        postPayload(action.payload);
+      } else if (action.kind === "hold") {
+        // Prefetch trap: a different title than what's playing.  Don't
+        // adopt it (that reverted Frieren to Chinese mid-episode) — held
+        // until onMediaSwap confirms the <video> actually swapped.
+        logDev(
+          "[Loom NFLX MAIN] holding manifest for different title",
+          action.movieId,
+          "(awaiting media swap)",
+        );
+      }
     }
 
-    function postPayload(payload: {
-      videoId: string | null;
-      status: "ok" | "no-captions";
-      tracks: CaptionTrackSerialized[];
-    }): void {
+    function postPayload(payload: PostPayload): void {
       const fullPayload = { source: MAIN_SOURCE, type: "tracklist", ...payload };
       latestPayload = fullPayload;
       reemittedForCurrentPayload = false;
@@ -233,6 +304,7 @@ export default defineContentScript({
 function serializeTrack(
   raw: TimedTextTrack,
   index: number,
+  audioLang: string | undefined,
 ): CaptionTrackSerialized | null {
   if (!raw || raw.isForcedNarrative || raw.isNoneTrack) return null;
   if (!raw.language) return null;
@@ -252,7 +324,28 @@ function serializeTrack(
     // SDH / closed-captions carry "[music]"-style non-speech cues;
     // auto-pick prefers a plain `subtitles` track when one exists.
     isCc: raw.rawTrackType === "closedcaptions",
+    ...(audioLang ? { audioLangCode: audioLang } : {}),
   };
+}
+
+/** Derive the video's primary/original audio language from the manifest's
+    audio-track array.  Read by shape (Netflix rotates `audio_tracks` /
+    `audioTracks` and the per-track fields): prefer a track explicitly
+    flagged native/original, else fall back to the FIRST audio track —
+    Netflix conventionally lists the original-language audio first.
+    Returns undefined when no recognizable audio array is present, so the
+    consumer just keeps its existing tier-based auto-pick. */
+function primaryAudioLang(manifest: NetflixManifest): string | undefined {
+  const audio = Array.isArray(manifest.audio_tracks)
+    ? manifest.audio_tracks
+    : Array.isArray(manifest.audioTracks)
+      ? manifest.audioTracks
+      : null;
+  if (!audio || audio.length === 0) return undefined;
+  const langOf = (t: AudioTrack): string | undefined =>
+    t.language || t.bcp47 || undefined;
+  const flagged = audio.find((t) => (t.isNative || t.isOriginal) && langOf(t));
+  return langOf(flagged ?? audio[0]);
 }
 
 /** Extract the first usable URL from a ttDownloadable descriptor.  The
@@ -294,4 +387,31 @@ function findProfilesArray(obj: unknown, depth = 0): string[] | null {
 function readVideoId(): string | null {
   const m = location.pathname.match(/\/watch\/(\d+)/);
   return m ? m[1] : null;
+}
+
+/** Watch the player's <video> for stream swaps (= episode changes).
+    Media events don't bubble, so we listen in the CAPTURE phase at window
+    level — that catches loadstart/emptied/durationchange on any descendant
+    <video> without needing a (possibly not-yet-existent) element ref.
+    Filtered to the main player video so incidental media (hover previews,
+    PiP) can't trip it.  loadstart/emptied drive the swap; durationchange
+    is logged only (it can fire mid-stream under MSE). */
+function installMediaSwapWatcher(onSwap: (kind: string) => void): void {
+  const handler = (kind: string) => (e: Event) => {
+    const t = e.target;
+    if (!(t instanceof HTMLVideoElement)) return;
+    if (!t.closest('[data-uia="player"]')) return;
+    logDev(
+      "[Loom NFLX MAIN] video",
+      kind,
+      "currentTime =",
+      Math.round(t.currentTime),
+      "duration =",
+      Math.round(Number.isFinite(t.duration) ? t.duration : 0),
+    );
+    if (kind === "loadstart" || kind === "emptied") onSwap(kind);
+  };
+  for (const kind of ["loadstart", "emptied", "durationchange"]) {
+    window.addEventListener(kind, handler(kind), true);
+  }
 }

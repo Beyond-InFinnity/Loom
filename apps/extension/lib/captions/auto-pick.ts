@@ -75,8 +75,19 @@ export function pickNative(
 }
 
 /** Pick the foreign-language target track.  Anything that isn't the
-    user's native language is eligible.  Tier-rank by processing
-    capability; within tier, prefer manual over ASR.
+    user's native language is eligible.
+
+    PRIORITY 1 — the video's AUDIO language.  When the platform tells us
+    what's actually being spoken (CaptionTrack.audioLangCode, set per
+    video), a foreign track in that language wins outright: a Japanese-
+    audio anime should default to the Japanese subtitle, not whichever
+    track sorts first (Chinese, on Netflix's Frieren).  Skipped when the
+    audio language IS the user's native language (English-audio video for
+    an English user) — those tracks aren't in `foreign`, so it falls
+    through to tier ranking and picks a real foreign track.
+
+    PRIORITY 2 — processing tier (annotate-romanize > romanize >
+    native-display > unsupported); within tier, prefer manual over ASR.
 
     Returns null only when every track shares the user's native base
     language (e.g., an English-only video for an English user). */
@@ -88,6 +99,18 @@ export function pickTarget(
     (t) => !sameBaseLang(t.languageCode, nativeLang),
   );
   if (foreign.length === 0) return null;
+
+  // Audio-language match takes precedence over tier.  audioLangCode is a
+  // per-video property, so any track carries it; read the first non-empty
+  // one.  When several foreign tracks share the audio language (plain +
+  // SDH), preferStandard breaks the tie (subtitles > CC, manual > ASR).
+  const audioLang = tracks.find((t) => t.audioLangCode)?.audioLangCode;
+  if (audioLang) {
+    const audioMatches = foreign.filter((t) =>
+      sameBaseLang(t.languageCode, audioLang),
+    );
+    if (audioMatches.length > 0) return preferStandard(audioMatches);
+  }
 
   for (const tier of TIER_ORDER) {
     const tierMatches = foreign.filter(

@@ -37,6 +37,15 @@ export interface CaptionTrack {
       it's the only track for a language (JP anime / Thai origin).
       Undefined on platforms without the distinction (treated as standard). */
   isCc?: boolean;
+  /** Base BCP-47 code of the video's PRIMARY/original audio language, when
+      the platform exposes it.  A per-VIDEO property (identical on every
+      track of a tracklist), carried here so auto-pick can default the Top
+      (foreign) layer to the language actually being spoken — e.g. Japanese
+      on a Japanese-audio anime rather than whichever track happens to sort
+      first.  Netflix: derived from the manifest's audio tracks.  Undefined
+      when the platform doesn't expose it (e.g. YouTube today) → auto-pick
+      falls back to its tier ordering. */
+  audioLangCode?: string;
 }
 
 /** One caption event from a parsed track.  Times in milliseconds since

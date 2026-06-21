@@ -327,6 +327,21 @@ export function SettingsPanel({
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  // Collapsible-section state.  Kept HERE (not inside each Section) so it
+  // survives the panel closing + reopening: SettingsPanel stays mounted
+  // and merely returns null while closed, so this useState persists for
+  // the tab's lifetime.  Keyed by a stable section id; absent/false =
+  // expanded (the default — nothing is hidden until the user collapses
+  // it).  `section(id)` returns the prop pair every collapsible takes.
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({});
+  const section = (id: string) => ({
+    collapsed: collapsedSections[id] ?? false,
+    onToggleCollapse: () =>
+      setCollapsedSections((c) => ({ ...c, [id]: !c[id] })),
+  });
+
   // Click-outside dismissal.  Tricky inside a shadow root: a document-
   // level mousedown sees event.target retargeted to the shadow HOST
   // (loom-overlay-root) for any click inside the shadow tree — so we
@@ -380,7 +395,7 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <Section title="Native language (auto-pick base)">
+      <Section title="Native language (auto-pick base)" {...section("native")}>
         <LangSelect
           value={nativeLangPref}
           onChange={(code) => setNativeLangPref(code)}
@@ -400,6 +415,7 @@ export function SettingsPanel({
         translateTo={targetTranslateTo}
         onPickTranslateTo={setTargetTranslateTo}
         allowNullTrack={false}
+        {...section("target-track")}
       />
 
       <LayerSection
@@ -412,9 +428,10 @@ export function SettingsPanel({
         onPickTranslateTo={setNativeTranslateTo}
         allowNullTrack
         nullLabel={`(auto: tlang=${nativeLangPref} when no native track)`}
+        {...section("native-track")}
       />
 
-      <Section title="Position">
+      <Section title="Position" {...section("position")}>
         <PositionRow
           label="Target"
           value={targetPosition}
@@ -435,7 +452,7 @@ export function SettingsPanel({
           Each box owns ALL of one line's controls: its enable toggles,
           phonetic-system / alt-orth options, AND its styling.  Presets
           sit above since they paint across the lines at once. */}
-      <Section title="Color presets">
+      <Section title="Color presets" {...section("presets")}>
         <PresetPicker
           catalog={presetCatalog}
           activeId={activePresetId}
@@ -446,6 +463,7 @@ export function SettingsPanel({
       {/* Bottom — native text */}
       <LayerStyleBlock
         label="Bottom (native)"
+        {...section("bottom-style")}
         color={bottomColor}
         onColorChange={setBottomColor}
         fontFamily={bottomFontFamily}
@@ -479,6 +497,7 @@ export function SettingsPanel({
       {/* Top — foreign text + its alternate-orthography ruby */}
       <LayerStyleBlock
         label="Top (foreign)"
+        {...section("top-style")}
         color={topColor}
         onColorChange={setTopColor}
         fontFamily={topFontFamily}
@@ -545,6 +564,7 @@ export function SettingsPanel({
       {/* Annotation — per-token readings above the foreign text */}
       <LayerStyleBlock
         label="Annotation"
+        {...section("annotation-style")}
         color={annotationColor}
         onColorChange={setAnnotationColor}
         fontFamily={annotationFontFamily}
@@ -596,6 +616,7 @@ export function SettingsPanel({
       {/* Romanization — full-utterance phonetic line */}
       <LayerStyleBlock
         label="Romanization"
+        {...section("romanization-style")}
         color={romanizationColor}
         onColorChange={setRomanizationColor}
         fontFamily={romanizationFontFamily}
@@ -834,6 +855,8 @@ interface LayerSectionProps {
   onPickTranslateTo: (code: string | null) => void;
   allowNullTrack: boolean;
   nullLabel?: string;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 function LayerSection({
@@ -846,9 +869,15 @@ function LayerSection({
   onPickTranslateTo,
   allowNullTrack,
   nullLabel,
+  collapsed,
+  onToggleCollapse,
 }: LayerSectionProps) {
   return (
-    <Section title={title}>
+    <Section
+      title={title}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+    >
       {tracks.length === 0 ? (
         <p style={hintStyle()}>No tracks discovered yet.</p>
       ) : (
@@ -883,14 +912,63 @@ function LayerSection({
 interface SectionProps {
   title: string;
   children: React.ReactNode;
+  /** Collapsible behavior.  When `onToggleCollapse` is provided the title
+      becomes a clickable header (with a chevron) and the body is hidden
+      while `collapsed`.  Omit both for a static, always-open section. */
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-function Section({ title, children }: SectionProps) {
+function Section({
+  title,
+  children,
+  collapsed = false,
+  onToggleCollapse,
+}: SectionProps) {
   return (
     <div style={sectionStyle()}>
-      <div style={sectionTitleStyle()}>{title}</div>
-      {children}
+      {onToggleCollapse ? (
+        <CollapsibleHeader
+          title={title}
+          collapsed={collapsed}
+          onToggle={onToggleCollapse}
+          titleStyle={sectionTitleStyle()}
+        />
+      ) : (
+        <div style={sectionTitleStyle()}>{title}</div>
+      )}
+      {!collapsed && children}
     </div>
+  );
+}
+
+/** Shared clickable section header: a full-width transparent button that
+    shows the section title (in its native style) plus a chevron that
+    points down when open and right when collapsed.  Used by both Section
+    and LayerStyleBlock so every collapsible reads identically. */
+function CollapsibleHeader({
+  title,
+  collapsed,
+  onToggle,
+  titleStyle,
+}: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  titleStyle: React.CSSProperties;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={collapsibleHeaderStyle(collapsed)}
+      aria-expanded={!collapsed}
+    >
+      <span style={{ ...titleStyle, marginBottom: 0 }}>{title}</span>
+      <span style={collapseChevronStyle()} aria-hidden="true">
+        {collapsed ? "▸" : "▾"}
+      </span>
+    </button>
   );
 }
 
@@ -1136,6 +1214,11 @@ interface LayerStyleBlockProps {
   /** Extra controls rendered at the TOP of the Advanced block — e.g. the
       Top card's "link opacity" toggle. */
   advancedExtra?: React.ReactNode;
+  /** Collapsible behavior (same contract as Section): when
+      `onToggleCollapse` is supplied the card header is clickable and the
+      whole body hides while `collapsed`. */
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 function LayerStyleBlock({
@@ -1151,6 +1234,8 @@ function LayerStyleBlock({
   children,
   opacity,
   advancedExtra,
+  collapsed = false,
+  onToggleCollapse,
 }: LayerStyleBlockProps) {
   const sizeLabel = sizeMode === "px" ? "Size (px)" : "Size (ratio of Top)";
   const sizeMin = sizeMode === "px" ? 12 : 0.2;
@@ -1159,7 +1244,18 @@ function LayerStyleBlock({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <div style={layerStyleBlockStyle()}>
-      <div style={layerStyleHeaderStyle()}>{label}</div>
+      {onToggleCollapse ? (
+        <CollapsibleHeader
+          title={label}
+          collapsed={collapsed}
+          onToggle={onToggleCollapse}
+          titleStyle={layerStyleHeaderStyle()}
+        />
+      ) : (
+        <div style={layerStyleHeaderStyle()}>{label}</div>
+      )}
+      {collapsed ? null : (
+        <>
       {children}
       <div style={layerStyleRowStyle()}>
         <span style={layerStyleRowLabelStyle()}>Color</span>
@@ -1257,6 +1353,8 @@ function LayerStyleBlock({
               )}
             </div>
           )}
+        </>
+      )}
         </>
       )}
     </div>
@@ -2153,6 +2251,36 @@ function sectionTitleStyle(): React.CSSProperties {
     letterSpacing: "0.06em",
     color: "rgba(255, 255, 255, 0.55)",
     marginBottom: "6px",
+  };
+}
+
+/** Clickable header row for a collapsible Section / LayerStyleBlock.
+    Transparent + full-width so it reads as the section title, not a
+    button; the chevron is the only added affordance. */
+function collapsibleHeaderStyle(collapsed: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    width: "100%",
+    padding: 0,
+    margin: 0,
+    marginBottom: collapsed ? 0 : "6px",
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    textAlign: "left",
+    fontFamily: "inherit",
+  };
+}
+
+function collapseChevronStyle(): React.CSSProperties {
+  return {
+    fontSize: "9px",
+    lineHeight: 1,
+    color: "rgba(255, 255, 255, 0.45)",
+    flexShrink: 0,
   };
 }
 

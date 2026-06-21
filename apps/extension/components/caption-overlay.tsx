@@ -61,7 +61,9 @@ interface Layer {
   color: string;
   /** 0–100; written into the rgba alpha of the base text. */
   alpha: number;
-  /** 4-corner text-shadow outline (emulates ASS outline thickness). */
+  /** 8-direction text-shadow outline (emulates ASS outline thickness).
+      Its alpha is multiplied by the layer's master opacity (see
+      buildTextShadow) so the outline fades WITH the text. */
   outlineColor: string;
   /** 0–100. */
   outlineAlpha: number;
@@ -583,10 +585,15 @@ function layerStyle(layer: Layer, scale: number): React.CSSProperties {
     padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,
     lineHeight: 1.25,
     unicodeBidi: "isolate",
-    // 4-corner offset shadows emulate ASS outline; trailing offset
-    // shadow emulates ASS shadow.  When the layer has glow_radius > 0,
-    // an additional `0 0 Npx rgba(...)` halo is appended.  Mirrors
-    // apps/web/lib/raster/build-html.ts::textShadowCss.
+    // 8-direction offset shadows emulate the ASS outline; a trailing
+    // offset shadow emulates the ASS drop-shadow; an optional `0 0 Npx`
+    // halo is the glow.  See buildTextShadow for the full rationale.
+    // NOTE: this INTENTIONALLY diverges from apps/web/lib/raster/
+    // build-html.ts::textShadowCss (which is corners-only + independent
+    // outline alpha).  The web path rasterizes to PGS and needs pixel
+    // parity with the desktop reference; this live-HTML overlay does not,
+    // so it uses a smoother 8-way ring and couples outline/glow opacity
+    // to the line's master opacity.  Don't "resync" them.
     textShadow: buildTextShadow(layer, scale),
     maxWidth: "92%",
   };
@@ -595,23 +602,37 @@ function layerStyle(layer: Layer, scale: number): React.CSSProperties {
 function buildTextShadow(layer: Layer, scale: number): string {
   const d = OUTLINE_PX * scale;
   const s = SHADOW_OFFSET_PX * scale;
-  const outlineRgba = hexToRgba(layer.outlineColor, layer.outlineAlpha);
-  // Shadow stays hard-coded black @ 70% — the desktop's StyleConfig
-  // splits shadow_color from outline_color, but the extension hasn't
-  // surfaced shadow color separately yet.  Acceptable: shadow is the
-  // dimmer drop-stroke; outline is the visible-stroke users actually
-  // pick a color for.
-  const shadowRgba = "rgba(0, 0, 0, 0.7)";
+  // Master line opacity fades the outline + shadow + glow ALONG WITH the
+  // text fill, so lowering a line's opacity dims the whole layer as one
+  // unit instead of just hollowing out the fill and leaving the outline
+  // ring floating at full strength.  (`layer.alpha` is the same 0–100
+  // the fill color uses in layerStyle.)
+  const masterA = Math.max(0, Math.min(100, layer.alpha)) / 100;
+  const outlineRgba = hexToRgba(layer.outlineColor, layer.outlineAlpha * masterA);
+  // Shadow stays hard-coded black — the desktop's StyleConfig splits
+  // shadow_color from outline_color, but the extension hasn't surfaced
+  // shadow color separately yet.  Acceptable: shadow is the dimmer
+  // drop-stroke; outline is the visible-stroke users pick a color for.
+  const shadowRgba = `rgba(0, 0, 0, ${0.7 * masterA})`;
+  // 8-direction ring (4 cardinals + 4 corners) instead of corners-only.
+  // The old 4-corner set thickened the outline at the diagonals and left
+  // the top/bottom/left/right edges bare, producing an uneven, layered
+  // "stylised"/chrome look.  Sampling all 8 directions at one radius
+  // gives a smooth, even stroke that reads as a single outline.
   const parts = [
+    `${d}px 0 0 ${outlineRgba}`,
+    `-${d}px 0 0 ${outlineRgba}`,
+    `0 ${d}px 0 ${outlineRgba}`,
+    `0 -${d}px 0 ${outlineRgba}`,
+    `${d}px ${d}px 0 ${outlineRgba}`,
     `-${d}px -${d}px 0 ${outlineRgba}`,
     `${d}px -${d}px 0 ${outlineRgba}`,
     `-${d}px ${d}px 0 ${outlineRgba}`,
-    `${d}px ${d}px 0 ${outlineRgba}`,
     `${s}px ${s}px 0 ${shadowRgba}`,
   ];
   if (layer.glowRadius > 0 && layer.glowAlpha > 0) {
     const r = layer.glowRadius * scale;
-    const glowRgba = hexToRgba(layer.glowColor, layer.glowAlpha);
+    const glowRgba = hexToRgba(layer.glowColor, layer.glowAlpha * masterA);
     // Glow goes LAST so it composites on top of the outline ring,
     // matching the desktop's PGS glow blur behavior.
     parts.push(`0 0 ${r}px ${glowRgba}`);

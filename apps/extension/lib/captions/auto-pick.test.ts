@@ -69,6 +69,57 @@ describe("pickNative — regional variant collapse", () => {
   });
 });
 
+describe("pickTarget — audio-language priority (Netflix)", () => {
+  // Stamp the per-video audio language onto a track (as the Netflix MAIN
+  // hook does for every track in a tracklist).
+  const withAudio = (track: CaptionTrack, audioLangCode: string) => ({
+    ...track,
+    audioLangCode,
+  });
+
+  it("prefers the audio-language track over a higher-tier-order sibling", () => {
+    // Frieren: Japanese AUDIO, but Netflix lists Chinese before Japanese
+    // and both are tier-1 (annotate-romanize), so plain tier ordering
+    // lands on Chinese.  Audio-language priority must flip it to Japanese.
+    const tracks = [
+      withAudio(t("zh-Hant"), "ja"),
+      withAudio(t("ja"), "ja"),
+    ];
+    expect(pickTarget(tracks, "en")?.languageCode).toBe("ja");
+  });
+
+  it("breaks an audio-language tie with preferStandard (subtitles > CC)", () => {
+    const cc = withAudio(t("ja", "manual", "Japanese (CC)", true), "ja");
+    const std = withAudio(t("ja", "manual", "Japanese", false), "ja");
+    expect(pickTarget([cc, std], "en")?.id).toBe(std.id);
+  });
+
+  it("ignores audio language when it IS the user's native language", () => {
+    // English-audio video for an English user: the audio track is native,
+    // not a learning target.  Fall through to a real foreign track.
+    const tracks = [
+      withAudio(t("en"), "en"),
+      withAudio(t("ja"), "en"),
+    ];
+    expect(pickTarget(tracks, "en")?.languageCode).toBe("ja");
+  });
+
+  it("falls back to tier order when no track matches the audio language", () => {
+    // Audio is Korean but only Japanese + German subtitle tracks exist
+    // (no Korean text track) — pick by tier, not audio.
+    const tracks = [
+      withAudio(t("de"), "ko"),
+      withAudio(t("ja"), "ko"),
+    ];
+    expect(pickTarget(tracks, "en")?.languageCode).toBe("ja");
+  });
+
+  it("falls back to tier order when audioLangCode is absent (YouTube)", () => {
+    // No audio language exposed → unchanged tier behavior.
+    expect(pickTarget([t("de"), t("ja")], "en")?.languageCode).toBe("ja");
+  });
+});
+
 describe("pickTarget — tier ordering", () => {
   it("tier 1 (CJK) beats tier 3 (Latin)", () => {
     // Common case: Japanese video with German auto-translation track

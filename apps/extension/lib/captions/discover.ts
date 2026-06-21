@@ -26,10 +26,14 @@
 //   5f-diagnostics: phase split.  UI now picks tracks; we re-resolve
 //     without re-clicking CC.
 
-import { logDev } from "../env";
+import { ISO_SOURCE, MAIN_SOURCE, logDev } from "../env";
 import { autoPick } from "./auto-pick";
 import { getPlatform } from "./platform";
-import { classifyLang } from "./lang-support";
+import {
+  classifyLang,
+  defaultPhoneticSystemFor,
+  defaultRomanizeLineEnabledFor,
+} from "./lang-support";
 import type { CaptionEvent, CaptionTrack } from "./types";
 import { buildAnnotateMap } from "../annotate/build-map";
 import {
@@ -46,8 +50,6 @@ import {
 } from "../romanize/cache";
 import type { RomanizeMap } from "../romanize/types";
 
-const MAIN_SOURCE = "loom-main";
-const ISO_SOURCE = "loom-iso";
 const NATIVE_LANG_PREF_STORAGE_KEY = "loom_native_lang_pref";
 const DEFAULT_NATIVE_LANG = "en";
 
@@ -71,7 +73,6 @@ const DEFAULT_NATIVE_ANNOTATE_ENABLED = false;
 const STORAGE_KEY_TARGET_ROMANIZE_ENABLED = "loom_target_romanize_enabled";
 const STORAGE_KEY_NATIVE_ROMANIZE_ENABLED = "loom_native_romanize_enabled";
 const STORAGE_KEY_LONG_VOWEL_MODE = "loom_long_vowel_mode";
-const DEFAULT_TARGET_ROMANIZE_ENABLED = true;
 const DEFAULT_NATIVE_ROMANIZE_ENABLED = false;
 const DEFAULT_LONG_VOWEL_MODE: "macrons" | "doubled" | "unmarked" = "macrons";
 const _VALID_LONG_VOWEL_MODES: ReadonlySet<string> = new Set([
@@ -220,11 +221,34 @@ let annotationPrefsLoaded = false;
 // Romanization prefs (5e).  Same scoping rationale as annotation
 // prefs — survive emptySession() on video navigation, loaded once
 // during ensureInstalled().
-let targetRomanizeEnabled = DEFAULT_TARGET_ROMANIZE_ENABLED;
+//
+// `targetRomanizeEnabled` is TRI-STATE: null = the user hasn't touched
+// it, so the romanization LINE follows a language-aware default
+// (`defaultTargetRomanizeEnabledFor`); a stored boolean is an explicit
+// user choice that persists across languages.  Native stays a plain
+// boolean (rarely used, no language default).
+let targetRomanizeEnabled: boolean | null = null;
 let nativeRomanizeEnabled = DEFAULT_NATIVE_ROMANIZE_ENABLED;
 let longVowelMode: "macrons" | "doubled" | "unmarked" =
   DEFAULT_LONG_VOWEL_MODE;
 let romanizationPrefsLoaded = false;
+
+// ---- Language-aware target defaults ---------------------------------
+//
+// The romanization LINE and the phonetic SYSTEM have sensible per-target-
+// language defaults (defaultRomanizeLineEnabledFor / defaultPhoneticSystemFor
+// in lang-support.ts), applied only when the user hasn't explicitly
+// overridden them.  These wrappers fold in that override + a null-lang
+// guard, and are used at BOTH the fetch gate and in the emitted payload so
+// the settings UI shows the same state the pipeline acts on.
+function effectiveTargetRomanizeEnabled(lang: string | null): boolean {
+  if (targetRomanizeEnabled !== null) return targetRomanizeEnabled;
+  return lang ? defaultRomanizeLineEnabledFor(lang) : false;
+}
+function effectiveTargetPhoneticSystem(lang: string | null): string | null {
+  if (targetPhoneticSystem !== null) return targetPhoneticSystem;
+  return lang ? defaultPhoneticSystemFor(lang) : null;
+}
 
 /** AbortController for in-flight annotation fan-outs.  Single shared
     controller — new fetch cancels the previous, so we don't stack
@@ -577,7 +601,7 @@ async function fetchAllAnnotationsForLayers(
       events: targetEvents,
       enabled: targetAnnotateEnabled,
       lang: effectiveTargetLang,
-      phoneticSystem: targetPhoneticSystem,
+      phoneticSystem: effectiveTargetPhoneticSystem(effectiveTargetLang),
       videoId,
       signal,
       layerName: "target",
@@ -698,9 +722,9 @@ async function fetchAllRomanizationsForLayers(
   await Promise.all([
     fetchLayerRomanization({
       events: targetEvents,
-      enabled: targetRomanizeEnabled,
+      enabled: effectiveTargetRomanizeEnabled(effectiveTargetLang),
       lang: effectiveTargetLang,
-      phoneticSystem: targetPhoneticSystem,
+      phoneticSystem: effectiveTargetPhoneticSystem(effectiveTargetLang),
       longVowelMode,
       videoId,
       signal,
@@ -857,6 +881,11 @@ function buildBasePayload(): CaptionPayload {
   );
   const selectedTarget = session.targetOverride ?? autoTarget;
   const selectedNative = session.nativeOverride ?? autoNative;
+  // Resolve the Top layer's display language so the romanize-enable +
+  // phonetic-system defaults shown in the UI match what the pipeline
+  // actually fetches (tlang override beats the source track's lang).
+  const targetLangForDefaults =
+    session.targetTranslateTo ?? selectedTarget?.languageCode ?? null;
   return {
     videoId: session.videoId,
     status: { kind: "idle" },
@@ -870,11 +899,11 @@ function buildBasePayload(): CaptionPayload {
     nativeLangPref,
     targetAnnotateEnabled,
     nativeAnnotateEnabled,
-    targetPhoneticSystem,
+    targetPhoneticSystem: effectiveTargetPhoneticSystem(targetLangForDefaults),
     nativePhoneticSystem,
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
-    targetRomanizeEnabled,
+    targetRomanizeEnabled: effectiveTargetRomanizeEnabled(targetLangForDefaults),
     nativeRomanizeEnabled,
     longVowelMode,
     targetRomanizeMap: null,
@@ -997,7 +1026,7 @@ function rerunAnnotations(): void {
     ...latest,
     targetAnnotateEnabled,
     nativeAnnotateEnabled,
-    targetPhoneticSystem,
+    targetPhoneticSystem: effectiveTargetPhoneticSystem(status.targetLang),
     nativePhoneticSystem,
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
@@ -1054,7 +1083,7 @@ function rerunRomanizations(): void {
   const nativeEvents = latest.nativeEvents ?? [];
   emit({
     ...latest,
-    targetRomanizeEnabled,
+    targetRomanizeEnabled: effectiveTargetRomanizeEnabled(status.targetLang),
     nativeRomanizeEnabled,
     longVowelMode,
     targetRomanizeMap: null,

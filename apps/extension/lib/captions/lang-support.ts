@@ -210,6 +210,40 @@ export function phoneticSystemsFor(code: string): PhoneticSystemOption[] {
   return [];
 }
 
+// ---- Language-aware target defaults ---------------------------------
+//
+// Sensible per-language defaults for the two target controls, applied by
+// discover.ts only when the user hasn't explicitly overridden them.
+
+/** Default ON/OFF for the secondary full-utterance romanization LINE,
+    by target language.
+    - Pure-`romanize` scripts (Cyrillic / Thai / Indic / Hebrew / Arabic):
+      ON — the line is their ENTIRE phonetic surface.
+    - CJK + Korean (`annotate-romanize`): these already get per-token ruby
+      (Pinyin / Bopomofo / Jyutping / Hangul RR), so a second line is
+      redundant — EXCEPT Japanese, whose ruby is kana (furigana), not a
+      romanization, so the romaji line genuinely adds reading help.  Hence
+      only Japanese (the `kana` family) defaults ON.
+    - Anything else has no phonetic layer, so the value is moot (OFF). */
+export function defaultRomanizeLineEnabledFor(code: string): boolean {
+  const cls = classifyLang(code);
+  if (cls.processing === "romanize") return true;
+  if (cls.processing === "annotate-romanize") return cls.family === "kana";
+  return false;
+}
+
+/** Default phonetic SYSTEM by target language (null = let the backend
+    pick its own default).  Chinese defaults to Pinyin for BOTH Simplified
+    and Traditional — Bopomofo/Zhuyin is opt-in; Pinyin is the modern
+    lingua franca.  Cantonese gets Jyutping (Pinyin doesn't apply).
+    Everything else falls through to null. */
+export function defaultPhoneticSystemFor(code: string): string | null {
+  const cls = classifyLang(code);
+  if (cls.chineseVariant === "cantonese") return "jyutping";
+  if (cls.family === "cjk-han") return "pinyin";
+  return null;
+}
+
 /** Two BCP-47 codes share a base language.  Used for regional-variant
     collapse: en + en-US + en-GB + en-AU + en-IN are all "English";
     pt + pt-BR + pt-PT are all "Portuguese"; es + es-MX + es-419 +

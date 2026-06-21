@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { classifyLang, sameBaseLang } from "./lang-support";
+import {
+  classifyLang,
+  defaultPhoneticSystemFor,
+  defaultRomanizeLineEnabledFor,
+  sameBaseLang,
+} from "./lang-support";
 
 describe("classifyLang — Latin / native-display", () => {
   it.each([
@@ -199,5 +204,53 @@ describe("sameBaseLang — regional variant collapse", () => {
   it("returns false on empty / malformed input", () => {
     expect(sameBaseLang("", "en")).toBe(false);
     expect(sameBaseLang("en", "")).toBe(false);
+  });
+});
+
+describe("defaultRomanizeLineEnabledFor — romanization-line default", () => {
+  it("ONLY Japanese is on among CJK + Korean", () => {
+    // The headline request: among ja / zh-Hans / zh-Hant / ko, only
+    // Japanese gets the romaji line by default (its ruby is kana, not a
+    // romanization; the others' ruby already IS the romanization).
+    expect(defaultRomanizeLineEnabledFor("ja")).toBe(true);
+    expect(defaultRomanizeLineEnabledFor("ko")).toBe(false);
+    expect(defaultRomanizeLineEnabledFor("zh-Hans")).toBe(false);
+    expect(defaultRomanizeLineEnabledFor("zh-Hant")).toBe(false);
+    expect(defaultRomanizeLineEnabledFor("yue")).toBe(false);
+  });
+
+  it("pure-romanize scripts stay on (the line is their only phonetic surface)", () => {
+    for (const code of ["ru", "uk", "th", "hi", "he", "ar", "fa", "ur"]) {
+      expect(defaultRomanizeLineEnabledFor(code)).toBe(true);
+    }
+  });
+
+  it("Latin / unsupported default off (no phonetic layer anyway)", () => {
+    expect(defaultRomanizeLineEnabledFor("en")).toBe(false);
+    expect(defaultRomanizeLineEnabledFor("de")).toBe(false);
+    expect(defaultRomanizeLineEnabledFor("km")).toBe(false);
+  });
+});
+
+describe("defaultPhoneticSystemFor — phonetic-system default", () => {
+  it("Traditional Chinese defaults to Pinyin (not Zhuyin)", () => {
+    expect(defaultPhoneticSystemFor("zh-Hant")).toBe("pinyin");
+    expect(defaultPhoneticSystemFor("zh-TW")).toBe("pinyin");
+  });
+
+  it("Simplified Chinese defaults to Pinyin", () => {
+    expect(defaultPhoneticSystemFor("zh-Hans")).toBe("pinyin");
+    expect(defaultPhoneticSystemFor("zh")).toBe("pinyin");
+  });
+
+  it("Cantonese defaults to Jyutping", () => {
+    expect(defaultPhoneticSystemFor("yue")).toBe("jyutping");
+  });
+
+  it("non-Chinese languages fall through to null (backend default)", () => {
+    expect(defaultPhoneticSystemFor("ja")).toBeNull();
+    expect(defaultPhoneticSystemFor("ko")).toBeNull();
+    expect(defaultPhoneticSystemFor("th")).toBeNull();
+    expect(defaultPhoneticSystemFor("ar")).toBeNull();
   });
 });

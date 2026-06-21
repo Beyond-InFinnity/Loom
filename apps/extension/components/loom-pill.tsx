@@ -1,4 +1,11 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useCaptionStream } from "./caption-context";
 import { SettingsPanel } from "./settings-panel";
@@ -45,9 +52,25 @@ export interface LoomPillProps {
   onDeactivate: () => void;
 }
 
+/** Idle delay before the active pill fades out (ms).  Matches the feel
+    of the player's own auto-hiding controls. */
+const PILL_IDLE_MS = 3000;
+
 export function LoomPill({ onDeactivate }: LoomPillProps) {
   const { status } = useCaptionStream();
   const [open, setOpen] = useState(false);
+  // Auto-fade state: the active pill dims after PILL_IDLE_MS of pointer
+  // inactivity and reappears on any movement, so it isn't a constant
+  // distraction during playback (the dormant pill already self-dims; this
+  // brings the active pill in line).  `visibleRef` mirrors `visible`
+  // synchronously so the high-frequency mousemove handler can short-
+  // circuit WITHOUT calling setState on every move — state only flips on
+  // the idle↔active edges, never per-frame, preserving the pill's
+  // perf-critical "doesn't re-render during playback" contract.
+  const [visible, setVisible] = useState(true);
+  const visibleRef = useRef(true);
+  const hoveredRef = useRef(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pillRef = useRef<HTMLButtonElement | null>(null);
 
   // Stable onClose ref so SettingsPanel's click-outside useEffect deps
@@ -55,12 +78,62 @@ export function LoomPill({ onDeactivate }: LoomPillProps) {
   const handleClose = useCallback(() => setOpen(false), []);
   const handleToggle = useCallback(() => setOpen((v) => !v), []);
 
+  const show = useCallback(
+    (forcePinned: boolean) => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (!visibleRef.current) {
+        visibleRef.current = true;
+        setVisible(true);
+      }
+      // Never arm the hide timer while the panel is open or the pointer
+      // is resting on the pill — fading the control out from under the
+      // cursor / an open menu would be hostile.
+      if (!forcePinned && !open && !hoveredRef.current) {
+        hideTimer.current = setTimeout(() => {
+          visibleRef.current = false;
+          setVisible(false);
+        }, PILL_IDLE_MS);
+      }
+    },
+    [open],
+  );
+
+  // Listen for page-wide pointer / key activity to wake the pill.  The
+  // overlay's host is pointer-transparent except the pill itself, so the
+  // user's mouse moving over the video surfaces as a document mousemove.
+  useEffect(() => {
+    const onActivity = () => show(false);
+    document.addEventListener("mousemove", onActivity, { passive: true });
+    document.addEventListener("keydown", onActivity, { passive: true });
+    // Re-running on `open` change re-arms (or, while open, suppresses)
+    // the timer; show(false) here also force-wakes the pill when the
+    // panel closes.
+    show(false);
+    return () => {
+      document.removeEventListener("mousemove", onActivity);
+      document.removeEventListener("keydown", onActivity);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [show]);
+
+  const handleMouseEnter = useCallback(() => {
+    hoveredRef.current = true;
+    show(true);
+  }, [show]);
+  const handleMouseLeave = useCallback(() => {
+    hoveredRef.current = false;
+    show(false);
+  }, [show]);
+
   return (
     <>
       <PillButton
         status={status}
         open={open}
+        visible={visible || open}
         onToggle={handleToggle}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         pillRef={pillRef}
       />
       <SettingsPanel
@@ -78,12 +151,18 @@ export function LoomPill({ onDeactivate }: LoomPillProps) {
 const PillButton = memo(function PillButton({
   status,
   open,
+  visible,
   onToggle,
+  onMouseEnter,
+  onMouseLeave,
   pillRef,
 }: {
   status: DiscoveryStatus;
   open: boolean;
+  visible: boolean;
   onToggle: () => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
   pillRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { label, tone } = useMemo(() => renderStatus(status), [status]);
@@ -97,7 +176,9 @@ const PillButton = memo(function PillButton({
         onToggle();
       }}
       {...swallowPlayerEventsExceptClick}
-      style={containerStyle(tone, open)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={containerStyle(tone, open, visible)}
       aria-label="Loom settings"
       aria-expanded={open}
     >
@@ -133,7 +214,11 @@ function renderStatus(status: DiscoveryStatus): { label: string; tone: Tone } {
   }
 }
 
-function containerStyle(tone: Tone, open: boolean): React.CSSProperties {
+function containerStyle(
+  tone: Tone,
+  open: boolean,
+  visible: boolean,
+): React.CSSProperties {
   const accent = toneAccent(tone);
   const anchor = getPillAnchor();
   return {
@@ -159,12 +244,20 @@ function containerStyle(tone: Tone, open: boolean): React.CSSProperties {
     userSelect: "none",
     cursor: "pointer",
     border: "none",
+    // Idle auto-fade (mirrors the player's own controls).  `opacity` is a
+    // compositor-only property on this already-promoted layer, so the
+    // transition is GPU-composited — no main-thread paint/layout, and it
+    // fires only on the rare idle↔active toggle (never per dialogue), so
+    // it stays within the pill's perf contract.  Dimmed (not fully gone)
+    // so the user can still find + hover it to wake it.
+    opacity: visible ? 1 : 0.12,
+    transition: "opacity 350ms ease",
     // Own compositor layer so YT page repaints (progress bar tick,
     // auto-hiding controls) don't cascade through the pill on the
     // main thread.  translateZ(0) is the cross-browser standard
     // promotion hint.
     transform: "translateZ(0)",
-    willChange: "transform",
+    willChange: "transform, opacity",
   };
 }
 

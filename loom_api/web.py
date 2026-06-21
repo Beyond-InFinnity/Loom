@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from .cors import ALLOW_ORIGIN_REGEX, DEFAULT_ORIGINS
 from .routes import annotate, health, language, romanize, styles
 
 app = FastAPI(
@@ -51,13 +52,8 @@ app = FastAPI(
 # extension (Step 5) ships from a randomized chrome-extension:// or
 # moz-extension:// origin per install, so its origin is whitelisted by
 # regex below — exact-listing every install ID isn't workable.
-_DEFAULT_ORIGINS = [
-    "https://loom.nerv-analytic.ai",
-    "http://localhost:3000",
-    "http://localhost:1420",
-]
 _origins_env = os.environ.get("LOOM_CORS_ORIGINS", "").strip()
-_origins = [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins_env else _DEFAULT_ORIGINS
+_origins = [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins_env else DEFAULT_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,12 +64,9 @@ app.add_middleware(
     # extension runs on must be allow-listed here too, or annotate/romanize
     # 400 under CORS. (Firefox MV2 content scripts bypass CORS, which masked
     # this — it worked on Firefox but not Chrome.) Add a new streaming site's
-    # origin here when the extension gains support for it (e.g. Netflix).
-    allow_origin_regex=(
-        r"chrome-extension://.*"
-        r"|moz-extension://.*"
-        r"|https://[a-z0-9-]+\.youtube\.com"
-    ),
+    # origin in loom_api/cors.py when the extension gains support for it;
+    # tests/test_cors_origins.py guards the list.
+    allow_origin_regex=ALLOW_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],

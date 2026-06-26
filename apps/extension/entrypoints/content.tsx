@@ -34,82 +34,56 @@ import { LoomApp } from "@/components/loom-app";
 // caption-rendering element sets its visuals via inline React style.
 
 const ANCHOR_SELECTOR = "#movie_player";
-const ANCHOR_WAIT_TIMEOUT_MS = 15_000;
 const HOST_STYLE_ID = "loom-host-positioning";
 
 export default defineContentScript({
-  matches: ["*://*.youtube.com/watch*"],
+  // ALL of youtube.com, not just /watch* (no-refresh fix): YouTube is an SPA,
+  // so navigating home→video (and video→video) is a history navigation with
+  // NO document reload — a /watch*-only content script never injects on those,
+  // so Loom was absent until F5.  We load on the first YouTube page; WXT's
+  // autoMount owns the overlay lifecycle.  Re-discovery on video→video is
+  // driven by yt-main's existing yt-navigate-finish handler.
+  matches: ["*://*.youtube.com/*"],
   cssInjectionMode: "ui",
   runAt: "document_idle",
 
   async main(ctx) {
-    // Per-tab activation (5d-perf): we no longer eagerly install the
-    // caption-discovery message listener here.  LoomApp starts dormant
-    // by default; when the user activates Loom for this tab, the
-    // CaptionStreamProvider's useEffect calls subscribeToCaptions
-    // which installs the listener AND posts request-tracklist to
-    // MAIN.  MAIN caches its latest tracklist in latestPayload and
-    // re-emits on request, so the late-subscribe race from 5c is
-    // already handled at the MAIN side — no eager install needed.
+    // Per-tab activation (5d-perf): no eager discovery listener here.  LoomApp
+    // starts dormant; on activation the CaptionStreamProvider subscribes +
+    // posts request-tracklist, and MAIN re-emits its cached tracklist.
 
-    // Inject the host-positioning rule BEFORE the host is appended
-    // to the DOM.  Whenever WXT inserts <loom-overlay-root>, the
-    // browser applies these styles on first computed-style resolution.
+    // Inject the host-positioning rule (idempotent) BEFORE the host is
+    // appended, so the browser applies it on first computed-style resolution.
     injectHostPositioningStyle();
 
-    const anchor = await waitForElement(ANCHOR_SELECTOR, ANCHOR_WAIT_TIMEOUT_MS);
-    if (!anchor) {
-      console.warn(
-        "[Loom] #movie_player never appeared within",
-        ANCHOR_WAIT_TIMEOUT_MS,
-        "ms — overlay not mounted",
-      );
-      return;
-    }
-
+    // autoMount owns the overlay lifecycle — see netflix.content.tsx for the
+    // full rationale.  #movie_player persists across YouTube's SPA video
+    // navigations, so the overlay stays mounted and re-discovery rides on
+    // yt-main's yt-navigate-finish; autoMount additionally covers home→watch
+    // (anchor appears) and any player rebuild.
     const ui = await createShadowRootUi(ctx, {
       name: "loom-overlay-root",
       position: "inline",
       anchor: ANCHOR_SELECTOR,
-      // Opt out of the :host{all:initial!important} reset — see
-      // file header comment for why this is the load-bearing line.
+      // Opt out of the :host{all:initial!important} reset — see file header.
       inheritStyles: true,
       onMount: (uiContainer) => {
-        // uiContainer is inside the shadow root.  Stretch it so the
-        // inner React tree's `position: absolute; inset: 0` children
-        // get a sized containing block.
+        // uiContainer is inside the shadow root.  Stretch it so the inner
+        // React tree's `position: absolute; inset: 0` children get a sized
+        // containing block.
         uiContainer.style.position = "absolute";
         uiContainer.style.inset = "0";
-
         const root = ReactDOM.createRoot(uiContainer);
         root.render(<LoomApp />);
+        logDev("[Loom] overlay mounted inside", ANCHOR_SELECTOR);
         return root;
       },
       onRemove: (root) => {
         root?.unmount();
+        logDev("[Loom] overlay unmounted");
       },
     });
-
-    ui.mount();
-
-    // Verify the host actually picked up our positioning after mount.
-    // Keep this log through 5c shakedown; remove once we've confirmed
-    // captions render across paused + playing + fullscreen states.
-    const host = ui.shadowHost;
-    requestAnimationFrame(() => {
-      const cs = getComputedStyle(host);
-      const r = host.getBoundingClientRect();
-      logDev(
-        "[Loom 5c-verify] host computed style — tag=", host.tagName.toLowerCase(),
-        "position=", cs.position,
-        "display=", cs.display,
-        "z-index=", cs.zIndex,
-        "rect=", Math.round(r.width), "x", Math.round(r.height),
-        "top=", Math.round(r.top),
-      );
-    });
-
-    logDev("[Loom] overlay mounted inside", ANCHOR_SELECTOR);
+    ui.autoMount();
   },
 });
 
@@ -146,32 +120,4 @@ loom-overlay-root {
 }
 `;
   (document.head ?? document.documentElement).appendChild(style);
-}
-
-/** Wait for an element matching `selector` to exist in the DOM.
-    Returns the element, or null on timeout.  Mirrors the shape of
-    `CaptionStream.#waitForVideo` in lib/captions/stream.ts. */
-function waitForElement(
-  selector: string,
-  timeoutMs: number,
-): Promise<Element | null> {
-  const existing = document.querySelector(selector);
-  if (existing) return Promise.resolve(existing);
-
-  return new Promise<Element | null>((resolve) => {
-    const observer = new MutationObserver(() => {
-      const found = document.querySelector(selector);
-      if (found) {
-        observer.disconnect();
-        clearTimeout(timeoutId);
-        resolve(found);
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    const timeoutId = setTimeout(() => {
-      observer.disconnect();
-      resolve(null);
-    }, timeoutMs);
-  });
 }

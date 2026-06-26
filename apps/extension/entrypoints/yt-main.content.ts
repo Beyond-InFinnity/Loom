@@ -55,7 +55,14 @@ interface PlayerElement extends Element {
 }
 
 export default defineContentScript({
-  matches: ["*://*.youtube.com/watch*"],
+  // ALL of youtube.com, not just /watch* (no-refresh fix): YouTube is an SPA,
+  // so home→video is a history navigation with no document reload and a
+  // /watch*-only script never injects.  Loading on the first YouTube page +
+  // the yt-navigate-finish handler below makes discovery work across SPA navs
+  // without a refresh.  Reading #movie_player is on-demand (no persistent
+  // window patch), so running on non-watch pages is cheap — the initial run()
+  // is gated to watch pages and yt-navigate-finish gates on the ?v= param.
+  matches: ["*://*.youtube.com/*"],
   world: "MAIN",
   runAt: "document_idle",
 
@@ -224,7 +231,10 @@ export default defineContentScript({
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    run();
+    // Only discover on an actual watch page.  On a home/search/channel full
+    // load there's no #movie_player; the yt-navigate-finish handler picks up
+    // the watch page when the SPA routes to it.
+    if (readVideoId()) run();
 
     document.addEventListener("yt-navigate-finish", () => {
       const newVideoId = readVideoId();

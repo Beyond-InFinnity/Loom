@@ -93,6 +93,35 @@ export function reduceManifest<P>(
   };
 }
 
+/** The ISO overlay reported a watch-URL change to `videoId` (autoplay or
+    manual advance).  On Netflix this is the RELIABLE episode-swap signal:
+    playback is MSE (the <video> element is reused and fed via SourceBuffer),
+    so episode changes fire NO loadstart/emptied — reduceMediaSwap can't see
+    them.  The URL change can, so we adopt the held manifest for the new id.
+    - pending matches the new id → adopt it (its manifest was prefetched).
+    - already active → no-op (duplicate / query-only change).
+    - neither → reset to "no active title" so the next manifest matching the
+      new /watch/ URL adopts via reduceManifest's first-title path. */
+export function reduceWatchChange<P>(
+  state: TrackerState<P>,
+  videoId: string,
+): { state: TrackerState<P>; action: TrackerAction<P> } {
+  if (state.pending && state.pending.movieId === videoId) {
+    const { movieId, status, payload } = state.pending;
+    return {
+      state: { activeMovieId: movieId, activeIsOk: status === "ok", pending: null },
+      action: { kind: "post", payload },
+    };
+  }
+  if (state.activeMovieId === videoId) {
+    return { state, action: { kind: "ignore" } };
+  }
+  return {
+    state: { activeMovieId: null, activeIsOk: false, pending: null },
+    action: { kind: "ignore" },
+  };
+}
+
 /** The <video> swapped streams (loadstart/emptied) — the episode really
     changed.  Adopt whatever title we were holding. */
 export function reduceMediaSwap<P>(

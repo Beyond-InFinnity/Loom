@@ -34,6 +34,7 @@ import {
   initialTrackerState,
   reduceManifest,
   reduceMediaSwap,
+  reduceWatchChange,
 } from "@/lib/captions/netflix/manifest-tracker";
 
 // The WebVTT profile we both REQUEST (via the stringify hook) and read
@@ -62,6 +63,15 @@ interface PostPayload {
   videoId: string | null;
   status: "ok" | "no-captions";
   tracks: CaptionTrackSerialized[];
+}
+
+/** Swappable handlers stashed on `window` so a re-injected MAIN script
+    (extension reload) updates the logic instead of re-wrapping JSON. */
+interface LoomMainHolder {
+  onManifest: (m: NetflixManifest) => void;
+  onMediaSwap: (kind: string) => void;
+  onWatchChanged: (videoId: string) => void;
+  handleRequestTracklist: () => void;
 }
 
 // Loose shapes for the Netflix manifest — field names are stable in
@@ -101,7 +111,18 @@ interface NetflixManifest {
 }
 
 export default defineContentScript({
-  matches: ["*://*.netflix.com/watch/*"],
+  // ALL of netflix.com, not just /watch/* (no-refresh fix): Netflix is a
+  // SPA, so navigating home→title (and autoplay episode→episode) is a
+  // history.pushState with NO document reload — a /watch/-only content
+  // script never injects on those navigations.  We monkey-patch
+  // window-level JSON.parse/stringify, and those patches PERSIST across
+  // SPA navigations within the same document, so installing them on the
+  // first Netflix page (home included, at document_start) means the hooks
+  // are already in place before the player fetches any manifest later.
+  // The hooks no-op unless a manifest shape is seen, so running on
+  // non-watch pages is cheap.  (The ISO overlay handles its own SPA
+  // mount/unmount in netflix.content.tsx.)
+  matches: ["*://*.netflix.com/*"],
   world: "MAIN",
   runAt: "document_start",
 
@@ -122,9 +143,41 @@ export default defineContentScript({
     // returns.  See that module's header for the full rationale.
     let tracker = initialTrackerState<PostPayload>();
 
+    // Reload-safe install (see file header).  Firefox re-injects this MAIN
+    // script into an already-open tab on every extension reload, and the
+    // JSON.parse/stringify wrappers patch the PAGE's window.JSON — which the
+    // add-on reload does NOT unwrap.  Re-wrapping each time stacks wrappers:
+    // multiple generations of this code then process every manifest with
+    // independent tracker state (observed as two different `active` titles
+    // for one manifest → wrong subs).  So install the window-level hooks +
+    // message listener EXACTLY ONCE and route them through a mutable holder;
+    // each (re)injection just swaps in its fresh handlers so the newest code
+    // wins with no stacking.  Keyed by MAIN_SOURCE so dev/prod (and only
+    // those) keep separate holders.  A full page reload (fresh window.JSON)
+    // is the only thing that truly clears the wrappers — this keeps an
+    // extension-reload-without-page-reload from doubling up.
+    const HOLDER_KEY = "__loomNflxMainHolder_" + MAIN_SOURCE;
+    const w = window as unknown as Record<string, LoomMainHolder | undefined>;
+    const existing = w[HOLDER_KEY];
+    if (existing) {
+      existing.onManifest = onManifest;
+      existing.onMediaSwap = onMediaSwap;
+      existing.onWatchChanged = onWatchChanged;
+      existing.handleRequestTracklist = handleRequestTracklist;
+      logDev("[Loom NFLX MAIN] re-attached after reload (hooks not re-wrapped)");
+      return;
+    }
+    const holder: LoomMainHolder = {
+      onManifest,
+      onMediaSwap,
+      onWatchChanged,
+      handleRequestTracklist,
+    };
+    w[HOLDER_KEY] = holder;
+
     installStringifyHook();
-    installParseHook(onManifest);
-    installMediaSwapWatcher(onMediaSwap);
+    installParseHook((m) => holder.onManifest(m));
+    installMediaSwapWatcher((k) => holder.onMediaSwap(k));
 
     /** A <video> loadstart/emptied means the player swapped streams — the
         episode genuinely changed.  Adopt whatever title we were holding. */
@@ -140,10 +193,50 @@ export default defineContentScript({
       }
     }
 
+    /** The ISO overlay reported a /watch/<id> URL change (autoplay or manual
+        advance).  This is the reliable swap signal — Netflix's MSE playback
+        doesn't fire loadstart/emptied on episode change, so onMediaSwap never
+        sees them.  Adopt the held manifest for the new id. */
+    function onWatchChanged(videoId: string): void {
+      const { state, action } = reduceWatchChange(tracker, videoId);
+      tracker = state;
+      if (action.kind === "post") {
+        logDev("[Loom NFLX MAIN] watch changed → adopting", videoId);
+        postPayload(action.payload);
+      } else {
+        logDev(
+          "[Loom NFLX MAIN] watch changed →",
+          videoId,
+          "(no held match; active reset / awaiting its manifest)",
+        );
+      }
+    }
+
     function onManifest(manifest: NetflixManifest): void {
       const movieId =
         manifest.movieId != null ? String(manifest.movieId) : null;
       if (movieId === null) return; // installParseHook guarantees non-null
+
+      // SPA gate (no-refresh fix): the MAIN hook now runs on EVERY netflix
+      // page, so it also parses manifests from home-screen auto-previews and
+      // /title/ detail-page prefetches — neither of which is the title being
+      // watched.  Until we've locked onto a playing title, only accept the
+      // manifest whose movieId matches the current /watch/<id> URL; ignore
+      // the rest (else a home-screen preview becomes "active" and the real
+      // episode gets held as a "different title" → wrong subs).  Once a
+      // title IS active, defer entirely to the tracker — its prefetch logic
+      // deliberately accepts manifests whose movieId != the URL (the
+      // next-episode prefetch), so this gate must NOT apply then.
+      if (tracker.activeMovieId === null && movieId !== readVideoId()) {
+        logDev(
+          "[Loom NFLX MAIN] ignoring pre-watch manifest",
+          movieId,
+          "(not the /watch/ title; url =",
+          readVideoId() ?? "(none)",
+          ")",
+        );
+        return;
+      }
 
       const rawTracks = Array.isArray(manifest.timedtexttracks)
         ? manifest.timedtexttracks
@@ -213,28 +306,36 @@ export default defineContentScript({
       logDev("[Loom NFLX MAIN] tracklist posted:", payload.status);
     }
 
+    /** ISO asks us to re-emit the latest tracklist when it subscribed too
+        late to catch the original postMessage (the overlay starts dormant /
+        mounts after the manifest fired).  Once per payload. */
+    function handleRequestTracklist(): void {
+      if (latestPayload && !reemittedForCurrentPayload) {
+        logDev("[Loom NFLX MAIN] ISO requested tracklist re-emit");
+        reemittedForCurrentPayload = true;
+        window.postMessage(latestPayload, location.origin);
+      }
+    }
+
     // Listen for messages from ISO.  Netflix only needs request-tracklist
     // (no CC trigger — discovery is passive, driven by the manifest hook).
+    // Registered once (the reload guard above returned early on re-injection)
+    // and routes through `holder` so the newest generation's handler runs.
     window.addEventListener("message", (event) => {
       if (event.source !== window) return;
       if (event.origin !== location.origin) return;
       const data = event.data as
-        | { source?: string; type?: string }
+        | { source?: string; type?: string; videoId?: string }
         | undefined;
       if (!data || data.source !== ISO_SOURCE) return;
 
-      if (data.type === "request-tracklist") {
-        if (latestPayload && !reemittedForCurrentPayload) {
-          logDev("[Loom NFLX MAIN] ISO requested tracklist re-emit");
-          reemittedForCurrentPayload = true;
-          window.postMessage(latestPayload, location.origin);
-        }
-        // No-op if we haven't captured a manifest yet (the manifest hook
-        // will deliver once the user starts playback) or if we've already
-        // re-emitted this payload once.
-      }
       // `trigger-cc` is intentionally unhandled — Netflix has no CC-button
       // dance; the manifest is the sole acquisition path.
+      if (data.type === "request-tracklist") {
+        holder.handleRequestTracklist();
+      } else if (data.type === "watch-changed" && typeof data.videoId === "string") {
+        holder.onWatchChanged(data.videoId);
+      }
     });
 
     /** Inject WEBVTT_PROFILE into the outgoing manifest request's
@@ -393,17 +494,36 @@ function readVideoId(): string | null {
     Media events don't bubble, so we listen in the CAPTURE phase at window
     level — that catches loadstart/emptied/durationchange on any descendant
     <video> without needing a (possibly not-yet-existent) element ref.
-    Filtered to the main player video so incidental media (hover previews,
-    PiP) can't trip it.  loadstart/emptied drive the swap; durationchange
+
+    We deliberately do NOT filter by ancestry.  An earlier `[data-uia=
+    "player"]` filter rejected EVERY swap: Netflix's real <video> lives under
+    `#appMountPoint` (the same node CaptionStream binds via
+    `#appMountPoint video`), NOT inside the `[data-uia="player"]` chrome
+    container the overlay anchors to — and `loadstart` can even fire before
+    the element is attached to the DOM at all, so any `closest()` test is
+    null at that moment.  Net effect: the held next-episode manifest was
+    never adopted (no swap ever "fired"), so autoplay/advance kept showing
+    the previous episode's subs.  Instead we accept any <video> swap and let
+    the pure reducer no-op unless a DIFFERENT-title manifest is actually
+    `pending` — which only happens on /watch/ pages after a real prefetch,
+    so incidental media (home previews, etc.) can't trip it.  durationchange
     is logged only (it can fire mid-stream under MSE). */
 function installMediaSwapWatcher(onSwap: (kind: string) => void): void {
   const handler = (kind: string) => (e: Event) => {
     const t = e.target;
     if (!(t instanceof HTMLVideoElement)) return;
-    if (!t.closest('[data-uia="player"]')) return;
+    const container = t.closest("#appMountPoint")
+      ? "#appMountPoint"
+      : t.closest('[data-uia="player"]')
+        ? '[data-uia="player"]'
+        : t.isConnected
+          ? "(other)"
+          : "(detached)";
     logDev(
       "[Loom NFLX MAIN] video",
       kind,
+      "container =",
+      container,
       "currentTime =",
       Math.round(t.currentTime),
       "duration =",

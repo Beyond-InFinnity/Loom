@@ -210,6 +210,22 @@ export function phoneticSystemsFor(code: string): PhoneticSystemOption[] {
   return [];
 }
 
+/** A learner-friendly label for the phonetic-system picker, named per
+    language instead of the generic "phonetic system".  Mirrors the
+    branches of phoneticSystemsFor(); only called where that returns ≥2
+    systems, so the [] fallback is defensive. */
+export function phoneticSystemLabelFor(code: string): string {
+  const cls = classifyLang(code);
+  if (cls.family === "cjk-han") return "Chinese reading (Pinyin / Zhuyin / Jyutping)";
+  if (cls.family === "thai") return "Thai romanization (Paiboon / RTGS / IPA)";
+  if (cls.family === "arabic") {
+    if (cls.base === "fa" || cls.base === "prs") return "Persian transliteration";
+    if (cls.base === "ur") return "Urdu transliteration";
+    return "Arabic transliteration";
+  }
+  return "Romanization style";
+}
+
 // ---- Language-aware target defaults ---------------------------------
 //
 // Sensible per-language defaults for the two target controls, applied by

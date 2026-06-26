@@ -5,14 +5,50 @@
 > pass landed. Connor enumerates observed issues; Claude runs the systematic
 > audit and proposes fix directions; we converge here before touching code.
 
-## Status (2026-06-19)
+## Status (2026-06-27) — shipped in v0.2.2 (with the no-refresh SPA fix)
 
-**All six overhaul substeps (5i-1 … 5i-6) shipped** + the C-7 prose fix. tsc
-clean, 189/189 vitest, firefox-mv2 + chrome-mv3 build. Not yet committed; not yet
-live-verified by Connor. **Open:** I-2 (Hindi romanization live test — needs a
-prod run); palette/switch-color eyeballing; the settings-panel alt-orth **preview**
-still visually shows Simplified below the reading (C-7 residue) — reconcile when
-convenient.
+> The clarity round below + the popup copy + the big **no-refresh SPA
+> activation** fix (YouTube + Netflix) are all bundled into **v0.2.2**
+> (staged this session; built + committed; Connor uploads). The SPA fix
+> itself is engine/entrypoint work, not settings-panel — its full record
+> lives in `CLAUDE.md`'s v0.2.2 block. Popup note: the toggle copy that
+> briefly read "refresh (F5) to activate…" is reverted to "Loom appears
+> automatically…" now that activation no longer needs a refresh.
+
+**This round (settings clarity + 5h-5):**
+- **Label de-jargoning (D-1).** User-facing strings now describe what each
+  layer *is* (matching the canonical Layer Terminology), code identifiers
+  unchanged: "Target (Top)"→"Video language (Top)", "Native (Bottom)"→"Your
+  language (Bottom)", "Annotation"→"Per-character annotation", "Romanization"→
+  "Romanization (phonetic line)"; AnnotateRow/RomanizeRow/Position labels
+  "Target"/"Native"→"Video language"/"Your language"; `describeProcessing`
+  "IAST"→"Indic Roman (IAST)", "RR (Romanization)"→"Korean Roman"; row/empty
+  hints reworded ("not annotatable in this build" → "No per-character
+  annotation for this language yet", "no phonetic layer" reworded, "tlang="
+  removed from copy).
+- **Language-specific phonetic-system picker label (D-2).** New
+  `phoneticSystemLabelFor()` in `lang-support.ts`; `PhoneticSystemRow` now
+  reads "Chinese reading (Pinyin / Zhuyin / Jyutping)" / "Thai romanization
+  (Paiboon / RTGS / IPA)" / "Arabic|Persian|Urdu transliteration" instead of
+  the generic "{Target|Native} phonetic system" (the `label` prop was removed
+  — card context disambiguates the two pickers).
+- **5h-5 Netflix platform-awareness — DONE.** `SettingsPanel` reads
+  `getPlatform()`: hides the "Translate to" picker when `!supportsTranslate`
+  (Netflix), drops the manual/ASR kind badge on Netflix (`showKindBadges`),
+  swaps the native null-track label to "(none — no auto-translation on
+  Netflix)", and shows a platform+status-aware empty-tracks message
+  (image-only Netflix title → "subtitles are images, not text…").
+
+tsc clean, **215/215 vitest**, prod builds green. Live-verified by Connor
+(Netflix + YouTube) and shipped in v0.2.2.
+
+**Open:** I-2 (Hindi romanization live test — needs a prod run); the
+settings-panel alt-orth **preview** still visually shows Simplified below the
+reading (C-7 residue) — reconcile when convenient. **Parked for a follow-up
+round (design sign-off first):** lift per-line "Show line" toggles to the top
+of each card; first-run "What is Loom?" explainer + better empty/loading
+states (spinner on "discovering…", presets-load fallback); show language
+*names* instead of codes in the pill.
 
 ## Governing principle
 

@@ -6,10 +6,12 @@ import type { CaptionPosition } from "./caption-context";
 import {
   classifyLang,
   phoneticSystemsFor,
+  phoneticSystemLabelFor,
   sameBaseLang,
   type LangSupport,
 } from "@/lib/captions/lang-support";
 import type { CaptionTrack } from "@/lib/captions/types";
+import { getPlatform } from "@/lib/captions/platform";
 import {
   resolveOrthographyVariants,
   type VariantDescriptor,
@@ -33,10 +35,12 @@ import { swallowPlayerEvents } from "@/lib/overlay/stop-player-events";
 //
 // Diagnostic surface for 5d/5e.  Sections:
 //
-//   - Native language        Base BCP-47 code auto-pick uses to find
+//   - Your language          Base BCP-47 code auto-pick uses to find
 //                            the Bottom layer source.  Persisted.
-//   - Target (Top)           Source-track radio list + tlang dropdown.
-//   - Native (Bottom)        Source-track radio list + tlang dropdown.
+//   - Video language (Top)   Source-track radio list + translate dropdown.
+//   - Your language (Bottom) Source-track radio list + translate dropdown.
+//   (User-facing labels are de-jargoned: "Target"→"Video language",
+//    "Native"→"Your language"; code identifiers stay target/native.)
 //   - Colors                 Per-layer text color (swatches + custom).
 //                            Persisted.
 //
@@ -207,6 +211,7 @@ export function SettingsPanel({
   onDeactivate,
 }: SettingsPanelProps) {
   const {
+    status,
     tracks,
     selectedTarget,
     selectedNative,
@@ -362,6 +367,21 @@ export function SettingsPanel({
 
   if (!open) return null;
 
+  // Platform-aware UI (5h-5).  Netflix has no machine-translation
+  // equivalent (each track is its own signed WebVTT URL) and no
+  // manual/ASR track distinction — both are YouTube concepts.  A null
+  // platform (shouldn't happen while the panel is open) defaults to the
+  // YouTube-like surface so nothing is hidden by accident.
+  const platform = getPlatform();
+  const supportsTranslate = platform?.supportsTranslate ?? true;
+  const showKindBadges = platform?.id !== "netflix";
+  const emptyTracksHint =
+    status.kind === "unsupported"
+      ? platform?.id === "netflix" && status.reason === "no-captions"
+        ? "This title’s subtitles are images, not text, so Loom can’t read them. Try a title with text-based subtitles."
+        : "No supported subtitle tracks on this video."
+      : "Discovering subtitles…";
+
   return (
     <div ref={panelRef} style={panelStyle()} {...swallowPlayerEvents}>
       {/* Scoped scrollbar styling for nested LangSelect lists.  Lives
@@ -395,7 +415,7 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <Section title="Native language (auto-pick base)" {...section("native")}>
+      <Section title="Your language (auto-pick base)" {...section("native")}>
         <LangSelect
           value={nativeLangPref}
           onChange={(code) => setNativeLangPref(code)}
@@ -407,7 +427,7 @@ export function SettingsPanel({
       </Section>
 
       <LayerSection
-        title={`Target (Top) — ${tracks.length} tracks`}
+        title={`Video language (Top) — ${tracks.length} tracks`}
         tracks={tracks}
         selected={selectedTarget}
         isUserPicked={isUserPickedTarget}
@@ -415,11 +435,14 @@ export function SettingsPanel({
         translateTo={targetTranslateTo}
         onPickTranslateTo={setTargetTranslateTo}
         allowNullTrack={false}
+        showTranslate={supportsTranslate}
+        showBadges={showKindBadges}
+        emptyHint={emptyTracksHint}
         {...section("target-track")}
       />
 
       <LayerSection
-        title="Native (Bottom)"
+        title="Your language (Bottom)"
         tracks={tracks}
         selected={selectedNative}
         isUserPicked={isUserPickedNative}
@@ -427,18 +450,25 @@ export function SettingsPanel({
         translateTo={nativeTranslateTo}
         onPickTranslateTo={setNativeTranslateTo}
         allowNullTrack
-        nullLabel={`(auto: tlang=${nativeLangPref} when no native track)`}
+        nullLabel={
+          supportsTranslate
+            ? `(auto: translate to ${nativeLangPref} when no matching track)`
+            : "(none — no auto-translation on Netflix)"
+        }
+        showTranslate={supportsTranslate}
+        showBadges={showKindBadges}
+        emptyHint={emptyTracksHint}
         {...section("native-track")}
       />
 
       <Section title="Position" {...section("position")}>
         <PositionRow
-          label="Target"
+          label="Video language"
           value={targetPosition}
           onChange={setTargetPosition}
         />
         <PositionRow
-          label="Native"
+          label="Your language"
           value={nativePosition}
           onChange={setNativePosition}
         />
@@ -462,7 +492,7 @@ export function SettingsPanel({
 
       {/* Bottom — native text */}
       <LayerStyleBlock
-        label="Bottom (native)"
+        label="Bottom — your language"
         {...section("bottom-style")}
         color={bottomColor}
         onColorChange={setBottomColor}
@@ -496,7 +526,7 @@ export function SettingsPanel({
 
       {/* Top — foreign text + its alternate-orthography ruby */}
       <LayerStyleBlock
-        label="Top (foreign)"
+        label="Top — video language"
         {...section("top-style")}
         color={topColor}
         onColorChange={setTopColor}
@@ -510,7 +540,7 @@ export function SettingsPanel({
           <div style={layerStyleRowStyle()}>
             <div style={variantInlineLabelRowStyle()}>
               <span style={layerStyleRowLabelStyle()}>
-                Link opacity (Annotation + Romanization + alt-orth)
+                Link opacity (annotation, romanization, alt-spelling)
               </span>
               <Switch
                 on={topGroupOpacityLinked}
@@ -563,7 +593,7 @@ export function SettingsPanel({
 
       {/* Annotation — per-token readings above the foreign text */}
       <LayerStyleBlock
-        label="Annotation"
+        label="Per-character annotation"
         {...section("annotation-style")}
         color={annotationColor}
         onColorChange={setAnnotationColor}
@@ -593,29 +623,30 @@ export function SettingsPanel({
         }}
       >
         <AnnotateRow
-          label="Target"
+          label="Video language"
           track={selectedTarget}
           enabled={targetAnnotateEnabled}
           onToggle={setTargetAnnotateEnabled}
         />
-        <AdvancedDisclosure label="Native annotations">
+        <AdvancedDisclosure label="Your-language annotation">
           <AnnotateRow
-            label="Native"
+            label="Your language"
             track={selectedNative}
             enabled={nativeAnnotateEnabled}
             onToggle={setNativeAnnotateEnabled}
           />
         </AdvancedDisclosure>
         <p style={hintStyle()}>
-          Per-character readings (furigana, Pinyin/Zhuyin/Jyutping, RR).
-          Only CJK + Korean supported in this build.  Size is a ratio of
-          the Top size (0.5 = half).
+          Small readings above each character — furigana for Japanese,
+          Pinyin / Zhuyin / Jyutping for Chinese, Romanization for Korean.
+          Available for Chinese, Japanese, and Korean.  Size is a fraction
+          of the Top line (0.5 = half).
         </p>
       </LayerStyleBlock>
 
       {/* Romanization — full-utterance phonetic line */}
       <LayerStyleBlock
-        label="Romanization"
+        label="Romanization (phonetic line)"
         {...section("romanization-style")}
         color={romanizationColor}
         onColorChange={setRomanizationColor}
@@ -634,13 +665,12 @@ export function SettingsPanel({
         advanced={null}
       >
         <RomanizeRow
-          label="Target"
+          label="Video language"
           track={selectedTarget}
           enabled={targetRomanizeEnabled}
           onToggle={setTargetRomanizeEnabled}
         />
         <PhoneticSystemRow
-          label="Target"
           track={selectedTarget}
           value={targetPhoneticSystem}
           onChange={setTargetPhoneticSystem}
@@ -653,25 +683,25 @@ export function SettingsPanel({
             onPickMode={setLongVowelMode}
           />
         )}
-        <AdvancedDisclosure label="Native romanization">
+        <AdvancedDisclosure label="Your-language romanization">
           <RomanizeRow
-            label="Native"
+            label="Your language"
             track={selectedNative}
             enabled={nativeRomanizeEnabled}
             onToggle={setNativeRomanizeEnabled}
           />
           <PhoneticSystemRow
-            label="Native"
             track={selectedNative}
             value={nativePhoneticSystem}
             onChange={setNativePhoneticSystem}
           />
         </AdvancedDisclosure>
         <p style={hintStyle()}>
-          Full-utterance phonetic line above the foreign text.  Covers
-          CJK, Cyrillic, Thai, Indic, Hebrew, and Arabic / Persian /
-          Urdu.  The phonetic-system picker appears only where there’s a
-          choice.  Size is a ratio of the parent line.
+          A full pronunciation line above the video’s text.  Available for
+          Chinese, Japanese, Korean, Cyrillic, Thai, Indic, Hebrew, and
+          Arabic / Persian / Urdu scripts.  The style picker appears only
+          where there’s more than one option.  Size is a fraction of the
+          parent line.
         </p>
       </LayerStyleBlock>
 
@@ -855,6 +885,14 @@ interface LayerSectionProps {
   onPickTranslateTo: (code: string | null) => void;
   allowNullTrack: boolean;
   nullLabel?: string;
+  /** Show the "Translate to" picker.  Off where the platform has no
+      machine translation (Netflix). */
+  showTranslate: boolean;
+  /** Show the manual/ASR kind badge on tracks (YouTube-only). */
+  showBadges: boolean;
+  /** Message shown when no tracks are available — platform + status
+      aware (e.g. image-only Netflix titles vs still-discovering). */
+  emptyHint: string;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -869,6 +907,9 @@ function LayerSection({
   onPickTranslateTo,
   allowNullTrack,
   nullLabel,
+  showTranslate,
+  showBadges,
+  emptyHint,
   collapsed,
   onToggleCollapse,
 }: LayerSectionProps) {
@@ -879,7 +920,7 @@ function LayerSection({
       onToggleCollapse={onToggleCollapse}
     >
       {tracks.length === 0 ? (
-        <p style={hintStyle()}>No tracks discovered yet.</p>
+        <p style={hintStyle()}>{emptyHint}</p>
       ) : (
         <>
           <TrackList
@@ -889,18 +930,21 @@ function LayerSection({
             onPick={onPickTrack}
             allowNull={allowNullTrack}
             nullLabel={nullLabel}
+            showBadges={showBadges}
           />
-          <div style={translateRowStyle()}>
-            <label style={translateLabelStyle()}>Translate to</label>
-            <LangSelect
-              value={translateTo ?? ""}
-              onChange={(code) =>
-                onPickTranslateTo(code === "" ? null : code)
-              }
-              options={SUPPORTED_LANGS}
-              emptyOption={{ label: "(no translation)" }}
-            />
-          </div>
+          {showTranslate && (
+            <div style={translateRowStyle()}>
+              <label style={translateLabelStyle()}>Translate to</label>
+              <LangSelect
+                value={translateTo ?? ""}
+                onChange={(code) =>
+                  onPickTranslateTo(code === "" ? null : code)
+                }
+                options={SUPPORTED_LANGS}
+                emptyOption={{ label: "(no translation)" }}
+              />
+            </div>
+          )}
         </>
       )}
     </Section>
@@ -979,6 +1023,9 @@ interface TrackListProps {
   onPick: (track: CaptionTrack | null) => void;
   allowNull?: boolean;
   nullLabel?: string;
+  /** Show the manual/ASR kind badge.  YouTube-only concept; off for
+      Netflix (every track is "manual" there, so the badge is noise). */
+  showBadges?: boolean;
 }
 
 function TrackList({
@@ -988,6 +1035,7 @@ function TrackList({
   onPick,
   allowNull = false,
   nullLabel,
+  showBadges = true,
 }: TrackListProps) {
   return (
     <div style={trackListStyle()}>
@@ -1015,7 +1063,7 @@ function TrackList({
             onClick={() => onPick(track)}
             primary={track.name}
             secondary={`${track.languageCode} · ${describeProcessing(classification)}`}
-            badge={track.kind === "asr" ? "asr" : "manual"}
+            badge={showBadges ? (track.kind === "asr" ? "asr" : "manual") : null}
           />
         );
       })}
@@ -1034,14 +1082,14 @@ function describeProcessing(c: LangSupport): string {
     if (c.chineseVariant === "cantonese") return "Jyutping";
   }
   if (c.family === "kana") return "Romaji";
-  if (c.family === "hangul") return "RR (Romanization)";
+  if (c.family === "hangul") return "Korean Roman";
   if (c.family === "cyrillic") return "Cyrillic translit";
   if (c.family === "thai") return "Thai translit";
   if (c.family === "hebrew") return "Hebrew translit";
   if (c.family === "arabic") return "Arabic translit";
-  if (c.family === "indic") return "IAST";
-  if (c.processing === "native-display") return "Latin (no romanize)";
-  return "no romanizer yet";
+  if (c.family === "indic") return "Indic Roman (IAST)";
+  if (c.processing === "native-display") return "Latin (no romanization)";
+  return "no romanization";
 }
 
 interface TrackRowProps {
@@ -1597,8 +1645,8 @@ function AnnotateRow({ label, track, enabled, onToggle }: AnnotateRowProps) {
       {!annotatable && (
         <p style={hintStyle()}>
           {track
-            ? `${track.languageCode}: not annotatable in this build.`
-            : "(pick a track first)"}
+            ? "No per-character annotation for this language yet."
+            : "(choose a track above first)"}
         </p>
       )}
     </div>
@@ -1613,23 +1661,20 @@ function AnnotateRow({ label, track, enabled, onToggle }: AnnotateRowProps) {
 // annotation row.  Renders nothing for single-system langs (Korean,
 // Cyrillic, Indic, Hebrew, Japanese) where there's no choice to make.
 interface PhoneticSystemRowProps {
-  label: string;
   track: CaptionTrack | null;
   value: string | null;
   onChange: (code: string | null) => void;
 }
 
-function PhoneticSystemRow({
-  label,
-  track,
-  value,
-  onChange,
-}: PhoneticSystemRowProps) {
+function PhoneticSystemRow({ track, value, onChange }: PhoneticSystemRowProps) {
   const systems = track ? phoneticSystemsFor(track.languageCode) : [];
   if (systems.length < 2) return null;
+  const systemLabel = track
+    ? phoneticSystemLabelFor(track.languageCode)
+    : "Romanization style";
   return (
     <div style={annotateSystemRowStyle()}>
-      <span style={annotateSystemLabelStyle()}>{label} phonetic system</span>
+      <span style={annotateSystemLabelStyle()}>{systemLabel}</span>
       <LangSelect
         value={value ?? ""}
         onChange={(code) => onChange(code === "" ? null : code)}
@@ -1671,8 +1716,8 @@ function RomanizeRow({ label, track, enabled, onToggle }: RomanizeRowProps) {
       {!romanizable && (
         <p style={hintStyle()}>
           {track
-            ? `${track.languageCode}: no phonetic layer (Latin / unsupported).`
-            : "(pick a track first)"}
+            ? "No pronunciation line for this language (Latin script or unsupported)."
+            : "(choose a track above first)"}
         </p>
       )}
     </div>

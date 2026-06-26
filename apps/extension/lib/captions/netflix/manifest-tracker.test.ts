@@ -3,6 +3,7 @@ import {
   initialTrackerState,
   reduceManifest,
   reduceMediaSwap,
+  reduceWatchChange,
   type TrackStatus,
 } from "./manifest-tracker";
 
@@ -115,6 +116,35 @@ describe("manifest-tracker — image-only next episode", () => {
     expect(action.kind).toBe("post");
     expect(state.activeMovieId).toBe("B");
     expect(state.activeIsOk).toBe(false);
+  });
+});
+
+describe("manifest-tracker — watch-change (URL-driven swap, MSE)", () => {
+  it("adopts the held next episode when the URL changes to it", () => {
+    let s = reduceManifest(initialTrackerState<P>(), ev("A")).state; // A active
+    s = reduceManifest(s, ev("B")).state; // B prefetched + held
+    const { state, action } = reduceWatchChange(s, "B");
+    expect(action).toEqual({ kind: "post", payload: { id: "B" } });
+    expect(state.activeMovieId).toBe("B");
+    expect(state.pending).toBeNull();
+  });
+
+  it("no-ops when the URL change is to the already-active title", () => {
+    const s = reduceManifest(initialTrackerState<P>(), ev("A")).state;
+    const { state, action } = reduceWatchChange(s, "A");
+    expect(action).toEqual({ kind: "ignore" });
+    expect(state.activeMovieId).toBe("A");
+  });
+
+  it("resets active for an un-prefetched title so its next manifest adopts", () => {
+    const s = reduceManifest(initialTrackerState<P>(), ev("A")).state;
+    const { state, action } = reduceWatchChange(s, "Z"); // never seen
+    expect(action).toEqual({ kind: "ignore" });
+    expect(state.activeMovieId).toBeNull();
+    // Next manifest for Z (gated to the /watch/ URL in netflix-main) adopts.
+    const next = reduceManifest(state, ev("Z"));
+    expect(next.action).toEqual({ kind: "post", payload: { id: "Z" } });
+    expect(next.state.activeMovieId).toBe("Z");
   });
 });
 

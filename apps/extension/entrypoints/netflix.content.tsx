@@ -1,6 +1,6 @@
 import ReactDOM from "react-dom/client";
 
-import { logDev } from "@/lib/env";
+import { ISO_SOURCE, logDev } from "@/lib/env";
 import { LoomApp } from "@/components/loom-app";
 import {
   NETFLIX_PLAYER_ROOT,
@@ -27,58 +27,81 @@ import {
 // translateZ-promotion perf note — both apply identically here.
 
 const ANCHOR_SELECTOR = NETFLIX_PLAYER_ROOT;
-const ANCHOR_WAIT_TIMEOUT_MS = 30_000;
 const HOST_STYLE_ID = "loom-host-positioning";
 
+/** Numeric Netflix title id for a /watch/<id> URL, else null. */
+function watchIdOf(url: string | URL): string | null {
+  try {
+    const m = new URL(url).pathname.match(/\/watch\/(\d+)/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 export default defineContentScript({
-  matches: ["*://*.netflix.com/watch/*"],
+  // ALL of netflix.com, not just /watch/* (no-refresh fix): Netflix routes
+  // home→title and autoplay/advance episode→episode via history.pushState
+  // with NO document reload, so a /watch/-only content script never injects
+  // on those navigations — Loom was absent until F5.  We load on the first
+  // Netflix page; WXT's autoMount then owns the overlay lifecycle and the
+  // wxt:locationchange handler tells MAIN which episode is now playing.
+  matches: ["*://*.netflix.com/*"],
   cssInjectionMode: "ui",
   runAt: "document_idle",
 
   async main(ctx) {
     injectHostPositioningStyle();
 
-    // Netflix's player root appears only after the SPA loads the watch
-    // view + the player initializes — later than YouTube's #movie_player,
-    // hence the longer timeout.
-    const anchor = await waitForElement(
-      ANCHOR_SELECTOR,
-      ANCHOR_WAIT_TIMEOUT_MS,
-    );
-    if (!anchor) {
-      console.warn(
-        "[Loom] Netflix player root",
-        ANCHOR_SELECTOR,
-        "never appeared within",
-        ANCHOR_WAIT_TIMEOUT_MS,
-        "ms — overlay not mounted",
-      );
-      return;
-    }
-
-    // The canvas may be position:static; promote it so the absolute host
-    // anchors to it rather than escaping to a positioned ancestor.
-    ensureAnchorPositioned(anchor as HTMLElement);
-
+    // WXT autoMount owns the overlay lifecycle.  It watches ANCHOR_SELECTOR
+    // and mounts when the Netflix player appears, unmounts when it's removed,
+    // and — crucially — RE-mounts when Netflix tears down + rebuilds the
+    // player subtree.  That rebuild is exactly what a MANUAL "next episode"
+    // does (autoplay reuses the player); a one-shot mount() left our shadow
+    // host orphaned in the detached old subtree → pill + subs invisible.
+    // Cost is a single MutationObserver watching for one selector — far below
+    // the per-frame / paint costs the perf tripwires actually guard against.
     const ui = await createShadowRootUi(ctx, {
       name: "loom-overlay-root",
       position: "inline",
       anchor: ANCHOR_SELECTOR,
       inheritStyles: true,
       onMount: (uiContainer) => {
+        // The player root can be position:static; promote it so our absolute
+        // host anchors to it instead of escaping to a positioned ancestor.
+        const anchor = document.querySelector<HTMLElement>(ANCHOR_SELECTOR);
+        if (anchor) ensureAnchorPositioned(anchor);
         uiContainer.style.position = "absolute";
         uiContainer.style.inset = "0";
         const root = ReactDOM.createRoot(uiContainer);
         root.render(<LoomApp />);
+        logDev("[Loom] Netflix overlay mounted inside", ANCHOR_SELECTOR);
         return root;
       },
       onRemove: (root) => {
         root?.unmount();
+        logDev("[Loom] Netflix overlay unmounted");
       },
     });
+    ui.autoMount();
 
-    ui.mount();
-    logDev("[Loom] Netflix overlay mounted inside", ANCHOR_SELECTOR);
+    // Episode-swap signal for MAIN.  Netflix MSE playback fires NO <video>
+    // loadstart/emptied on episode change (the element is reused + fed via
+    // SourceBuffer), so MAIN's media-swap watcher can't see swaps — the URL
+    // change is the reliable signal.  Tell MAIN which title is now playing so
+    // it adopts that manifest; the overlay itself is handled by autoMount.
+    let currentWatchId = watchIdOf(location.href);
+    ctx.addEventListener(window, "wxt:locationchange", ({ newUrl }) => {
+      const newId = watchIdOf(newUrl);
+      if (newId === currentWatchId) return;
+      currentWatchId = newId;
+      if (newId) {
+        window.postMessage(
+          { source: ISO_SOURCE, type: "watch-changed", videoId: newId },
+          location.origin,
+        );
+      }
+    });
   },
 });
 
@@ -106,32 +129,4 @@ loom-overlay-root {
 }
 `;
   (document.head ?? document.documentElement).appendChild(style);
-}
-
-/** Wait for an element matching `selector` to exist.  Returns the
-    element, or null on timeout.  (Duplicated from content.tsx rather than
-    shared, to keep the YouTube entrypoint byte-for-byte untouched.) */
-function waitForElement(
-  selector: string,
-  timeoutMs: number,
-): Promise<Element | null> {
-  const existing = document.querySelector(selector);
-  if (existing) return Promise.resolve(existing);
-
-  return new Promise<Element | null>((resolve) => {
-    const observer = new MutationObserver(() => {
-      const found = document.querySelector(selector);
-      if (found) {
-        observer.disconnect();
-        clearTimeout(timeoutId);
-        resolve(found);
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    const timeoutId = setTimeout(() => {
-      observer.disconnect();
-      resolve(null);
-    }, timeoutMs);
-  });
 }

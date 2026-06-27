@@ -47,7 +47,7 @@ export interface FetchTrackOpts {
     implementation per platform (YouTube now; Netflix in 5h-2).  The
     shared caption pipeline depends only on this interface. */
 export interface CaptionPlatform {
-  readonly id: "youtube" | "netflix" | "crunchyroll";
+  readonly id: "youtube" | "netflix" | "crunchyroll" | "iqiyi";
 
   /** Acquire session-level state needed before any fetchTrackEvents.
       Called once per video, after the tracklist arrives.

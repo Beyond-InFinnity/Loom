@@ -73,6 +73,12 @@ export default defineConfig({
         // CORS-blocked.  Until confirmed, crunchyroll.com covers same-origin /
         // *.crunchyroll.com-hosted subtitle files.  LIVE-VERIFY.
         "*://*.crunchyroll.com/*",
+        // iQIYI international (iq.com): the play page + the cache-video.iq.com
+        // /dash JSON (both under *.iq.com), and the subtitle files served from
+        // meta.video.iqiyi.com (an *.iqiyi.com origin) — granted so the ISO
+        // world's cross-origin GET of the WebVTT file isn't CORS-blocked.
+        "*://*.iq.com/*",
+        "*://*.iqiyi.com/*",
         // Follows the resolved API base (LOOM_API_BASE override or mode
         // default) so a dev build pointed at prod gets the prod origin
         // granted for the cross-origin /annotate + /romanize fetches.

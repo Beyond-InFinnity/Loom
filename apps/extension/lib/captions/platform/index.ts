@@ -8,6 +8,7 @@
 import type { CaptionPlatform } from "./types";
 import { youtubePlatform } from "./youtube";
 import { netflixPlatform } from "./netflix";
+import { crunchyrollPlatform } from "./crunchyroll";
 
 let resolved: CaptionPlatform | null | undefined = undefined;
 
@@ -18,6 +19,8 @@ export function getPlatform(): CaptionPlatform | null {
     resolved = youtubePlatform;
   } else if (host === "netflix.com" || host.endsWith(".netflix.com")) {
     resolved = netflixPlatform;
+  } else if (host === "crunchyroll.com" || host.endsWith(".crunchyroll.com")) {
+    resolved = crunchyrollPlatform;
   } else {
     resolved = null;
   }

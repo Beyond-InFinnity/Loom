@@ -374,7 +374,9 @@ export function SettingsPanel({
   // YouTube-like surface so nothing is hidden by accident.
   const platform = getPlatform();
   const supportsTranslate = platform?.supportsTranslate ?? true;
-  const showKindBadges = platform?.id !== "netflix";
+  // ASR/manual badges are meaningful only on YouTube — Netflix and
+  // Crunchyroll tracks are all author-provided (never speech-recognised).
+  const showKindBadges = platform?.id === "youtube";
   const emptyTracksHint =
     status.kind === "unsupported"
       ? platform?.id === "netflix" && status.reason === "no-captions"

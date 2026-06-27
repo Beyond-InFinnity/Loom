@@ -66,6 +66,13 @@ export default defineConfig({
         // GET isn't blocked by the page's CORS.
         "*://*.netflix.com/*",
         "*://*.nflxvideo.net/*",
+        // Crunchyroll: the watch page (MAIN /play fetch hook + ISO overlay).
+        // The subtitle files (.ass/.vtt) are fetched cross-origin by the ISO
+        // world; their CDN host is captured live during recon and added here
+        // (e.g. a *.crunchyroll.com or *.vrv.co origin) so the GET isn't
+        // CORS-blocked.  Until confirmed, crunchyroll.com covers same-origin /
+        // *.crunchyroll.com-hosted subtitle files.  LIVE-VERIFY.
+        "*://*.crunchyroll.com/*",
         // Follows the resolved API base (LOOM_API_BASE override or mode
         // default) so a dev build pointed at prod gets the prod origin
         // granted for the cross-origin /annotate + /romanize fetches.

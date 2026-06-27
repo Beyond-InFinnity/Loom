@@ -36,6 +36,11 @@ ALLOW_ORIGIN_REGEX = (
     r"|moz-extension://.*"
     r"|https://[a-z0-9-]+\.youtube\.com"
     r"|https://[a-z0-9-]+\.netflix\.com"
+    # iQIYI international play pages are on www.iq.com; WeTV's page origin is
+    # the bare apex https://wetv.vip (no subdomain) — hence the optional
+    # subdomain group on both.  (Page origins captured from live HARs, 2026-06.)
+    r"|https://([a-z0-9-]+\.)?iq\.com"
+    r"|https://([a-z0-9-]+\.)?wetv\.vip"
 )
 
 _COMPILED_REGEX = re.compile(ALLOW_ORIGIN_REGEX)

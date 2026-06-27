@@ -29,6 +29,10 @@ from loom_api.cors import is_allowed_origin
         "https://www.youtube.com",
         "https://m.youtube.com",
         "https://music.youtube.com",
+        "https://www.iq.com",  # iQIYI international
+        "https://iq.com",  # apex (optional-subdomain regex)
+        "https://wetv.vip",  # WeTV — page origin is the bare apex (no www)
+        "https://www.wetv.vip",
     ],
 )
 def test_supported_streaming_origins_allowed(origin):
@@ -71,6 +75,9 @@ def test_first_party_origins_allowed(origin):
         "https://evil-youtube.com",
         "https://www.netflix.org",
         "http://www.netflix.com",  # scheme must be https for streaming sites
+        "https://eviliq.com",  # iq.com suffix-spoof
+        "https://wetv.vip.evil.com",  # wetv.vip suffix-spoof
+        "https://wetv.vipevil.com",
     ],
 )
 def test_unknown_origins_rejected(origin):

@@ -177,7 +177,10 @@ const VALID_POSITIONS: CaptionPosition[] = [
   "bottom-1",
   "bottom-2",
 ];
-const DEFAULT_TARGET_POSITION: CaptionPosition = "bottom-1";
+// Default split layout: video (target) pinned to the top zone, user (native)
+// to the bottom zone — solo-top is top-1, solo-bottom is bottom-2 by
+// convention.  Reads cleaner for a first-time user than both lines stacked.
+const DEFAULT_TARGET_POSITION: CaptionPosition = "top-1";
 const DEFAULT_NATIVE_POSITION: CaptionPosition = "bottom-2";
 
 function isCaptionPosition(v: unknown): v is CaptionPosition {
@@ -486,8 +489,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     useState<RomanizeMap | null>(null);
   const [nativeRomanizeMap, setNativeRomanizeMapState] =
     useState<RomanizeMap | null>(null);
-  const [targetVariantEnabled, setTargetVariantEnabledState] = useState(false);
-  const [nativeVariantEnabled, setNativeVariantEnabledState] = useState(false);
+  // Default ON: alternate orthography only resolves when the selected track
+  // HAS a variant (today only zh-Hant → Simplified under-ruby), so enabling it
+  // by default surfaces the zh-Hant alt-orthography out of the box and is a
+  // no-op for every other language (targetEffective = enabled && !!variant).
+  // Persisted user choice still overrides this initial value on load.
+  const [targetVariantEnabled, setTargetVariantEnabledState] = useState(true);
+  const [nativeVariantEnabled, setNativeVariantEnabledState] = useState(true);
   const [variantHighlightEnabled, setVariantHighlightEnabledState] =
     useState(true);
   const [variantColor, setVariantColorState] = useState(DEFAULT_VARIANT_COLOR);

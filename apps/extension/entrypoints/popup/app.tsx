@@ -98,7 +98,7 @@ export function App() {
         </button>
         <p className={enabled ? "status status-on" : "status status-off"}>
           {enabled
-            ? "ON — Loom appears automatically on YouTube and Netflix videos."
+            ? "ON — Loom appears automatically on compatible videos."
             : "OFF — Loom runs nowhere until you turn it back on."}
         </p>
       </section>

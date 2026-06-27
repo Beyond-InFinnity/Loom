@@ -374,6 +374,20 @@ export function SettingsPanel({
   // YouTube-like surface so nothing is hidden by accident.
   const platform = getPlatform();
   const supportsTranslate = platform?.supportsTranslate ?? true;
+  // Human-readable platform name for user-facing copy (e.g. the "no
+  // auto-translation" hint) — keeps strings from hardcoding one platform.
+  const platformName =
+    platform?.id === "youtube"
+      ? "YouTube"
+      : platform?.id === "netflix"
+        ? "Netflix"
+        : platform?.id === "iqiyi"
+          ? "iQIYI"
+          : platform?.id === "wetv"
+            ? "WeTV"
+            : platform?.id === "crunchyroll"
+              ? "Crunchyroll"
+              : "this platform";
   // ASR/manual badges are meaningful only on YouTube — Netflix and
   // Crunchyroll tracks are all author-provided (never speech-recognised).
   const showKindBadges = platform?.id === "youtube";
@@ -417,7 +431,7 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <Section title="Your language (auto-pick base)" {...section("native")}>
+      <Section title="User language (auto-pick base)" {...section("native")}>
         <LangSelect
           value={nativeLangPref}
           onChange={(code) => setNativeLangPref(code)}
@@ -444,7 +458,7 @@ export function SettingsPanel({
       />
 
       <LayerSection
-        title="Your language (Bottom)"
+        title="User language (Bottom)"
         tracks={tracks}
         selected={selectedNative}
         isUserPicked={isUserPickedNative}
@@ -455,7 +469,7 @@ export function SettingsPanel({
         nullLabel={
           supportsTranslate
             ? `(auto: translate to ${nativeLangPref} when no matching track)`
-            : "(none — no auto-translation on Netflix)"
+            : `(none — no auto-translation on ${platformName})`
         }
         showTranslate={supportsTranslate}
         showBadges={showKindBadges}
@@ -470,7 +484,7 @@ export function SettingsPanel({
           onChange={setTargetPosition}
         />
         <PositionRow
-          label="Your language"
+          label="User language"
           value={nativePosition}
           onChange={setNativePosition}
         />
@@ -494,7 +508,7 @@ export function SettingsPanel({
 
       {/* Bottom — native text */}
       <LayerStyleBlock
-        label="Bottom — your language"
+        label="Bottom — user language"
         {...section("bottom-style")}
         color={bottomColor}
         onColorChange={setBottomColor}
@@ -630,9 +644,9 @@ export function SettingsPanel({
           enabled={targetAnnotateEnabled}
           onToggle={setTargetAnnotateEnabled}
         />
-        <AdvancedDisclosure label="Your-language annotation">
+        <AdvancedDisclosure label="User-language annotation">
           <AnnotateRow
-            label="Your language"
+            label="User language"
             track={selectedNative}
             enabled={nativeAnnotateEnabled}
             onToggle={setNativeAnnotateEnabled}
@@ -685,9 +699,9 @@ export function SettingsPanel({
             onPickMode={setLongVowelMode}
           />
         )}
-        <AdvancedDisclosure label="Your-language romanization">
+        <AdvancedDisclosure label="User-language romanization">
           <RomanizeRow
-            label="Your language"
+            label="User language"
             track={selectedNative}
             enabled={nativeRomanizeEnabled}
             onToggle={setNativeRomanizeEnabled}
@@ -1849,14 +1863,14 @@ function VariantSection({
   return (
     <Section title="Alternate orthography">
       <VariantToggleRow
-        label="Target"
+        label="Video language"
         track={selectedTarget}
         variant={targetVariant}
         enabled={targetEnabled}
         onToggle={onTargetToggle}
       />
       <VariantToggleRow
-        label="Native"
+        label="User language"
         track={selectedNative}
         variant={nativeVariant}
         enabled={nativeEnabled}

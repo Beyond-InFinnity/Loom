@@ -18,7 +18,11 @@ pulls slowapi (requirements-web.txt, absent from the CI requirements).
 """
 import pytest
 
-from loom_api.cors import is_allowed_origin
+from loom_api.cors import (
+    DEFAULT_ORIGINS,
+    is_allowed_origin,
+    resolve_exact_origins,
+)
 
 
 # --- Streaming sites the extension injects into (page origin on Chrome MV3) ---
@@ -92,3 +96,29 @@ def test_env_override_extends_exact_list():
     assert is_allowed_origin("https://www.netflix.com", custom) is True
     # And the default exact entries no longer match (list was replaced).
     assert is_allowed_origin("https://loom.nerv-analytic.ai", custom) is False
+
+
+# --- LOOM_CORS_ORIGINS env var APPENDS to defaults (whitelist without a code
+#     change / source rebuild — the deploy-time path for new origins) ---
+def test_resolve_exact_origins_appends_env_to_defaults():
+    resolved = resolve_exact_origins("https://new-platform.example, https://b.example")
+    # Defaults are always present...
+    for d in DEFAULT_ORIGINS:
+        assert d in resolved
+    # ...plus the env-provided ones (whitespace trimmed).
+    assert "https://new-platform.example" in resolved
+    assert "https://b.example" in resolved
+    # And a new origin added purely via env is then allowed.
+    assert is_allowed_origin("https://new-platform.example", resolved) is True
+
+
+def test_resolve_exact_origins_empty_or_none_is_just_defaults():
+    assert resolve_exact_origins(None) == DEFAULT_ORIGINS
+    assert resolve_exact_origins("") == DEFAULT_ORIGINS
+    assert resolve_exact_origins("  ,  ,") == DEFAULT_ORIGINS
+
+
+def test_resolve_exact_origins_dedups():
+    # Re-listing a default doesn't duplicate it.
+    resolved = resolve_exact_origins(DEFAULT_ORIGINS[0])
+    assert resolved.count(DEFAULT_ORIGINS[0]) == 1

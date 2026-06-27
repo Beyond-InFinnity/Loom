@@ -16,7 +16,11 @@ romanization silently failed on Chrome/Netflix while dual subs (served from
 Netflix's own manifest) kept working.  ``tests/test_cors_origins.py`` exists
 so the next streaming site can't ship the same way.
 
-**ADD A SITE HERE** when the extension gains support for it.
+**ADDING A SITE:** two options — (1) append its page origin to the
+``LOOM_CORS_ORIGINS`` Railway env var (no code change / no source rebuild;
+see :func:`resolve_exact_origins`), preferred for one-offs; or (2) for a site
+with many subdomains, add a clause to :data:`ALLOW_ORIGIN_REGEX` here (guarded
+by ``tests/test_cors_origins.py``).
 """
 import re
 
@@ -44,6 +48,22 @@ ALLOW_ORIGIN_REGEX = (
 )
 
 _COMPILED_REGEX = re.compile(ALLOW_ORIGIN_REGEX)
+
+
+def resolve_exact_origins(env_value: str | None) -> list[str]:
+    """:data:`DEFAULT_ORIGINS` plus any comma-separated origins from the
+    ``LOOM_CORS_ORIGINS`` env var.
+
+    Crucially this APPENDS rather than replaces, so a deploy can whitelist a
+    new streaming site (or preview URL) by editing one Railway env var — no
+    code change, no source rebuild. Whitespace/empties are dropped; order is
+    defaults-first then env, deduped preserving first occurrence.
+    """
+    extra = [o.strip() for o in (env_value or "").split(",") if o.strip()]
+    seen: dict[str, None] = {}
+    for o in (*DEFAULT_ORIGINS, *extra):
+        seen.setdefault(o, None)
+    return list(seen)
 
 
 def is_allowed_origin(origin: str, exact_origins: list[str] | None = None) -> bool:

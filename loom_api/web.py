@@ -31,7 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from .cors import ALLOW_ORIGIN_REGEX, DEFAULT_ORIGINS
+from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .routes import annotate, health, language, romanize, styles
 
 app = FastAPI(
@@ -45,15 +45,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Origins allowed to call this API.  Production frontend lives at
-# loom.nerv-analytic.ai; localhost ports cover Vercel preview + local dev.
-# Override via ``LOOM_CORS_ORIGINS`` (comma-separated) when the deploy URL
-# changes or a preview deployment needs ad-hoc access.  The browser
-# extension (Step 5) ships from a randomized chrome-extension:// or
-# moz-extension:// origin per install, so its origin is whitelisted by
-# regex below — exact-listing every install ID isn't workable.
-_origins_env = os.environ.get("LOOM_CORS_ORIGINS", "").strip()
-_origins = [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins_env else DEFAULT_ORIGINS
+# Origins allowed to call this API.  DEFAULT_ORIGINS (production frontend +
+# local dev) are ALWAYS allowed; the ``LOOM_CORS_ORIGINS`` env var APPENDS to
+# them (comma-separated).  Appending — not replacing — means a new streaming
+# site (or preview URL) can be whitelisted by editing one Railway env var, no
+# code change or source rebuild.  The browser extension ships from a randomized
+# chrome-extension:// / moz-extension:// origin per install, whitelisted by the
+# regex below (exact-listing every install ID isn't workable).
+_origins = resolve_exact_origins(os.environ.get("LOOM_CORS_ORIGINS"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,11 +60,12 @@ app.add_middleware(
     # The browser extension fetches from a content script. On Chrome MV3 that
     # fetch carries the *page* origin of the streaming site (e.g.
     # https://www.youtube.com), NOT chrome-extension:// — so the sites the
-    # extension runs on must be allow-listed here too, or annotate/romanize
-    # 400 under CORS. (Firefox MV2 content scripts bypass CORS, which masked
-    # this — it worked on Firefox but not Chrome.) Add a new streaming site's
-    # origin in loom_api/cors.py when the extension gains support for it;
-    # tests/test_cors_origins.py guards the list.
+    # extension runs on must be allow-listed, or annotate/romanize 400 under
+    # CORS. (Firefox MV2 content scripts bypass CORS, which masked this.) Two
+    # ways to add a site now: append its origin to the LOOM_CORS_ORIGINS env
+    # var (no code change — preferred for one-offs), or for a site with many
+    # subdomains add a clause to ALLOW_ORIGIN_REGEX in loom_api/cors.py
+    # (guarded by tests/test_cors_origins.py).
     allow_origin_regex=ALLOW_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],

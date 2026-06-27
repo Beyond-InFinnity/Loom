@@ -79,6 +79,15 @@ export default defineConfig({
         // world's cross-origin GET of the WebVTT file isn't CORS-blocked.
         "*://*.iq.com/*",
         "*://*.iqiyi.com/*",
+        // WeTV (Tencent): the play page + the getvinfo JSONP call (on
+        // *.wetv.vip), the subtitle files on *.wetvinfo.com (e.g.
+        // cffaws.wetvinfo.com), and Tencent VOD CDN hosts that may serve
+        // subtitle/segment files. Granted so the ISO world's cross-origin GET
+        // of the WebVTT (or .vtt.m3u8) isn't CORS-blocked.
+        "*://*.wetv.vip/*",
+        "*://*.wetvinfo.com/*",
+        "*://*.video.qq.com/*",
+        "*://*.myqcloud.com/*",
         // Follows the resolved API base (LOOM_API_BASE override or mode
         // default) so a dev build pointed at prod gets the prod origin
         // granted for the cross-origin /annotate + /romanize fetches.

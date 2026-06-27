@@ -385,11 +385,9 @@ export function SettingsPanel({
           ? "iQIYI"
           : platform?.id === "wetv"
             ? "WeTV"
-            : platform?.id === "crunchyroll"
-              ? "Crunchyroll"
-              : "this platform";
-  // ASR/manual badges are meaningful only on YouTube — Netflix and
-  // Crunchyroll tracks are all author-provided (never speech-recognised).
+            : "this platform";
+  // ASR/manual badges are meaningful only on YouTube — Netflix, iQIYI and
+  // WeTV tracks are all author-provided (never speech-recognised).
   const showKindBadges = platform?.id === "youtube";
   const emptyTracksHint =
     status.kind === "unsupported"

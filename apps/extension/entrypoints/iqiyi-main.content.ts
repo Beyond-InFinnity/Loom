@@ -19,7 +19,7 @@
 // *.iqiyi.com).  We prefer the `webvtt` field → Loom's existing parseVtt; no
 // new parser.
 //
-// Mirrors netflix-main / crunchyroll-main's ROLE — emit the same
+// Mirrors netflix-main's ROLE — emit the same
 // { source: "loom-main", type: "tracklist", … } message discover.ts consumes.
 // Bidirectional postMessage keeps MAIN dependency-free (no browser.*).
 

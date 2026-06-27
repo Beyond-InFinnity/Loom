@@ -8,7 +8,6 @@
 import type { CaptionPlatform } from "./types";
 import { youtubePlatform } from "./youtube";
 import { netflixPlatform } from "./netflix";
-import { crunchyrollPlatform } from "./crunchyroll";
 import { iqiyiPlatform } from "./iqiyi";
 import { wetvPlatform } from "./wetv";
 
@@ -21,8 +20,6 @@ export function getPlatform(): CaptionPlatform | null {
     resolved = youtubePlatform;
   } else if (host === "netflix.com" || host.endsWith(".netflix.com")) {
     resolved = netflixPlatform;
-  } else if (host === "crunchyroll.com" || host.endsWith(".crunchyroll.com")) {
-    resolved = crunchyrollPlatform;
   } else if (host === "iq.com" || host.endsWith(".iq.com")) {
     resolved = iqiyiPlatform;
   } else if (host === "wetv.vip" || host.endsWith(".wetv.vip")) {

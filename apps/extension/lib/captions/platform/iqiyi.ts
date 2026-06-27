@@ -1,6 +1,6 @@
 // iQIYI (iq.com) caption platform adapter.
 //
-// Like Netflix and Crunchyroll, there is no per-session token to capture and
+// Like Netflix, there is no per-session token to capture and
 // no lang-swap: the player's `cache-video.iq.com/dash` JSON response (caught
 // by entrypoints/iqiyi-main.content.ts's fetch/XHR hook) enumerates every
 // subtitle track with its own file URL, already on CaptionTrack.baseUrl.  And

@@ -50,7 +50,7 @@ export default defineConfig({
     return {
       name: dev ? "Loom (Dev)" : "Loom",
       description:
-        "Dual subtitles with romanization for foreign-language video on YouTube.",
+        "Dual subtitles with romanization for foreign-language video on YouTube, Netflix, iQIYI, and WeTV.",
       // `storage` for the owner key + display prefs. `webRequest` (observe
       // mode) to learn the YouTube-issued timedtext URL. `scripting` was
       // dropped — the MAIN-world hooks (YouTube tracklist read + Netflix
@@ -66,13 +66,6 @@ export default defineConfig({
         // GET isn't blocked by the page's CORS.
         "*://*.netflix.com/*",
         "*://*.nflxvideo.net/*",
-        // Crunchyroll: the watch page (MAIN /play fetch hook + ISO overlay).
-        // The subtitle files (.ass/.vtt) are fetched cross-origin by the ISO
-        // world; their CDN host is captured live during recon and added here
-        // (e.g. a *.crunchyroll.com or *.vrv.co origin) so the GET isn't
-        // CORS-blocked.  Until confirmed, crunchyroll.com covers same-origin /
-        // *.crunchyroll.com-hosted subtitle files.  LIVE-VERIFY.
-        "*://*.crunchyroll.com/*",
         // iQIYI international (iq.com): the play page + the cache-video.iq.com
         // /dash JSON (both under *.iq.com), and the subtitle files served from
         // meta.video.iqiyi.com (an *.iqiyi.com origin) — granted so the ISO

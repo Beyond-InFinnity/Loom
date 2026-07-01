@@ -32,8 +32,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
-from .deps import get_result_cache
-from .routes import annotate, health, language, romanize, styles
+from .deps import get_corpus_store, get_result_cache
+from .routes import annotate, corpus, health, language, romanize, styles
 
 app = FastAPI(
     title="Loom Web API",
@@ -159,11 +159,12 @@ class BypassAwareSlowAPI:
 app.add_middleware(BypassAwareSlowAPI)
 
 # Eagerly build the romanize/annotate result cache (ROMANIZATION_CACHE.md
-# Layer 1) at worker boot rather than on the first batch request — Postgres
-# schema init (or, with the DB down, its fail-open timeout) belongs in the
-# boot path, not in a user's first request latency.  With no DATABASE_URL
-# this returns NullResultCache and costs nothing.
+# Layer 1) and the corpus store (Layer 2) at worker boot rather than on the
+# first request — Postgres schema init (or, with the DB down, its fail-open
+# timeout) belongs in the boot path, not in a user's first request latency.
+# With no DATABASE_URL these return Null impls and cost nothing.
 get_result_cache()
+get_corpus_store()
 
 app.include_router(health.router)
 app.include_router(language.router)
@@ -174,3 +175,5 @@ app.include_router(annotate.router)
 # 404s it (color presets silently fail to load). color_presets + styles are
 # pure-Python (no ffmpeg/playwright), so mounting here is safe for the slim API.
 app.include_router(styles.router)
+# POST /corpus/capture — opt-in media-identity subtitle capture (Layer 2).
+app.include_router(corpus.router)

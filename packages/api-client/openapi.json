@@ -879,6 +879,47 @@
           }
         }
       }
+    },
+    "/corpus/capture": {
+      "post": {
+        "tags": [
+          "corpus"
+        ],
+        "summary": "Corpus Capture",
+        "operationId": "corpus_capture_corpus_capture_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorpusCaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorpusCaptureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1503,6 +1544,181 @@
         },
         "type": "object",
         "title": "BottomLayerStyle"
+      },
+      "CaptureLine": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Seq",
+            "description": "0-based position in the track's event order."
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms",
+            "description": "Event start, milliseconds."
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms",
+            "description": "Event end, milliseconds."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "text"
+        ],
+        "title": "CaptureLine"
+      },
+      "CorpusCaptureRequest": {
+        "properties": {
+          "opt_in_training": {
+            "type": "boolean",
+            "title": "Opt In Training",
+            "description": "Must be true for anything to be stored.  The extension sends this from the user's opt-in setting; false \u2192 200 stored=false.",
+            "default": false
+          },
+          "platform": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Platform",
+            "description": "youtube | netflix | iqiyi | wetv | ..."
+          },
+          "media_id": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Media Id",
+            "description": "Platform-native media id (videoId / movieId / ...)."
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Best-effort human-readable title."
+          },
+          "origin_lang": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 35
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Lang",
+            "description": "Media's origin/audio language, if known."
+          },
+          "track_id": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Track Id",
+            "description": "Platform-native track id (vssId / trackId / ...)."
+          },
+          "track_lang": {
+            "type": "string",
+            "maxLength": 35,
+            "title": "Track Lang",
+            "description": "BCP-47 language tag of the captured track."
+          },
+          "is_cc": {
+            "type": "boolean",
+            "title": "Is Cc",
+            "description": "True for closed-captions/SDH tracks.",
+            "default": false
+          },
+          "track_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Kind",
+            "description": "e.g. manual | asr."
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureLine"
+            },
+            "type": "array",
+            "maxItems": 10000,
+            "title": "Lines",
+            "description": "Full ordered timed event list."
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "media_id",
+          "track_id",
+          "track_lang",
+          "lines"
+        ],
+        "title": "CorpusCaptureRequest"
+      },
+      "CorpusCaptureResponse": {
+        "properties": {
+          "stored": {
+            "type": "boolean",
+            "title": "Stored"
+          },
+          "deduped": {
+            "type": "boolean",
+            "title": "Deduped",
+            "description": "True when this exact track content was already captured.",
+            "default": false
+          },
+          "lines": {
+            "type": "integer",
+            "title": "Lines",
+            "description": "Line rows written (0 on no-op/dedup).",
+            "default": 0
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Human-readable no-op explanation when stored=false.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "stored"
+        ],
+        "title": "CorpusCaptureResponse"
       },
       "DetectLanguageResponse": {
         "properties": {

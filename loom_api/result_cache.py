@@ -158,12 +158,10 @@ class PostgresResultCache:
     _BACKOFF_SECONDS = 30.0
 
     def __init__(self, dsn: str) -> None:
-        from psycopg_pool import ConnectionPool  # lazy: web-only dep
+        from .db import get_pool  # lazy: pool construction needs psycopg
 
-        # open=True validates nothing yet (min_size=0) — first use connects.
-        self._pool = ConnectionPool(
-            dsn, min_size=0, max_size=4, open=True, name="loom-result-cache"
-        )
+        # Shared process-wide pool (min_size=0 — first use connects).
+        self._pool = get_pool(dsn)
         self._backoff_until = 0.0
         self._ensure_schema()
 

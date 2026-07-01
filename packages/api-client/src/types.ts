@@ -415,6 +415,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/corpus/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Corpus Capture */
+        post: operations["corpus_capture_corpus_capture_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -808,6 +825,104 @@ export interface components {
              * @default 40
              */
             marginv: number;
+        };
+        /** CaptureLine */
+        CaptureLine: {
+            /**
+             * Seq
+             * @description 0-based position in the track's event order.
+             */
+            seq: number;
+            /**
+             * Start Ms
+             * @description Event start, milliseconds.
+             */
+            start_ms?: number | null;
+            /**
+             * End Ms
+             * @description Event end, milliseconds.
+             */
+            end_ms?: number | null;
+            /** Text */
+            text: string;
+        };
+        /** CorpusCaptureRequest */
+        CorpusCaptureRequest: {
+            /**
+             * Opt In Training
+             * @description Must be true for anything to be stored.  The extension sends this from the user's opt-in setting; false → 200 stored=false.
+             * @default false
+             */
+            opt_in_training: boolean;
+            /**
+             * Platform
+             * @description youtube | netflix | iqiyi | wetv | ...
+             */
+            platform: string;
+            /**
+             * Media Id
+             * @description Platform-native media id (videoId / movieId / ...).
+             */
+            media_id: string;
+            /**
+             * Title
+             * @description Best-effort human-readable title.
+             */
+            title?: string | null;
+            /**
+             * Origin Lang
+             * @description Media's origin/audio language, if known.
+             */
+            origin_lang?: string | null;
+            /**
+             * Track Id
+             * @description Platform-native track id (vssId / trackId / ...).
+             */
+            track_id: string;
+            /**
+             * Track Lang
+             * @description BCP-47 language tag of the captured track.
+             */
+            track_lang: string;
+            /**
+             * Is Cc
+             * @description True for closed-captions/SDH tracks.
+             * @default false
+             */
+            is_cc: boolean;
+            /**
+             * Track Kind
+             * @description e.g. manual | asr.
+             */
+            track_kind?: string | null;
+            /**
+             * Lines
+             * @description Full ordered timed event list.
+             */
+            lines: components["schemas"]["CaptureLine"][];
+        };
+        /** CorpusCaptureResponse */
+        CorpusCaptureResponse: {
+            /** Stored */
+            stored: boolean;
+            /**
+             * Deduped
+             * @description True when this exact track content was already captured.
+             * @default false
+             */
+            deduped: boolean;
+            /**
+             * Lines
+             * @description Line rows written (0 on no-op/dedup).
+             * @default 0
+             */
+            lines: number;
+            /**
+             * Reason
+             * @description Human-readable no-op explanation when stored=false.
+             * @default
+             */
+            reason: string;
         };
         /** DetectLanguageResponse */
         DetectLanguageResponse: {
@@ -2401,6 +2516,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    corpus_capture_corpus_capture_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorpusCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorpusCaptureResponse"];
                 };
             };
             /** @description Validation Error */

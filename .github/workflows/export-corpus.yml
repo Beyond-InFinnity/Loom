@@ -1,0 +1,58 @@
+# Scheduled corpus export: Postgres landing zone → object storage (Parquet).
+# See ROMANIZATION_CACHE.md (Layer 2) + loom_api/corpus_export.py.
+#
+# NO-OPS GRACEFULLY until wired: with the secrets below unset, the export
+# script exits 0 ("nothing to do") — so this workflow can merge before the
+# Railway Postgres / R2 bucket exist without producing red runs.
+#
+# Required repository secrets to activate:
+#   CORPUS_DATABASE_URL      Railway Postgres PUBLIC url (Railway service
+#                            variables → DATABASE_PUBLIC_URL; the internal
+#                            .railway.internal one is unreachable from CI).
+#   CORPUS_BUCKET            Bucket name (R2 or S3).
+#   CORPUS_S3_ENDPOINT       R2 only: https://<account_id>.r2.cloudflarestorage.com
+#   CORPUS_AWS_ACCESS_KEY_ID / CORPUS_AWS_SECRET_ACCESS_KEY
+#                            Bucket credentials (R2 API token or AWS IAM).
+
+name: export-corpus
+
+on:
+  schedule:
+    - cron: "17 6 1 * *" # monthly, 1st @ 06:17 UTC (off the :00 rush)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (walk the pipeline, write nothing)"
+        type: boolean
+        default: false
+      prune:
+        description: "Prune line rows for tracks archived >30 days"
+        type: boolean
+        default: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install export deps
+        run: python -m pip install --quiet -r scripts/requirements-export.txt
+
+      - name: Export corpus
+        env:
+          DATABASE_URL: ${{ secrets.CORPUS_DATABASE_URL }}
+          LOOM_CORPUS_BUCKET: ${{ secrets.CORPUS_BUCKET }}
+          LOOM_CORPUS_S3_ENDPOINT: ${{ secrets.CORPUS_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CORPUS_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CORPUS_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: >-
+          python scripts/export_corpus.py
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.prune && '--prune' || '' }}

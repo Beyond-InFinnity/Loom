@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes import (
     align,
     annotate,
+    corpus,
     files,
     generate,
     health,
@@ -57,3 +58,7 @@ app.include_router(align.router)
 app.include_router(preview.router)
 app.include_router(styles.router)
 app.include_router(mux.router)
+# Opt-in corpus capture (Layer 2).  Mounted here too so the generated
+# @loom/api-client types include it (generate.sh dumps THIS app's schema);
+# in the sidecar it no-ops (NullCorpusStore) unless a DSN is configured.
+app.include_router(corpus.router)

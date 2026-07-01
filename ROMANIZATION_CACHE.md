@@ -18,8 +18,17 @@
 >    the `loom.cache` log lines (hits/misses/rss_mb/langs_computed) — that's
 >    the §5 measurement that decides whether Option B is ever needed.
 >
-> **Layer 2 (media-identity corpus) NOT started** — deliberate; it's a
-> privacy-policy change (§6 gotcha 4).
+> **Layer 2 (media-identity corpus): SERVER INFRA SHIPPED 2026-07-02.**
+> `POST /corpus/capture` (opt-in-gated, fail-soft, content-hash dedup) +
+> `loom_api/corpus_store.py` (corpus_media/track/line/export_manifest,
+> shares the Layer-1 DSN) + `loom_api/corpus_export.py` +
+> `scripts/export_corpus.py` (Postgres → partitioned Parquet on R2/S3,
+> manifest-audited, optional prune) + monthly `.github/workflows/
+> export-corpus.yml` (no-ops until secrets exist) + 21 tests
+> (`tests/test_corpus.py`).  `@loom/api-client` regenerated with the
+> endpoint.  **Wiring owed (Connor): see `CORPUS_WIRING.md`** — extension
+> opt-in toggle + capture call, R2 bucket + GitHub secrets, privacy/store
+> copy (the privacy-policy change from §6 gotcha 4 ships WITH the toggle).
 >
 > **Original owner ask:** stop re-running the romanization/annotation pipeline in real-time on
 > every piece of content; store results in a SQL DB (Railway Postgres) so compute is

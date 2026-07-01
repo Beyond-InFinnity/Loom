@@ -1,0 +1,10 @@
+# Deps for scripts/export_corpus.py (the corpus → object-storage export job).
+# Installed by .github/workflows/export-corpus.yml — NOT part of the API
+# service image (requirements-web.txt) or the desktop env (requirements.txt);
+# the API never imports pyarrow/boto3 (lazy imports in loom_api/corpus_export.py).
+psycopg[binary]
+psycopg-pool
+pyarrow
+boto3
+pydantic>=2.0        # loom_api import chain (models) when running the script standalone
+fastapi              # loom_api.routes import chain

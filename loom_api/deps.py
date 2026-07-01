@@ -8,6 +8,7 @@ for ``S3FileStorage`` (step 4) requires no changes outside this file.
 import logging
 import os
 
+from .corpus_store import CorpusStore, NullCorpusStore
 from .jobs import JobManager
 from .result_cache import NullResultCache, ResultCache
 from .storage import LocalFileStorage, Storage
@@ -15,6 +16,7 @@ from .storage import LocalFileStorage, Storage
 _storage: Storage | None = None
 _jobs: JobManager | None = None
 _result_cache: ResultCache | None = None
+_corpus_store: CorpusStore | None = None
 
 
 def get_storage() -> Storage:
@@ -56,6 +58,45 @@ def set_result_cache(cache: ResultCache | None) -> None:
     resets to lazy env-driven construction."""
     global _result_cache
     _result_cache = cache
+
+
+def get_corpus_store() -> CorpusStore:
+    """Media-identity subtitle corpus (ROMANIZATION_CACHE.md Layer 2).
+
+    Same wiring philosophy as get_result_cache(): enabled iff a Postgres DSN
+    is present (``LOOM_CORPUS_URL`` wins, else ``DATABASE_URL`` — one Railway
+    Postgres serves both layers by default), ``LOOM_CORPUS=off`` is the kill
+    switch, and every failure degrades to NullCorpusStore.  Called from the
+    handler body (not Depends) for direct-call testability; tests swap impls
+    via set_corpus_store().
+    """
+    global _corpus_store
+    if _corpus_store is None:
+        _corpus_store = _build_corpus_store()
+    return _corpus_store
+
+
+def set_corpus_store(store: CorpusStore | None) -> None:
+    """Test seam.  ``None`` resets to lazy env-driven construction."""
+    global _corpus_store
+    _corpus_store = store
+
+
+def _build_corpus_store() -> CorpusStore:
+    if os.environ.get("LOOM_CORPUS", "").strip().lower() in {"off", "0", "false"}:
+        return NullCorpusStore()
+    dsn = os.environ.get("LOOM_CORPUS_URL") or os.environ.get("DATABASE_URL")
+    if not dsn:
+        return NullCorpusStore()
+    try:
+        from .corpus_store import PostgresCorpusStore
+
+        return PostgresCorpusStore(dsn)
+    except Exception:
+        logging.getLogger("loom.corpus").warning(
+            "corpus: Postgres init failed; captures disabled", exc_info=True
+        )
+        return NullCorpusStore()
 
 
 def _build_result_cache() -> ResultCache:

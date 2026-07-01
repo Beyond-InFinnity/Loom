@@ -4,9 +4,13 @@
 > + `corpus_store.py` + `corpus_export.py` + `scripts/export_corpus.py` +
 > `.github/workflows/export-corpus.yml`; `@loom/api-client` regenerated with
 > the new endpoint).  This doc is the plan for everything that CONNECTS to it:
-> the extension capture call + opt-in toggle, the Railway/R2/GitHub secrets,
+> the extension consent flow + capture call, the Railway/R2/GitHub secrets,
 > and the privacy/store copy.  Design rationale lives in
 > `ROMANIZATION_CACHE.md`; schema in `loom_api/corpus_store.py`'s docstring.
+> **Consent design revised 2026-07-02:** two-touch active ask (install-time
+> onboarding + one post-first-episode re-ask) instead of a buried settings
+> toggle — see §1a; store-policy sources in the section.  Dev/owner builds
+> capture by default.
 
 The server side is deliberately inert until wired: with no `DATABASE_URL`
 the store is a Null no-op; even with a DB, nothing is stored unless a
@@ -17,19 +21,87 @@ toggle (below) ever sets.
 
 ## 1. Extension wiring (the `opt_in_training` wire-up owed since 5f)
 
-### 1a. Setting + storage
+### 1a. Consent model (REVISED 2026-07-02 — replaces the settings-toggle-only design)
 
-- New storage key, following the `loom_` convention:
-  `const STORAGE_KEY_CORPUS_OPT_IN = "loom_corpus_opt_in";` — default **false**.
+A buried default-off toggle converts at ~zero, defeating the corpus.  Both
+stores forbid pre-consented collection (Chrome: "prominent disclosure +
+affirmative consent" via a specific agreeing action, and NOT only in a
+privacy policy/settings page; Mozilla: opt-in via the data-collection-
+permissions framework).  The compliant maximum-conversion design is a
+**two-touch active ask**:
+
+1. **Install-time ask.**  `runtime.onInstalled` (reason `"install"` ONLY —
+   never on `"update"`) opens an onboarding page (1b) ending in the choice:
+   large primary **"Contribute caption data"** button, quieter "No thanks".
+   Clicking primary = the affirmative action both stores require.  A
+   pre-checked box + Continue does NOT qualify — don't build that.
+2. **One deferred re-ask** for users who closed the tab without choosing:
+   after Loom's first successful episode render (peak goodwill), show the
+   same choice once in-overlay.  Never ask again after an answer or after
+   the re-ask; the settings toggle (1e) is the permanent control.
+3. **Dev/owner builds capture by default** (gate on `IS_DEV`, like the
+   owner-key field) — no prompt; Connor's own watching builds the corpus
+   from day one regardless of public adoption.  Content dedups, so heavy
+   watchers are the corpus's anchor tenants.
+
+State is a **tri-state**: `loom_corpus_opt_in` ∈ unset / `true` / `false`,
+plus `loom_corpus_asked` (bool) so the re-ask fires at most once.  Unset
+behaves as `false` for capture.
+
+Policy sources (verified 2026-07-02): Chrome [disclosure requirements](https://developer.chrome.com/docs/webstore/program-policies/disclosure-requirements)
++ [user-data FAQ](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq)
+(consent must be a specific agreeing action, before collection, not only in
+a privacy policy); Mozilla [built-in data-collection consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)
++ [Oct 2025 rollout](https://blog.mozilla.org/addons/2025/10/23/data-collection-consent-changes-for-new-firefox-extensions/)
+(mandatory for new extensions from 2025-11-03; optional-list data consented
+via `permissions.request()`).
+
+### 1b. Onboarding page (doubles as the parked first-run explainer)
+
+- New WXT HTML page entrypoint (e.g. `entrypoints/onboarding/`), opened by
+  the background script on install.  This is ALSO the "What is Loom?"
+  first-run explainer parked in `UI_REVISIONS.md` — 30 seconds of "click the
+  pill on a video / here's the 4-layer stack", ending in the contribute ask
+  so the consent reads as the last step of setup, not a data grab.
+- Ask copy: *"Help improve furigana, romanization, and future OCR for
+  everyone — contribute anonymous caption data.  This shares what you watch
+  (video ID + subtitle text), never anything about you."*  Buttons:
+  **Contribute caption data** (primary) / No thanks (secondary).
+
+### 1c. Firefox: route consent through the native data-collection permission
+
+- Declare the collection in the manifest's **optional** data-collection list
+  (`browser_specific_settings.gecko.data_collection_permissions.optional`,
+  Firefox-manifest branch of `wxt.config.ts`) — it then appears natively in
+  the install flow's data disclosure and as a toggle in `about:addons` →
+  Permissions and Data.
+- The onboarding page's primary button calls `browser.permissions.request()`
+  for that data permission (needs a user gesture — the click is one), so the
+  yes lands in Mozilla's own consent UI: maximally review-proof.  Keep
+  `loom_corpus_opt_in` as the source of truth and listen to
+  `permissions.onAdded/onRemoved` so the native about:addons toggle and the
+  panel toggle stay in sync.
+- Graceful degradation: if the data-collection `permissions.request()` shape
+  isn't supported by the running Firefox version, fall back to writing the
+  setting directly (Chrome's only path anyway).
+- Do NOT put it in the `required` list — that gates every install behind a
+  mandatory "collects website content" disclosure (repels the 100% of users
+  who just want subtitles) and is exactly the ancillary-data-as-required
+  pattern reviewers reject.
+
+### 1d. Setting + storage
+
+- Storage keys, following the `loom_` convention:
+  `loom_corpus_opt_in` (tri-state, absent = unset) + `loom_corpus_asked`.
 - Module-level state in `lib/captions/discover.ts` alongside the existing
   annotation prefs (`STORAGE_KEY_TARGET_ANNOTATE_ENABLED` block, ~lines 60–82);
-  load it in `loadAnnotationPrefs()`; add a `setCorpusOptIn()` setter that
+  load in `loadAnnotationPrefs()`; add a `setCorpusOptIn()` setter that
   persists + updates the module var (pattern: `setTargetAnnotateEnabled`,
-  ~lines 970–1008).
-- Expose through `CaptionContextValue` in `components/caption-context.tsx`
-  (same shape as the other boolean settings there).
+  ~lines 970–1008).  In dev builds, treat unset as **true** (1a.3).
+- Expose value + setter through `CaptionContextValue` in
+  `components/caption-context.tsx` (same shape as the other boolean settings).
 
-### 1b. Settings-panel toggle
+### 1e. Settings-panel toggle (the persistent control)
 
 - `components/settings-panel.tsx`: new collapsible `<Section>` just above the
   "Turn off Loom on this tab" footer (~line 722), hooked into the collapsible
@@ -38,10 +110,11 @@ toggle (below) ever sets.
   - Label: **"Contribute caption data"**
   - Hint text: *"Send the subtitles of videos you watch (video title/ID and
     caption text — never anything about you) to Loom's training corpus to
-    improve annotations, romanization, and future OCR support. Off by
-    default."*
+    improve annotations, romanization, and future OCR support."*
+- On Firefox, flipping this toggle should request/remove the native data
+  permission (1c) so `about:addons` reflects reality.
 
-### 1c. The capture call
+### 1f. The capture call
 
 - New module `lib/corpus/capture.ts`:
   - Builds the payload from data already in scope in
@@ -60,7 +133,8 @@ toggle (below) ever sets.
     - `track_id` / `track_lang` / `is_cc` / `track_kind`: straight off
       `CaptionTrack` (`id`, `languageCode`, `isCc`, `kind`).
     - `origin_lang`: `CaptionTrack.audioLangCode` when present (Netflix).
-    - `opt_in_training: true` (the call is only made when the toggle is on).
+    - `opt_in_training: true` (the call is only made when consent state
+      resolves true — 1a/1d).
   - Calls `getApiClient().POST("/corpus/capture", {body})` — the endpoint is
     in the regenerated `@loom/api-client` types already.
   - **Fire-and-forget with a swallow-everything catch** (same posture as the
@@ -78,13 +152,17 @@ toggle (below) ever sets.
   so the request-level flag finally reflects reality.  Server-side it's
   currently informational on those routes; capture happens via /corpus/capture.
 
-### 1d. Tests + release
+### 1g. Tests + release
 
-- vitest: payload-builder unit tests (event→line mapping, empty-text
-  passthrough — server drops them, client shouldn't bother filtering beyond
-  what it does today; sent-set dedup logic).
+- vitest: payload-builder unit tests (event→line mapping, sent-set dedup)
+  + consent-state resolution (unset/true/false × dev/prod, re-ask fires at
+  most once).
 - Ships in the next store release (0.3.1/0.4.0) **together with the privacy
-  copy below** — do not ship the toggle without the copy.
+  copy below** — do not ship the consent flow without the copy.
+- Reviewer notes must volunteer the flow: optional collection, requested via
+  prominent onboarding consent (native data-collection permission on
+  Firefox), nothing stored before affirmative action, revocable in settings,
+  no user identifiers in the payload.
 
 ## 2. Railway (shares Layer 1's wiring — nothing extra)
 
@@ -134,6 +212,11 @@ create themselves at the next worker boot.  Kill switch: `LOOM_CORPUS=off`
 
 ## 5. Verification checklist (after wiring)
 
+0. Consent flow: fresh install opens onboarding once (never on update);
+   "No thanks" / dismiss → no capture calls at all; dismiss → re-ask
+   appears exactly once after the first rendered episode; Firefox
+   `about:addons` Permissions-and-Data toggle stays in sync with the
+   panel toggle both directions.
 1. Railway logs: `loom.corpus` line `capture platform=… lines=N` on first
    opted-in activation; re-activating the same episode → response
    `deduped: true`, no new line.

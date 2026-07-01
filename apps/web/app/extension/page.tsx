@@ -5,7 +5,7 @@ import { SiteNav } from "../../components/site-nav";
 export const metadata = {
   title: "Browser Extension — Loom",
   description:
-    "Install the Loom browser extension for dual-language subtitles with per-token romanization on YouTube.",
+    "Install the Loom browser extension for dual-language subtitles with per-token romanization on YouTube, Netflix, iQIYI, and WeTV.",
 };
 
 // Hosted at loom.nerv-analytic.ai/extension — the landing page's "Browser
@@ -98,8 +98,8 @@ export default function Extension() {
               Dual-language subtitles with per-token romanization and annotation
               — furigana, Pinyin, Zhuyin, Jyutping, Korean Revised Romanization,
               and a secondary phonetic line for every supported script — rendered
-              live over YouTube playback. Activate it per tab; nothing runs until
-              you click.
+              live over YouTube, Netflix, iQIYI, and WeTV. Activate it per tab;
+              nothing runs until you click.
             </p>
 
             <div className="mt-12 grid gap-6 sm:grid-cols-3">

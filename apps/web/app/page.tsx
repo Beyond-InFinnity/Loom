@@ -46,7 +46,7 @@ export default function Home() {
                   Browser Extension →
                 </span>
                 <span className="mt-0.5 text-xs text-muted-foreground">
-                  Dual subtitles + romanization, live on YouTube
+                  Dual subtitles + romanization on YouTube, Netflix, iQIYI & WeTV
                 </span>
               </Link>
               <Link

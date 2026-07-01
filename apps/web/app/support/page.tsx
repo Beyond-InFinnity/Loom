@@ -14,8 +14,9 @@ export const metadata = {
 //
 // Keep the troubleshooting answers in lockstep with the extension's real
 // behaviour: per-tab activation via the "Loom" pill, a single batch fetch on
-// activation (~3-4s, then quiet), webRequest-based caption acquisition. If the
-// activation flow or a known failure mode changes, update the matching Q here.
+// activation (~3-4s, then quiet), per-platform caption acquisition across
+// YouTube / Netflix / iQIYI / WeTV. If the activation flow, the supported
+// platforms, or a known failure mode changes, update the matching Q here.
 
 const CONTACT_EMAIL = "support@nerv-analytic.ai";
 
@@ -73,8 +74,9 @@ export default function Support() {
             <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
               Loom adds dual-language subtitles with phonetic readings —
               furigana, Pinyin, Zhuyin, Jyutping, Korean romanization, and a
-              romanization line for every supported script — on top of YouTube
-              playback. This page covers getting started and the questions that
+              romanization line for every supported script — on top of YouTube,
+              Netflix, iQIYI, and WeTV playback. This page covers getting started
+              and the questions that
               come up most. Still stuck?{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}`}
@@ -92,9 +94,12 @@ export default function Support() {
                   <Link href="/extension" className="text-primary hover:underline">
                     extension page
                   </Link>{" "}
-                  (Firefox first; Chrome and Edge follow).
+                  (Firefox, Chrome, and Edge are all supported).
                 </li>
-                <li>Open a video on YouTube that has subtitles/captions.</li>
+                <li>
+                  Open a video on YouTube, Netflix, iQIYI, or WeTV that has
+                  subtitles/captions in the spoken language.
+                </li>
                 <li>
                   Click the small <strong className="text-foreground">“Loom”</strong>{" "}
                   pill that appears over the player to activate it for that tab.
@@ -128,10 +133,14 @@ export default function Support() {
 
                 <Faq question="Which sites and browsers does Loom support?">
                   <p>
-                    Today Loom works on <strong className="text-foreground">YouTube</strong>.
-                    It&rsquo;s built and tested on Firefox; a Chrome/Edge
-                    (Manifest&nbsp;V3) build is in progress. Other streaming
-                    sites are on the roadmap.
+                    Loom works on{" "}
+                    <strong className="text-foreground">
+                      YouTube, Netflix, iQIYI, and WeTV
+                    </strong>
+                    , on Firefox, Chrome, and Edge. More streaming sites are on
+                    the roadmap. Loom needs a fetchable text subtitle track in
+                    the language being spoken, so titles with only burned-in or
+                    image-based subtitles aren&rsquo;t supported yet.
                   </p>
                 </Faq>
 
@@ -148,12 +157,12 @@ export default function Support() {
                 <Faq question="No extra subtitles appear after I click “Loom.”">
                   <p>
                     The most common cause is that the video has no captions to
-                    work from. Confirm YouTube&rsquo;s own CC button offers
-                    captions for the video. Loom reads the caption tracks the
-                    site already serves — if there are none (or only in a
-                    language Loom can&rsquo;t yet process), there&rsquo;s nothing
-                    to annotate. Reloading the page and re-activating clears most
-                    transient cases.
+                    work from. Confirm the site&rsquo;s own CC/subtitle control
+                    offers captions for the video. Loom reads the caption tracks
+                    the site already serves — if there are none (or only
+                    image-based subtitles, or only a language Loom can&rsquo;t
+                    yet process), there&rsquo;s nothing to annotate. Reloading the
+                    page and re-activating clears most transient cases.
                   </p>
                 </Faq>
 
@@ -170,10 +179,10 @@ export default function Support() {
 
                 <Faq question="The subtitles are out of sync or look stale.">
                   <p>
-                    Loom anchors its overlay to YouTube&rsquo;s player, so
+                    Loom anchors its overlay to each site&rsquo;s video player, so
                     fullscreen and theater mode are supported. If timing looks off
-                    after jumping between videos quickly, reload the page to reset
-                    the overlay for the current video.
+                    after jumping between videos or episodes quickly, reload the
+                    page to reset the overlay for the current video.
                   </p>
                 </Faq>
 
@@ -189,7 +198,7 @@ export default function Support() {
                   </p>
                 </Faq>
 
-                <Faq question="I have a video file, not a YouTube link.">
+                <Faq question="I have a video file, not a streaming link.">
                   <p>
                     Use the{" "}
                     <Link href="/generate" className="text-primary hover:underline">

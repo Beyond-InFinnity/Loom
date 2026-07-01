@@ -13,8 +13,18 @@
 # ── Web framework ──────────────────────────────────────────────────────
 fastapi
 uvicorn[standard]
+gunicorn                               # master process for worker recycling (ROMANIZATION_CACHE.md §4 Option A)
+uvicorn-worker                         # gunicorn worker class (uvicorn.workers is deprecated upstream)
 pydantic>=2.0
 slowapi                                # IP rate limiting (4f hardening)
+
+# ── Result cache (ROMANIZATION_CACHE.md Layer 1) ───────────────────────
+# Postgres-backed content-addressed cache for /romanize/batch +
+# /annotate/batch.  Fail-open: without DATABASE_URL (or with the DB down)
+# the API runs uncached.  Web-only deps — desktop requirements.txt omits
+# them on purpose (loom_api/result_cache.py imports psycopg lazily).
+psycopg[binary]
+psycopg-pool
 
 # ── Core dependencies ──────────────────────────────────────────────────
 pysubs2                                # imported by loom_core.models / language

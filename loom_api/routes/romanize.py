@@ -22,7 +22,11 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from loom_core.romanize import engine_version
 from loom_core.styles import get_lang_config
+
+from ..deps import get_result_cache
+from ..result_cache import CacheRow, cache_key, log_batch, normalize_text
 
 router = APIRouter(tags=["text"])
 
@@ -194,18 +198,72 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
     has_japanese_path = bool(spans_to_romaji_func and annotation_func)
     has_callable = has_phonetic_layer and (has_japanese_path or romanize_func)
 
-    results: list[RomanizeBatchItem] = []
-    for text in req.texts:
-        if not has_callable or not text or not text.strip() or len(text) > _BATCH_MAX_TEXT_LENGTH:
-            results.append(RomanizeBatchItem(romanized=""))
-            continue
+    def _computable(text: str) -> bool:
+        return bool(has_callable and text and text.strip() and len(text) <= _BATCH_MAX_TEXT_LENGTH)
 
+    # Read-through/write-back result cache (ROMANIZATION_CACHE.md Layer 1).
+    # Keyed on the RESOLVED system name (so phonetic_system=None and an
+    # explicit default share entries) + engine/normalization versions.
+    # long_vowel_mode only affects output on the Japanese path — hash it as
+    # a constant elsewhere so it can't fragment e.g. the Chinese cache.
+    # Deduping by normalized text also collapses repeated subtitle lines
+    # ("はい！" ×30/episode) into one computation even on a full cache miss.
+    cache = get_result_cache()
+    system_name = cfg.get("romanization_name", "N/A")
+    mode = req.long_vowel_mode if has_japanese_path else "-"
+    eng_ver = engine_version(req.lang_code)
+
+    unique: dict[str, bytes] = {}  # normalized text -> cache key
+    for text in req.texts:
+        if _computable(text):
+            norm = normalize_text(text)
+            if norm not in unique:
+                unique[norm] = cache_key("romanize", req.lang_code, system_name, mode, eng_ver, norm)
+
+    found = cache.get_many(list(unique.values())) if unique else {}
+    values: dict[str, str] = {}
+    new_rows: list[CacheRow] = []
+    for norm, key in unique.items():
+        hit = found.get(key)
+        if isinstance(hit, dict) and isinstance(hit.get("romanized"), str):
+            values[norm] = hit["romanized"]
+            continue
         if has_japanese_path:
-            spans = annotation_func(text)
+            spans = annotation_func(norm)
             romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
         else:
-            romanized = romanize_func(text)
-        results.append(RomanizeBatchItem(romanized=romanized))
+            romanized = romanize_func(norm)
+        values[norm] = romanized
+        new_rows.append(
+            CacheRow(
+                key=key,
+                kind="romanize",
+                lang_code=req.lang_code,
+                phonetic_system=system_name,
+                mode=mode,
+                engine_version=eng_ver,
+                input_text=norm,
+                output={"romanized": romanized},
+            )
+        )
+    if new_rows:
+        cache.put_many(new_rows)
+    if unique:
+        log_batch(
+            "romanize",
+            req.lang_code,
+            total=len(req.texts),
+            unique=len(unique),
+            hits=len(unique) - len(new_rows),
+            misses=len(new_rows),
+        )
+
+    results: list[RomanizeBatchItem] = []
+    for text in req.texts:
+        if not _computable(text):
+            results.append(RomanizeBatchItem(romanized=""))
+            continue
+        results.append(RomanizeBatchItem(romanized=values[normalize_text(text)]))
 
     return RomanizeBatchResponse(
         results=results,

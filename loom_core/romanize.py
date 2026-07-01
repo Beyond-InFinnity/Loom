@@ -63,6 +63,30 @@ Priority order for the hiragana reading of each kanji token:
 import functools
 import re
 
+# ---------------------------------------------------------------------------
+# Engine versions — cache-key discipline (ROMANIZATION_CACHE.md gotcha #1)
+# ---------------------------------------------------------------------------
+# The API's content-addressed result cache (loom_api/result_cache.py) stamps
+# every cached romanization/annotation with the engine version of its primary
+# language.  BUMP THE LANGUAGE'S VERSION whenever a change to this module (or
+# styles.py's system resolution) alters romanize/annotation OUTPUT for that
+# language — e.g. fixing a documented failure mode like ברוך → varokh or
+# Pākistān → Pākasatān.  Old cache rows then simply stop matching; no
+# invalidation logic exists or is needed.  Refactors that don't change output
+# must NOT bump (that would needlessly cold-start the cache).
+_ENGINE_VERSION_DEFAULT = 1
+ENGINE_VERSIONS: dict[str, int] = {
+    # primary lang code -> version; unlisted languages use the default.
+    # "ja": 1, "zh": 1, "yue": 1, "ko": 1, "th": 1, "he": 1, "ar": 1, ...
+}
+
+
+def engine_version(lang_code: str) -> int:
+    """Cache-key version for *lang_code* (primary subtag, case-insensitive)."""
+    primary = (lang_code or "").split("-")[0].lower()
+    return ENGINE_VERSIONS.get(primary, _ENGINE_VERSION_DEFAULT)
+
+
 # Matches ASS override tag blocks: {...}
 # Stripped before romanization so tags don't pollute the phonetic output.
 _ASS_TAG_RE = re.compile(r'\{[^}]*\}')

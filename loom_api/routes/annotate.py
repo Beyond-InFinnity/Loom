@@ -24,8 +24,11 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import build_annotation_html
+from loom_core.romanize import build_annotation_html, engine_version
 from loom_core.styles import get_lang_config
+
+from ..deps import get_result_cache
+from ..result_cache import CacheRow, cache_key, log_batch, normalize_text
 
 router = APIRouter(tags=["text"])
 
@@ -186,21 +189,70 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
     if mode not in _VALID_RENDER_MODES:
         mode = default_render_mode
 
-    results: list[AnnotateBatchItem] = []
-    for text in req.texts:
+    def _computable(text: str) -> bool:
         # Per-text defensive cap.  Texts longer than _BATCH_MAX_TEXT_LENGTH
         # are zeroed out rather than rejecting the whole batch — keeps
         # positional alignment with the request guaranteed.
-        if (
-            not annotation_func
-            or not text
-            or not text.strip()
-            or len(text) > _BATCH_MAX_TEXT_LENGTH
-        ):
+        return bool(annotation_func and text and text.strip() and len(text) <= _BATCH_MAX_TEXT_LENGTH)
+
+    # Read-through/write-back result cache (ROMANIZATION_CACHE.md Layer 1).
+    # Caches the SPANS only — the expensive MeCab/jieba/aksharamukha pass —
+    # not the HTML: build_annotation_html is a cheap pure renderer re-run
+    # per request, which keeps render_mode out of the key (×3 less
+    # cardinality).  Keyed on the resolved annotation system name so
+    # phonetic_system=None and an explicit default share entries.
+    cache = get_result_cache()
+    system_name = cfg.get("annotation_system_name", "Annotation")
+    eng_ver = engine_version(req.lang_code)
+
+    unique: dict[str, bytes] = {}  # normalized text -> cache key
+    for text in req.texts:
+        if _computable(text):
+            norm = normalize_text(text)
+            if norm not in unique:
+                unique[norm] = cache_key("annotate", req.lang_code, system_name, "-", eng_ver, norm)
+
+    found = cache.get_many(list(unique.values())) if unique else {}
+    span_values: dict[str, list] = {}  # normalized text -> raw spans [(base, reading), ...]
+    new_rows: list[CacheRow] = []
+    for norm, key in unique.items():
+        hit = found.get(key)
+        if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
+            span_values[norm] = [(s[0], s[1]) for s in hit["spans"]]
+            continue
+        raw_spans = annotation_func(norm)
+        span_values[norm] = raw_spans
+        new_rows.append(
+            CacheRow(
+                key=key,
+                kind="annotate",
+                lang_code=req.lang_code,
+                phonetic_system=system_name,
+                mode="-",
+                engine_version=eng_ver,
+                input_text=norm,
+                output={"spans": [[base, reading] for base, reading in raw_spans]},
+            )
+        )
+    if new_rows:
+        cache.put_many(new_rows)
+    if unique:
+        log_batch(
+            "annotate",
+            req.lang_code,
+            total=len(req.texts),
+            unique=len(unique),
+            hits=len(unique) - len(new_rows),
+            misses=len(new_rows),
+        )
+
+    results: list[AnnotateBatchItem] = []
+    for text in req.texts:
+        if not _computable(text):
             results.append(AnnotateBatchItem(spans=[], html=""))
             continue
 
-        raw_spans = annotation_func(text)
+        raw_spans = span_values[normalize_text(text)]
         spans = [AnnotateSpan(base=base, reading=reading) for base, reading in raw_spans]
         html = build_annotation_html(raw_spans, mode=mode)
         results.append(AnnotateBatchItem(spans=spans, html=html))

@@ -32,6 +32,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
+from .deps import get_result_cache
 from .routes import annotate, health, language, romanize, styles
 
 app = FastAPI(
@@ -156,6 +157,13 @@ class BypassAwareSlowAPI:
 
 
 app.add_middleware(BypassAwareSlowAPI)
+
+# Eagerly build the romanize/annotate result cache (ROMANIZATION_CACHE.md
+# Layer 1) at worker boot rather than on the first batch request — Postgres
+# schema init (or, with the DB down, its fail-open timeout) belongs in the
+# boot path, not in a user's first request latency.  With no DATABASE_URL
+# this returns NullResultCache and costs nothing.
+get_result_cache()
 
 app.include_router(health.router)
 app.include_router(language.router)

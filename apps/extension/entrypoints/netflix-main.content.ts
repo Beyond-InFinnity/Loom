@@ -87,8 +87,14 @@ interface TimedTextTrack {
   rawTrackType?: string; // "subtitles" | "closedcaptions"
   isForcedNarrative?: boolean;
   isNoneTrack?: boolean;
+  // Track id + downloadable map. Netflix's 2026-07-02 camelCase migration
+  // renamed `trackId`/`new_track_id` → `id` and `ttDownloadables` →
+  // `downloadables` (same profile-keyed shape). All spellings read
+  // new-first, old-fallback so both A/B cohorts work.
+  id?: string;
   new_track_id?: string;
   trackId?: string;
+  downloadables?: Record<string, TtDownloadable>;
   ttDownloadables?: Record<string, TtDownloadable>;
 }
 // Audio tracks live alongside timedtexttracks on the manifest result.
@@ -105,9 +111,21 @@ interface AudioTrack {
 }
 interface NetflixManifest {
   movieId?: number | string;
+  // Netflix migrated the manifest to camelCase ~2026-07-02:
+  // `timedtexttracks` → `textTracks`, `audio_tracks` → `audioTracks`.
+  // Both spellings are read (new first, old fallback) so the hook works
+  // across any A/B cohort still on the old shape.
+  textTracks?: TimedTextTrack[];
   timedtexttracks?: TimedTextTrack[];
   audio_tracks?: AudioTrack[];
   audioTracks?: AudioTrack[];
+}
+
+/** The manifest's text-track array under whichever key this cohort uses. */
+function textTracksOf(m: NetflixManifest): TimedTextTrack[] {
+  if (Array.isArray(m.textTracks)) return m.textTracks;
+  if (Array.isArray(m.timedtexttracks)) return m.timedtexttracks;
+  return [];
 }
 
 export default defineContentScript({
@@ -238,9 +256,7 @@ export default defineContentScript({
         return;
       }
 
-      const rawTracks = Array.isArray(manifest.timedtexttracks)
-        ? manifest.timedtexttracks
-        : [];
+      const rawTracks = textTracksOf(manifest);
       const audioLang = primaryAudioLang(manifest);
       const tracks = rawTracks
         .map((raw, i) => serializeTrack(raw, i, audioLang))
@@ -384,11 +400,13 @@ export default defineContentScript({
         );
         try {
           const wrapper = val as { result?: NetflixManifest } & NetflixManifest;
+          const hasTracks = (m?: NetflixManifest) =>
+            !!m && (Array.isArray(m.textTracks) || Array.isArray(m.timedtexttracks));
           const r: NetflixManifest | undefined =
-            wrapper && wrapper.result && wrapper.result.timedtexttracks
+            wrapper && wrapper.result && hasTracks(wrapper.result)
               ? wrapper.result
               : wrapper;
-          if (r && r.timedtexttracks && r.movieId != null) cb(r);
+          if (hasTracks(r) && r!.movieId != null) cb(r as NetflixManifest);
         } catch {
           /* ignore non-manifest parses */
         }
@@ -409,13 +427,13 @@ function serializeTrack(
 ): CaptionTrackSerialized | null {
   if (!raw || raw.isForcedNarrative || raw.isNoneTrack) return null;
   if (!raw.language) return null;
-  const dl = raw.ttDownloadables?.[WEBVTT_PROFILE];
+  const dl = (raw.downloadables ?? raw.ttDownloadables)?.[WEBVTT_PROFILE];
   const url = urlFromDownloadable(dl);
   if (!url) return null;
   return {
-    // Stable per-track id from the manifest (trackId is unique across the
-    // 2–4 per-language variants); index fallback is purely defensive.
-    id: raw.new_track_id || raw.trackId || `nf-${index}-${raw.language}`,
+    // Stable per-track id from the manifest (unique across the 2–4
+    // per-language variants); index fallback is purely defensive.
+    id: raw.id || raw.new_track_id || raw.trackId || `nf-${index}-${raw.language}`,
     languageCode: raw.language,
     name: raw.languageDescription || raw.language,
     baseUrl: url,

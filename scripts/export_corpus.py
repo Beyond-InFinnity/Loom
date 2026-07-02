@@ -11,6 +11,10 @@ Environment:
     LOOM_CORPUS_S3_ENDPOINT          Optional endpoint URL — set for R2:
                                      https://<account_id>.r2.cloudflarestorage.com
     AWS_ACCESS_KEY_ID/-SECRET-       Credentials for the bucket.
+    LOOM_ENRICH_API_URL              API base for --enrich (default: prod).
+    LOOM_ENRICH_AUTH_KEY             Owner bypass key for --enrich (X-Loom-Auth);
+                                     without it the public rate limit throttles
+                                     large replays.
 
 Usage:
     python scripts/export_corpus.py                       # export to bucket
@@ -44,6 +48,10 @@ def main() -> int:
                         help="After export, delete line rows for long-archived tracks.")
     parser.add_argument("--prune-days", type=int, default=30,
                         help="Prune lines for tracks archived at least this many days ago (default 30).")
+    parser.add_argument("--enrich", action="store_true",
+                        help="Before export, replay all unarchived corpus texts through the API's "
+                             "batch endpoints so the cache holds current-engine readings "
+                             "(idempotent; hits are free).")
     args = parser.parse_args()
 
     dsn = os.environ.get("LOOM_CORPUS_URL") or os.environ.get("DATABASE_URL")
@@ -61,6 +69,12 @@ def main() -> int:
         sink = S3Sink(bucket, os.environ.get("LOOM_CORPUS_S3_ENDPOINT")) if bucket else LocalDirSink(".")
 
     runner = ExportRunner(dsn, sink, settle_days=args.settle_days, dry_run=args.dry_run)
+    if args.enrich:
+        enriched = runner.enrich(
+            os.environ.get("LOOM_ENRICH_API_URL", "https://api.loom.nerv-analytic.ai"),
+            os.environ.get("LOOM_ENRICH_AUTH_KEY") or None,
+        )
+        print(f"export_corpus: enriched {enriched} text(s).")
     files = runner.run()
     print(f"export_corpus: wrote {files} partition file(s).")
     if args.prune:

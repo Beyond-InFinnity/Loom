@@ -13,6 +13,10 @@
 #   CORPUS_S3_ENDPOINT       R2 only: https://<account_id>.r2.cloudflarestorage.com
 #   CORPUS_AWS_ACCESS_KEY_ID / CORPUS_AWS_SECRET_ACCESS_KEY
 #                            Bucket credentials (R2 API token or AWS IAM).
+#   CORPUS_API_AUTH_KEY      Optional: a LOOM_BYPASS_KEYS entry, used by the
+#                            pre-export --enrich replay so it isn't rate-
+#                            limited (enrich still runs without it; hits are
+#                            free either way).
 
 name: export-corpus
 
@@ -52,7 +56,9 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.CORPUS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CORPUS_AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
+          LOOM_ENRICH_AUTH_KEY: ${{ secrets.CORPUS_API_AUTH_KEY }}
         run: >-
           python scripts/export_corpus.py
+          --enrich
           ${{ inputs.dry_run && '--dry-run' || '' }}
           ${{ inputs.prune && '--prune' || '' }}

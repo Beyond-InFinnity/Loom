@@ -62,3 +62,10 @@ app.include_router(mux.router)
 # @loom/api-client types include it (generate.sh dumps THIS app's schema);
 # in the sidecar it no-ops (NullCorpusStore) unless a DSN is configured.
 app.include_router(corpus.router)
+
+# Flush any corpus payloads spooled while offline (store-and-forward —
+# loom_api/corpus_forward.py).  Daemon thread; instant no-op when the
+# spool is empty or forwarding is disabled.
+from .corpus_forward import kick_spool_flush  # noqa: E402
+
+kick_spool_flush()

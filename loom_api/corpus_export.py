@@ -159,6 +159,11 @@ def group_tracks_by_partition(tracks: Iterable[TrackMeta]) -> dict[tuple[str, st
     return groups
 
 
+def chunked(items: list, size: int) -> list[list]:
+    """Split *items* into ≤size chunks, order-preserving."""
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 PARQUET_COLUMNS = [
     "platform", "media_id", "title", "origin_lang", "track_id", "track_lang",
     "is_cc", "track_kind", "captured_at", "seq", "start_ms", "end_ms", "text",
@@ -229,6 +234,66 @@ class ExportRunner:
                 """,
                 (lang_code, texts),
             ).fetchall()
+
+    # -- enrichment -----------------------------------------------------------
+
+    def enrich(self, api_url: str, auth_key: Optional[str] = None) -> int:
+        """Guarantee readings for everything about to export: replay every
+        unarchived corpus text through the API's /romanize/batch +
+        /annotate/batch (language defaults).  The content-addressed cache
+        makes this idempotent and nearly free — already-cached texts are
+        hits with zero compute, so no "find the missing rows" SQL is needed;
+        only genuinely-uncached text (e.g. captured by the OFFLINE desktop
+        spool, whose romanization ran locally and deliberately never ships)
+        costs anything.  Recomputing server-side is the design: clients ship
+        raw text, the server owns all derived data, always at the CURRENT
+        engine version.  Returns the number of texts replayed.
+
+        ``auth_key`` (the owner bypass key) is required in practice for
+        large corpora — without it the public rate limit (100/min) throttles
+        the replay."""
+        import urllib.request
+
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT t.lang_code, l.text
+                FROM corpus_line l
+                JOIN corpus_track t ON t.id = l.track_id
+                WHERE t.archived_at IS NULL
+                """
+            ).fetchall()
+        by_lang: dict[str, list[str]] = {}
+        for lang, text in rows:
+            by_lang.setdefault(lang, []).append(text)
+
+        def post(path: str, body: dict) -> None:
+            req = urllib.request.Request(
+                f"{api_url.rstrip('/')}{path}",
+                data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    **({"X-Loom-Auth": auth_key} if auth_key else {}),
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                resp.read()
+
+        total = 0
+        for lang, texts in sorted(by_lang.items()):
+            for chunk in chunked(texts, 2000):
+                if self._dry_run:
+                    continue
+                try:
+                    post("/romanize/batch", {"texts": chunk, "lang_code": lang})
+                    post("/annotate/batch", {"texts": chunk, "lang_code": lang})
+                except Exception:
+                    logger.warning("enrich: batch failed for lang=%s (continuing)", lang, exc_info=True)
+                    break
+            total += len(texts)
+            logger.info("enrich: lang=%s texts=%d%s", lang, len(texts), " (dry-run)" if self._dry_run else "")
+        return total
 
     # -- run ----------------------------------------------------------------
 

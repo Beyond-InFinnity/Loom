@@ -275,11 +275,25 @@ style fields **now**; desktop captures **via the prod API**, not direct DB.
   caption data" checkbox (default ON — operator tool) → the EXISTING
   `opt_in_training` field on POST /generate/ass → the sidecar
   (`loom_api/corpus_forward.py`) re-parses both input files via the mtime
-  cache and fire-and-forget POSTs `/corpus/capture` payloads (events +
-  styles, native lang auto-detected, media identity = real filename stem
-  since /files/by-path registers true paths) to
-  `LOOM_CORPUS_FORWARD_URL` (default = prod API; `off` disables).  No DB
+  cache and shapes `/corpus/capture` payloads (events + styles, native
+  lang auto-detected, media identity = real filename stem since
+  /files/by-path registers true paths).  **OFFLINE-FIRST (2026-07-02):**
+  payloads are SPOOLED locally (`~/.loom/corpus-spool/`, one
+  content-hash-named JSON per capture, atomic writes) and flushed to
+  `LOOM_CORPUS_FORWARD_URL` (default = prod; `off` disables everything)
+  at sidecar startup + after each generation — offline generation loses
+  nothing; 2xx/dedup deletes the file, 4xx quarantines it as
+  `.rejected.json`, network failure retries next flush.  No DB
   credentials on the desktop; one write path through one API.
+- **Clients ship raw text only — the server owns ALL derived data.**
+  Locally-computed romanizations never leave the desktop (cache-poisoning
+  vector + engine-version skew).  Instead, `scripts/export_corpus.py
+  --enrich` (now default in the monthly workflow; optional secret
+  `CORPUS_API_AUTH_KEY` avoids rate limits) replays every unarchived
+  corpus text through `/romanize/batch` + `/annotate/batch` before
+  export — cache hits are free, so this is idempotent, and every exported
+  Parquet row carries CURRENT-engine readings no matter which surface
+  captured it or whether that surface was ever online.
 - **Loom Player (design requirement, day one):** the player parses local
   `.mkv` subtitle tracks natively — richest source of all (full fansub
   ASS incl. typesetting).  Its design MUST include the same capture call

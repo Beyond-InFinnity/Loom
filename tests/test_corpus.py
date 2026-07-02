@@ -329,6 +329,95 @@ class TestForwardPayload:
 
 
 # ---------------------------------------------------------------------------
+# Spool: offline store-and-forward (loom_api/corpus_forward.py)
+# ---------------------------------------------------------------------------
+
+class TestSpool:
+    @pytest.fixture
+    def spool(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("LOOM_CORPUS_SPOOL_DIR", str(tmp_path / "spool"))
+        monkeypatch.delenv("LOOM_CORPUS_FORWARD_URL", raising=False)
+        return tmp_path / "spool"
+
+    def _payload(self, media_id="vid1"):
+        return {
+            "opt_in_training": True,
+            "platform": "desktop",
+            "media_id": media_id,
+            "track_id": "target:vid1",
+            "track_lang": "ja",
+            "lines": [{"seq": 0, "start_ms": 0, "end_ms": 900, "text": "こんにちは", "style": None}],
+        }
+
+    def test_spool_write_is_content_addressed(self, spool):
+        from loom_api.corpus_forward import spool_payload
+
+        p1 = spool_payload(self._payload())
+        p2 = spool_payload(self._payload())  # identical content → same file
+        p3 = spool_payload(self._payload(media_id="vid2"))
+        assert p1 == p2 and p1 != p3
+        assert len(list(spool.glob("*.json"))) == 2
+        assert not list(spool.glob("*.tmp"))
+
+    def test_flush_success_deletes(self, spool, monkeypatch):
+        from loom_api import corpus_forward
+
+        spooled = corpus_forward.spool_payload(self._payload())
+        posted = []
+        monkeypatch.setattr(
+            corpus_forward, "_post_capture",
+            lambda url, payload: posted.append(payload) or {"stored": True},
+        )
+        assert corpus_forward.flush_spool() == 1
+        assert posted[0]["media_id"] == "vid1"
+        assert not spooled.exists()
+
+    def test_flush_network_failure_keeps_files(self, spool, monkeypatch):
+        from loom_api import corpus_forward
+
+        spooled = corpus_forward.spool_payload(self._payload())
+
+        def boom(url, payload):
+            raise OSError("network unreachable")
+
+        monkeypatch.setattr(corpus_forward, "_post_capture", boom)
+        assert corpus_forward.flush_spool() == 0
+        assert spooled.exists()  # retried on the next flush
+
+    def test_flush_validation_reject_quarantines(self, spool, monkeypatch):
+        import urllib.error
+
+        from loom_api import corpus_forward
+
+        spooled = corpus_forward.spool_payload(self._payload())
+
+        def reject(url, payload):
+            raise urllib.error.HTTPError(url, 422, "unprocessable", None, None)
+
+        monkeypatch.setattr(corpus_forward, "_post_capture", reject)
+        assert corpus_forward.flush_spool() == 0
+        assert not spooled.exists()
+        assert len(list(spool.glob("*.rejected.json"))) == 1
+
+    def test_flush_disabled_by_env_is_no_op(self, spool, monkeypatch):
+        from loom_api import corpus_forward
+
+        spooled = corpus_forward.spool_payload(self._payload())
+        monkeypatch.setenv("LOOM_CORPUS_FORWARD_URL", "off")
+        assert corpus_forward.flush_spool() == 0
+        assert spooled.exists()
+
+
+class TestChunked:
+    def test_chunking(self):
+        from loom_api.corpus_export import chunked
+
+        assert chunked([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
+        assert chunked([], 2) == []
+        assert chunked([1], 5) == [[1]]
+
+
+# ---------------------------------------------------------------------------
 # Provider wiring
 # ---------------------------------------------------------------------------
 

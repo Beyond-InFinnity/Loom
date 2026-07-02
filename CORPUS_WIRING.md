@@ -245,3 +245,44 @@ create themselves at the next worker boot.  Kill switch: `LOOM_CORPUS=off`
    store + export SQL have unit-tested semantics (InMemory parity + pure
    record shaping) but the SQL itself first executes for real on Railway —
    treat step 1–4 as the acceptance test.
+
+## 6. Multi-surface capture (IMPLEMENTED 2026-07-02 — web / desktop / player)
+
+Decisions (Connor, 2026-07-02): web = visible checkbox **default ON**;
+style fields **now**; desktop captures **via the prod API**, not direct DB.
+
+- **Cache**: single `/romanize` + `/annotate` now share the batch
+  endpoints' Layer-1 cache (the web app fans out singles and was bypassing
+  it).  Web's `buildRomanizeMap` migrated to `/romanize/batch` (chunked at
+  2000) — one request per episode instead of ~300.
+- **Style capture** (the OCR `(text, style, language)` tuples):
+  `corpus_line.style` + `corpus_track.styles_json`, additive/nullable
+  (`ALTER TABLE ADD COLUMN IF NOT EXISTS` migrates an existing DB in
+  place).  Style names participate in the content hash (a restyle = a new
+  version); style definitions don't.  Exported as `style` +
+  `track_styles_json` Parquet columns.  File sources capture ALL
+  non-comment events INCLUDING signs/karaoke — stylized text is the hard
+  OCR case — where the extension only ever sees plain dialogue.
+- **Web** (`apps/web`): `lib/api/corpus.ts` fire-and-forget captures both
+  parsed tracks after generation parse (platform `web`, media identity =
+  upload filename stem + ffprobe container title, serialized SSAStyle
+  map); "Contribute caption data" checkbox under Generate, default ON,
+  per-run, with inline disclosure + /privacy link.  `/privacy` rewritten:
+  Retention section now describes the real cache; new "Training corpus
+  (opt-in)" section covers extension + web (the §4 copy for the store
+  release can point at this page — it's live the moment Vercel deploys).
+- **Desktop** (`apps/desktop` + sidecar): GenerateSection "Contribute
+  caption data" checkbox (default ON — operator tool) → the EXISTING
+  `opt_in_training` field on POST /generate/ass → the sidecar
+  (`loom_api/corpus_forward.py`) re-parses both input files via the mtime
+  cache and fire-and-forget POSTs `/corpus/capture` payloads (events +
+  styles, native lang auto-detected, media identity = real filename stem
+  since /files/by-path registers true paths) to
+  `LOOM_CORPUS_FORWARD_URL` (default = prod API; `off` disables).  No DB
+  credentials on the desktop; one write path through one API.
+- **Loom Player (design requirement, day one):** the player parses local
+  `.mkv` subtitle tracks natively — richest source of all (full fansub
+  ASS incl. typesetting).  Its design MUST include the same capture call
+  (platform `player`, media identity = filename stem + container title,
+  full styles) behind the same visible default-ON toggle, reusing the
+  `/corpus/capture` contract unchanged.

@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { loomApi } from "../../lib/api/client";
+import { captureParsedTrack } from "../../lib/api/corpus";
 import { buildRomanizeMap, hasPhoneticLayer, romanizeFromMap } from "../../lib/api/romanize";
 import { FFmpegClient } from "../../lib/ffmpeg/client";
 import { LoomGenerator } from "../../lib/loom-generator";
@@ -55,6 +56,10 @@ export function GeneratorPanel() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  // Corpus contribution (CORPUS_WIRING.md multi-surface): visible,
+  // per-run, default ON for this first-party surface — disclosed inline
+  // below the button and on /privacy.
+  const [corpusOptIn, setCorpusOptIn] = useState(true);
 
   useEffect(() => {
     return () => {
@@ -136,6 +141,35 @@ export function GeneratorPanel() {
 
       const nativeSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(nativeRes.data));
       const targetSubs = SSAFile.fromString(new TextDecoder("utf-8").decode(targetRes.data));
+
+      // Corpus capture (opt-in checkbox above): fire-and-forget both parsed
+      // tracks — full timed events + ASS style names + style definitions.
+      // Never affects generation; server dedups repeat runs by content.
+      if (corpusOptIn) {
+        const api = loomApi();
+        captureParsedTrack(
+          api,
+          {
+            fileName: file.name,
+            title: probe.metadata.title,
+            role: "target",
+            trackLang: target.lang_code ?? "und",
+            trackId: target.id,
+          },
+          targetSubs,
+        );
+        captureParsedTrack(
+          api,
+          {
+            fileName: file.name,
+            title: probe.metadata.title,
+            role: "native",
+            trackLang: native.lang_code ?? "und",
+            trackId: native.id,
+          },
+          nativeSubs,
+        );
+      }
 
       // 4e-4 — pre-resolve the Romanized layer via /romanize.  When the
       // target track has a known lang_code AND the language has a phonetic
@@ -312,6 +346,30 @@ export function GeneratorPanel() {
                 <span className="font-mono text-xs text-accent">{progress}</span>
               )}
             </div>
+          )}
+
+          {status !== "done" && (
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={corpusOptIn}
+                onChange={(e) => setCorpusOptIn(e.currentTarget.checked)}
+                disabled={busy}
+                className="mt-0.5 rounded border-border accent-primary"
+              />
+              <span>
+                Contribute caption data — shares this file&apos;s subtitle text,
+                timing, and styles (never anything about you) to improve
+                Loom&apos;s annotations, romanization, and OCR research.{" "}
+                <a
+                  href="/privacy"
+                  className="underline hover:text-foreground"
+                  target="_blank"
+                >
+                  Privacy
+                </a>
+              </span>
+            </label>
           )}
 
           {result && (

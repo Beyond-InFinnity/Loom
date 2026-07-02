@@ -1,14 +1,24 @@
 // Romanize-batch helper: pre-resolve every unique target-event plain_text
-// to its romanized form via POST /romanize, then expose a synchronous
+// to its romanized form via POST /romanize/batch, then expose a synchronous
 // (text) => string lookup that LoomGenerator.romanize can plug into.
 //
 // LoomGenerator.romanize is sync by design — generateAssFile iterates
 // thousands of events and shouldn't await per-event.  Pre-batching trades
-// a single up-front fan-out (one HTTP request per unique text) for
-// guaranteed-sync rendering downstream.  Identical events (very common in
-// dialogue: "What?", "Yes.", "No.", song-lyric repeats) share one request.
+// a single up-front request for guaranteed-sync rendering downstream.
+//
+// Migrated 2026-07-02 from a per-unique-text POST /romanize fan-out to
+// /romanize/batch (the endpoint the extension has used since 5e): a whole
+// episode is now ONE request instead of ~300 — one slowapi slot instead of
+// a burst that flirted with the 100/min limit, and one trip through the
+// server's content-addressed result cache.
 
 import type { LoomClient } from "@loom/api-client";
+
+// Server cap on texts per /romanize/batch request (loom_api/routes/
+// romanize.py _BATCH_MAX_TEXTS).  A FastAPI max_length violation 422s the
+// whole request, so chunk client-side.  Typical episodes (~300 unique)
+// fit in one chunk.
+const BATCH_MAX_TEXTS = 2000;
 
 export interface BuildRomanizeMapOptions {
   client: LoomClient;
@@ -39,27 +49,30 @@ export async function buildRomanizeMap(
   if (total === 0) return out;
 
   let done = 0;
-  // Parallel fan-out.  A typical episode has ~300 unique events; the slim
-  // API handles each in <50ms so the whole batch finishes in a few seconds.
-  // If/when prod rate limits start biting, batch-shape the endpoint instead.
-  const promises = [...unique].map(async (text) => {
-    const { data, error } = await opts.client.POST("/romanize", {
+  const texts = [...unique];
+  for (let offset = 0; offset < texts.length; offset += BATCH_MAX_TEXTS) {
+    const chunk = texts.slice(offset, offset + BATCH_MAX_TEXTS);
+    const { data, error } = await opts.client.POST("/romanize/batch", {
       body: {
-        text,
+        texts: chunk,
         lang_code: opts.lang_code,
         phonetic_system: opts.phonetic_system ?? null,
         long_vowel_mode: opts.long_vowel_mode ?? "macrons",
         opt_in_training: opts.opt_in_training ?? false,
       },
     });
-    if (error) {
-      throw new Error(`romanize failed for ${JSON.stringify(text).slice(0, 60)}: ${JSON.stringify(error)}`);
+    if (error || !data) {
+      throw new Error(`romanize batch failed: ${JSON.stringify(error ?? "no data")}`);
     }
-    out.set(text, data?.romanized ?? "");
-    done += 1;
+    // Positional contract: results[i] pairs with chunk[i]; empty strings
+    // for unsupported languages / oversized texts (fail-soft, matches the
+    // old per-text behavior of "no romanization → skip layer").
+    data.results.forEach((item, i) => {
+      out.set(chunk[i], item.romanized ?? "");
+    });
+    done += chunk.length;
     opts.on_progress?.(done, total);
-  });
-  await Promise.all(promises);
+  }
   return out;
 }
 

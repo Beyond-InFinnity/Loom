@@ -12,7 +12,7 @@ export const metadata = {
 // extension's actual data flow (subtitle text + optional owner key only); keep
 // this page in lockstep if the extension ever sends anything new.
 
-const LAST_UPDATED = "14 June 2026";
+const LAST_UPDATED = "2 July 2026";
 const CONTACT_EMAIL = "privacy@nerv-analytic.ai";
 
 function Section({
@@ -103,12 +103,37 @@ export default function Privacy() {
 
             <Section title="Retention">
               <p>
-                The Loom API processes requests in memory and does not archive
-                subtitle text by default. A future opt-in research pipeline may
-                store anonymized text to train language models; if and when that
-                ships, it will be governed by an explicit per-request opt-in flag
-                that you control from the extension’s settings, and this page
-                will be updated before it does.
+                To avoid recomputing identical text, the Loom API keeps a
+                processing cache: the subtitle strings it has romanized or
+                annotated, stored as anonymous text with no record of which
+                video they came from, who requested them, or any IP address.
+                Identical text is stored once, no matter how many people
+                process it.
+              </p>
+            </Section>
+
+            <Section title="Training corpus (opt-in)">
+              <p>
+                Separately, and only when you choose to contribute, Loom keeps
+                a training corpus used to improve its annotations,
+                romanization, and optical-character-recognition research. A
+                contribution records the media’s title or platform ID, the
+                caption text with its timing, and — for uploaded subtitle
+                files — the subtitle styling. It records nothing about you:
+                no account, no IP address, no device or install identifier.
+                Identical content is stored once regardless of how many
+                people contribute it, so the corpus describes media, not
+                viewers.
+              </p>
+              <p>
+                In the browser extension, contribution is off until you
+                accept the ask shown after installation (or turn on
+                “Contribute caption data” in the settings panel — the same
+                place you can turn it off at any time). In the web app’s
+                generator, it is controlled by the visible “Contribute
+                caption data” checkbox next to the Generate button, which
+                you can untick per run. Turning contribution off stops all
+                future contribution immediately.
               </p>
             </Section>
 

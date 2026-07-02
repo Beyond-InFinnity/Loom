@@ -73,6 +73,11 @@ export function GenerateSection({
 }: Props) {
   const [format, setFormat] = useState<Format>("ass");
   const [includeAnnotations, setIncludeAnnotations] = useState(false);
+  // Corpus contribution: on generate, the sidecar forwards the parsed
+  // tracks (events + ASS styles) to the production corpus
+  // (loom_api/corpus_forward.py). Default ON — this is the operator's
+  // own tool; untick per run to skip.
+  const [corpusOptIn, setCorpusOptIn] = useState(true);
   const [outRes, setOutRes] = useState<OutRes>("source");
   const [assState, setAssState] = useState<AssState>({ kind: "idle" });
   const [pgsState, setPgsState] = useState<PgsState>({ kind: "idle" });
@@ -144,6 +149,7 @@ export function GenerateSection({
         source_resolution: sourceResolution,
         output_resolution: outResToResolution(outRes),
         include_annotations: includeAnnotations,
+        opt_in_training: corpusOptIn,
       });
       setAssState({ kind: "ok", fileId: res.file_id });
     } catch (err) {
@@ -255,6 +261,18 @@ export function GenerateSection({
             </label>
           </div>
         )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: "0.85em", opacity: 0.7, width: 90 }}>Data</span>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.85em" }}>
+            <input
+              type="checkbox"
+              checked={corpusOptIn}
+              onChange={(e) => setCorpusOptIn(e.target.checked)}
+            />
+            Contribute caption data (text, timing, styles) to the training corpus
+          </label>
+        </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: "0.85em", opacity: 0.7, width: 90 }}>Output res</span>

@@ -29,7 +29,7 @@ import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
 import type { AnnotateMap } from "@/lib/annotate/types";
 import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
-import type { Preset, PresetCatalog } from "@/lib/presets/types";
+import type { Preset, PresetCatalog, PresetLayerColors } from "@/lib/presets/types";
 import { getPlatform } from "@/lib/captions/platform";
 
 // Native-caption suppression is platform-resolved (5h-3): YouTube hides
@@ -159,6 +159,38 @@ const DEFAULT_GLOW_ALPHA = 100;
 /** Top group opacity is linked by default — one slider dims the foreign
     line and its readings together. */
 const DEFAULT_TOP_GROUP_OPACITY_LINKED = true;
+
+/** The Loom factory defaults, expressed AS a preset so a fresh install
+ *  shows a named preset ("Loominate (Default)") instead of the bare
+ *  "(no preset — custom colors)" placeholder — and so re-picking it acts
+ *  as "reset colors to default".  Built from the same DEFAULT_* constants
+ *  the initial layer state uses, so the two can never drift.  This is a
+ *  CLIENT-side preset (not from /styles/presets); PresetPicker injects it
+ *  at the top of the list and applyPreset handles it like any other. */
+export const LOOMINATE_DEFAULT_PRESET_ID = "loominate-default";
+const _defaultLayer = (color: string): PresetLayerColors => ({
+  color,
+  opacity: DEFAULT_LAYER_ALPHA,
+  outline_color: DEFAULT_OUTLINE_COLOR,
+  outline_opacity: DEFAULT_OUTLINE_ALPHA,
+  // Glow default is off (radius 0); a null glow_color tells applyPreset
+  // "leave glow off" rather than turning a glow on.
+  glow_color: null,
+  glow_opacity: null,
+});
+export const LOOMINATE_DEFAULT_PRESET: Preset = {
+  id: LOOMINATE_DEFAULT_PRESET_ID,
+  label: "Loominate (Default)",
+  description: "Loom's default pastel colors.",
+  group: "loom",
+  layers: {
+    Bottom: _defaultLayer(DEFAULT_BOTTOM_COLOR),
+    Top: _defaultLayer(DEFAULT_TOP_COLOR),
+    Annotation: _defaultLayer(DEFAULT_ANNOTATION_COLOR),
+    Romanized: _defaultLayer(DEFAULT_ROMANIZATION_COLOR),
+  },
+  languages: null, // universal — shown on every track
+};
 
 /** Slot a track occupies on screen.
     - top-1    : top of player, upper line of top zone (visually highest)
@@ -511,7 +543,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [presetCatalog, setPresetCatalog] = useState<PresetCatalog | null>(
     null,
   );
-  const [activePresetId, setActivePresetIdState] = useState<string>("");
+  // Fresh installs start on the Loom default preset (not "" = no preset),
+  // so the picker reads "Loominate (Default)" rather than the bare
+  // custom-colors placeholder.  A saved id from storage overrides this on
+  // load; picking any real preset or hand-editing a color replaces it.
+  const [activePresetId, setActivePresetIdState] = useState<string>(
+    LOOMINATE_DEFAULT_PRESET_ID,
+  );
   const [topAlpha, setTopAlphaState] = useState(DEFAULT_LAYER_ALPHA);
   const [bottomAlpha, setBottomAlphaState] = useState(DEFAULT_LAYER_ALPHA);
   const [annotationAlpha, setAnnotationAlphaState] = useState(DEFAULT_LAYER_ALPHA);

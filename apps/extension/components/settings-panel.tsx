@@ -4,6 +4,10 @@ import { HexColorPicker } from "react-colorful";
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
 import {
+  LOOMINATE_DEFAULT_PRESET,
+  LOOMINATE_DEFAULT_PRESET_ID,
+} from "./caption-context";
+import {
   classifyLang,
   phoneticSystemsFor,
   phoneticSystemLabelFor,
@@ -2184,13 +2188,19 @@ const PRESET_CUSTOM_ID = "__custom__";
 function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
   const items = buildPresetOptions(catalog);
   const currentLabel = (() => {
+    if (activeId === LOOMINATE_DEFAULT_PRESET_ID) return LOOMINATE_DEFAULT_PRESET.label;
     if (!activeId) return "(no preset — custom colors)";
     const found = items.find((it) => it.code === activeId);
-    return found?.label ?? "(custom)";
+    // Strip the "Group  ·  " banner prefix baked into first-of-group labels.
+    return found?.label.replace(/^.*·\s\s/, "") ?? "(custom)";
   })();
 
   function pick(code: string): void {
     if (code === PRESET_CUSTOM_ID || code === "") return;
+    if (code === LOOMINATE_DEFAULT_PRESET_ID) {
+      onApply(LOOMINATE_DEFAULT_PRESET); // re-pick = reset colors to default
+      return;
+    }
     const preset = catalog?.presets.find((p) => p.id === code);
     if (preset) onApply(preset);
   }
@@ -2239,7 +2249,13 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
  *  pseudo-row baked into the label of the first preset of each group.
  *  Cleaner than hacking LangSelect to render section headers. */
 function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
-  if (!catalog) return [];
+  // The Loom default preset is client-side (not from /styles/presets) and
+  // ALWAYS leads the list — even while the catalog is still loading or a
+  // track has no language-themed presets, "Loominate (Default)" is pickable.
+  const out: LangOption[] = [
+    { code: LOOMINATE_DEFAULT_PRESET_ID, label: `Loom  ·  ${LOOMINATE_DEFAULT_PRESET.label}` },
+  ];
+  if (!catalog) return out;
   const groupKeyToLabel = new Map(
     catalog.groups.map((g) => [g.key, g.label] as const),
   );
@@ -2249,7 +2265,6 @@ function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
   for (const p of catalog.presets) {
     (grouped[p.group] ??= []).push(p);
   }
-  const out: LangOption[] = [];
   for (const groupKey of groupOrder) {
     const list = grouped[groupKey] ?? [];
     if (list.length === 0) continue;

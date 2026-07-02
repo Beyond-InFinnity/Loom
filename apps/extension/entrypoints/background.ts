@@ -86,6 +86,17 @@ function paramBreakdown(u: URL): CapturedReq["params"] {
 }
 
 export default defineBackground(() => {
+  // First-run onboarding (CORPUS_WIRING.md §1b): open the explainer +
+  // corpus-consent page ONCE, on a genuine fresh install.  Never on
+  // "update"/"browser_update" — re-prompting existing users on every
+  // release is exactly the nagging the two-touch consent design forbids.
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason !== "install") return;
+    browser.tabs
+      .create({ url: browser.runtime.getURL("/onboarding.html") })
+      .catch((e) => console.warn("[Loom] failed to open onboarding:", e));
+  });
+
   // Cached mirror of the global kill switch (lib/enabled.ts). The
   // webRequest listener is synchronous, so it can't await storage — we keep
   // a module-local boolean primed at startup and kept fresh via

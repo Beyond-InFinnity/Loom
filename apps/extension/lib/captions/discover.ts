@@ -49,6 +49,7 @@ import {
   setCachedRomanizeMap,
 } from "../romanize/cache";
 import type { RomanizeMap } from "../romanize/types";
+import { captureTracks, type CaptureEntry } from "../corpus/capture";
 
 const NATIVE_LANG_PREF_STORAGE_KEY = "loom_native_lang_pref";
 const DEFAULT_NATIVE_LANG = "en";
@@ -573,6 +574,36 @@ async function resolveCaptions(): Promise<void> {
     effectiveTargetLang,
     effectiveNativeLang,
   );
+
+  // Corpus capture (Layer 2, consent-gated — CORPUS_WIRING.md §1f).
+  // AUTHENTIC platform tracks only: a tlang layer is machine-translation
+  // output (synthetic), and the implicit-native-MT fallback has no real
+  // track behind it — both are skipped, not captured.  Fire-and-forget:
+  // captureTracks resolves without throwing and checks consent itself.
+  const captureEntries: CaptureEntry[] = [];
+  if (session.targetTranslateTo === null) {
+    captureEntries.push({ track: target, events: targetEvents });
+  }
+  if (
+    payloadSelectedNative !== null &&
+    nativeTlang === null &&
+    nativeEvents &&
+    nativeEvents.length > 0
+  ) {
+    captureEntries.push({ track: payloadSelectedNative, events: nativeEvents });
+  }
+  const capturePlatform = getPlatform();
+  if (captureEntries.length > 0 && capturePlatform !== null) {
+    void captureTracks(
+      {
+        platform: capturePlatform.id,
+        videoId: session.videoId,
+        title: document.title,
+        pathname: location.pathname,
+      },
+      captureEntries,
+    );
+  }
 }
 
 /** Fire one /annotate/batch per layer.  Both run in parallel and

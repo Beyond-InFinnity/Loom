@@ -19,6 +19,13 @@ import {
 import type { Preset, PresetCatalog } from "@/lib/presets/types";
 import { getPillAnchor } from "@/lib/overlay/pill-position";
 import { swallowPlayerEvents } from "@/lib/overlay/stop-player-events";
+import {
+  getCorpusConsent,
+  resolveCaptureEnabled,
+  setCorpusConsent,
+  type CorpusConsent,
+} from "@/lib/corpus/consent";
+import { IS_DEV } from "@/lib/env";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -346,6 +353,33 @@ export function SettingsPanel({
     onToggleCollapse: () =>
       setCollapsedSections((c) => ({ ...c, [id]: !c[id] })),
   });
+
+  // Corpus-contribution consent (CORPUS_WIRING.md §1e) — read/written
+  // straight through lib/corpus/consent (not caption-context: it's an
+  // account-level preference, not per-page caption state).  undefined =
+  // storage read pending; the row renders once known.
+  const [corpusConsent, setCorpusConsentState] = useState<
+    CorpusConsent | undefined
+  >(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    getCorpusConsent()
+      .then((c) => {
+        if (!cancelled) setCorpusConsentState(c);
+      })
+      .catch(() => {
+        if (!cancelled) setCorpusConsentState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleCorpusToggle = (v: boolean) => {
+    setCorpusConsentState(v);
+    void setCorpusConsent(v).catch((e) =>
+      console.warn("[Loom] failed to persist corpus consent:", e),
+    );
+  };
 
   // Click-outside dismissal.  Tricky inside a shadow root: a document-
   // level mousedown sees event.target retargeted to the shadow HOST
@@ -718,6 +752,22 @@ export function SettingsPanel({
           parent line.
         </p>
       </LayerStyleBlock>
+
+      <Section title="Data" {...section("data")}>
+        {corpusConsent !== undefined && (
+          <ToggleRow
+            label="Contribute caption data"
+            value={resolveCaptureEnabled(corpusConsent, IS_DEV)}
+            onChange={handleCorpusToggle}
+          />
+        )}
+        <p style={hintStyle()}>
+          Sends the subtitles of videos you watch (video title/ID and
+          caption text — never anything about you) to Loom’s training
+          corpus to improve annotations, romanization, and future OCR
+          support.
+        </p>
+      </Section>
 
       <div style={deactivateRowStyle()}>
         <button

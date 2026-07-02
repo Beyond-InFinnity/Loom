@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getEnabled, onEnabledChanged } from "@/lib/enabled";
 import { CaptionOverlay } from "./caption-overlay";
 import { CaptionStreamProvider } from "./caption-context";
+import { CorpusConsentPrompt } from "./corpus-consent-prompt";
 import { DormantPill } from "./dormant-pill";
 import { LoomPill } from "./loom-pill";
 
@@ -97,6 +98,9 @@ export function LoomApp() {
     <CaptionStreamProvider>
       <CaptionOverlay />
       <LoomPill onDeactivate={deactivate} />
+      {/* One-shot corpus-consent re-ask (renders null in dev builds and
+          for anyone who has answered or been asked — see the component). */}
+      <CorpusConsentPrompt />
     </CaptionStreamProvider>
   );
 }

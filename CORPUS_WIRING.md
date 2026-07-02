@@ -11,6 +11,16 @@
 > onboarding + one post-first-episode re-ask) instead of a buried settings
 > toggle — see §1a; store-policy sources in the section.  Dev/owner builds
 > capture by default.
+>
+> **§1 (extension) IMPLEMENTED 2026-07-02** — `lib/corpus/{consent,capture}.ts`,
+> capture wired into `discover.ts::resolveCaptions` (MT layers skipped),
+> `entrypoints/onboarding/` + `runtime.onInstalled` hook, settings-panel
+> "Data" section, `components/corpus-consent-prompt.tsx` re-ask, 17 vitest
+> specs (`lib/corpus/corpus.test.ts`).  §1c corrected: the Firefox native
+> optional-permission route is unavailable (websiteContent already
+> `required`); the onboarding UI is the consent surface on both browsers.
+> **Still owed:** live verification (§5), the §4 privacy/store copy edits,
+> Railway/R2/secrets (§2–3), and the store release that ships all of it.
 
 The server side is deliberately inert until wired: with no `DATABASE_URL`
 the store is a Null no-op; even with a DB, nothing is stored unless a
@@ -68,26 +78,28 @@ via `permissions.request()`).
   (video ID + subtitle text), never anything about you."*  Buttons:
   **Contribute caption data** (primary) / No thanks (secondary).
 
-### 1c. Firefox: route consent through the native data-collection permission
+### 1c. Firefox native data-collection permission — NOT APPLICABLE (verified 2026-07-02)
 
-- Declare the collection in the manifest's **optional** data-collection list
-  (`browser_specific_settings.gecko.data_collection_permissions.optional`,
-  Firefox-manifest branch of `wxt.config.ts`) — it then appears natively in
-  the install flow's data disclosure and as a toggle in `about:addons` →
-  Permissions and Data.
-- The onboarding page's primary button calls `browser.permissions.request()`
-  for that data permission (needs a user gesture — the click is one), so the
-  yes lands in Mozilla's own consent UI: maximally review-proof.  Keep
-  `loom_corpus_opt_in` as the source of truth and listen to
-  `permissions.onAdded/onRemoved` so the native about:addons toggle and the
-  panel toggle stay in sync.
-- Graceful degradation: if the data-collection `permissions.request()` shape
-  isn't supported by the running Firefox version, fall back to writing the
-  setting directly (Chrome's only path anyway).
-- Do NOT put it in the `required` list — that gates every install behind a
-  mandatory "collects website content" disclosure (repels the 100% of users
-  who just want subtitles) and is exactly the ancillary-data-as-required
-  pattern reviewers reject.
+The plan above originally routed Firefox consent through the manifest's
+**optional** data-collection list + `permissions.request()`.  **That route
+is structurally unavailable:** the manifest already declares
+`data_collection_permissions.required: ["websiteContent"]` (wxt.config.ts —
+transmitting subtitle text to the API for processing IS core functionality),
+and Mozilla's framework is category-based — one category can't be both
+required and optional.  Corpus *retention* is a purpose difference inside
+the already-consented `websiteContent` category, which the framework can't
+express separately.
+
+Consequences:
+- **The onboarding page + settings toggle are the consent surface on BOTH
+  browsers** (implemented that way).  This exceeds Mozilla's baseline
+  (category consent at install) and satisfies Chrome's affirmative-consent
+  rule, so it's the review-safe posture everywhere.
+- The AMO listing free-text + `/privacy` carry the retention disclosure
+  (§4) — the category disclosure alone doesn't mention retention.
+- Do NOT try to "fix" this by moving `websiteContent` to optional — core
+  processing genuinely requires transmission; an optional grant would break
+  romanize/annotate for anyone who declines.
 
 ### 1d. Setting + storage
 

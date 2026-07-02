@@ -67,6 +67,7 @@ class TrackMeta:
     kind: Optional[str]
     captured_month: str  # "YYYY-MM"
     captured_at_iso: str
+    styles_json: Optional[dict] = None  # ASS style definitions (file sources)
 
 
 def partition_path(platform: str, lang_code: str, captured_month: str, run_id: str) -> str:
@@ -77,12 +78,12 @@ def partition_path(platform: str, lang_code: str, captured_month: str, run_id: s
 
 def build_records(
     track: TrackMeta,
-    lines: Iterable[tuple[int, Optional[int], Optional[int], str]],
+    lines: Iterable[tuple[int, Optional[int], Optional[int], str, Optional[str]]],
     cache_rows: Iterable[tuple[str, str, str, Any, int]],
 ) -> list[dict[str, Any]]:
     """Shape one track's export records.
 
-    ``lines``: (seq, start_ms, end_ms, text) in seq order.
+    ``lines``: (seq, start_ms, end_ms, text, style) in seq order.
     ``cache_rows``: (kind, phonetic_system, input_text, output_json,
     engine_version) — pass rows in ANY version order; the highest
     engine_version per (kind, system, text) wins here, so callers don't
@@ -102,8 +103,13 @@ def build_records(
         if best is None or engine_ver > best[0]:
             systems[system] = (engine_ver, output)
 
+    track_styles_json = (
+        json.dumps(track.styles_json, ensure_ascii=False)
+        if track.styles_json is not None
+        else None
+    )
     records: list[dict[str, Any]] = []
-    for seq, start_ms, end_ms, text in lines:
+    for seq, start_ms, end_ms, text, style in lines:
         kinds = by_text.get(text, {})
         romanizations = {
             system: output.get("romanized")
@@ -135,6 +141,8 @@ def build_records(
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "text": text,
+                "style": style,
+                "track_styles_json": track_styles_json,
                 "romanizations_json": json.dumps(romanizations, ensure_ascii=False),
                 "annotations_json": json.dumps(annotations, ensure_ascii=False),
                 "engine_versions_json": json.dumps(engine_versions, ensure_ascii=False),
@@ -154,6 +162,7 @@ def group_tracks_by_partition(tracks: Iterable[TrackMeta]) -> dict[tuple[str, st
 PARQUET_COLUMNS = [
     "platform", "media_id", "title", "origin_lang", "track_id", "track_lang",
     "is_cc", "track_kind", "captured_at", "seq", "start_ms", "end_ms", "text",
+    "style", "track_styles_json",
     "romanizations_json", "annotations_json", "engine_versions_json",
 ]
 
@@ -187,7 +196,8 @@ class ExportRunner:
                 """
                 SELECT t.id, m.platform, m.platform_media_id, m.title, m.origin_lang,
                        t.platform_track_id, t.lang_code, t.is_cc, t.kind,
-                       to_char(t.captured_at, 'YYYY-MM'), t.captured_at::text
+                       to_char(t.captured_at, 'YYYY-MM'), t.captured_at::text,
+                       t.styles_json
                 FROM corpus_track t
                 JOIN corpus_media m ON m.id = t.media_id
                 WHERE t.archived_at IS NULL
@@ -198,10 +208,12 @@ class ExportRunner:
             ).fetchall()
         return [TrackMeta(*row) for row in rows]
 
-    def _track_lines(self, track_pk: int) -> list[tuple[int, Optional[int], Optional[int], str]]:
+    def _track_lines(
+        self, track_pk: int
+    ) -> list[tuple[int, Optional[int], Optional[int], str, Optional[str]]]:
         with self._pool.connection() as conn:
             return conn.execute(
-                "SELECT seq, start_ms, end_ms, text FROM corpus_line WHERE track_id = %s ORDER BY seq",
+                "SELECT seq, start_ms, end_ms, text, style FROM corpus_line WHERE track_id = %s ORDER BY seq",
                 (track_pk,),
             ).fetchall()
 
@@ -232,7 +244,7 @@ class ExportRunner:
             records: list[dict[str, Any]] = []
             for track in group:
                 lines = self._track_lines(track.track_pk)
-                texts = sorted({text for _s, _a, _b, text in lines})
+                texts = sorted({text for _s, _a, _b, text, _style in lines})
                 records.extend(build_records(track, lines, self._cache_rows_for(track.lang_code, texts)))
             if not records:
                 continue

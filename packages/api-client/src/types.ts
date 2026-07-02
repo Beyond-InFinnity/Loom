@@ -845,6 +845,11 @@ export interface components {
             end_ms?: number | null;
             /** Text */
             text: string;
+            /**
+             * Style
+             * @description ASS style name for this event (file sources: web upload / desktop / player).  Streaming platforms have no style visibility and omit it.
+             */
+            style?: string | null;
         };
         /** CorpusCaptureRequest */
         CorpusCaptureRequest: {
@@ -900,6 +905,13 @@ export interface components {
              * @description Full ordered timed event list.
              */
             lines: components["schemas"]["CaptureLine"][];
+            /**
+             * Styles
+             * @description Style DEFINITIONS for the style names referenced by lines — an opaque JSON map {style_name: {fontname, fontsize, colors, ...}} exactly as the client parsed it.  File sources only; the (text, style, language) tuples for Step 6 OCR training.
+             */
+            styles?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** CorpusCaptureResponse */
         CorpusCaptureResponse: {

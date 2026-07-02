@@ -1583,6 +1583,19 @@
             "type": "string",
             "maxLength": 5000,
             "title": "Text"
+          },
+          "style": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style",
+            "description": "ASS style name for this event (file sources: web upload / desktop / player).  Streaming platforms have no style visibility and omit it."
           }
         },
         "type": "object",
@@ -1677,6 +1690,19 @@
             "maxItems": 10000,
             "title": "Lines",
             "description": "Full ordered timed event list."
+          },
+          "styles": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Styles",
+            "description": "Style DEFINITIONS for the style names referenced by lines \u2014 an opaque JSON map {style_name: {fontname, fontsize, colors, ...}} exactly as the client parsed it.  File sources only; the (text, style, language) tuples for Step 6 OCR training."
           }
         },
         "type": "object",

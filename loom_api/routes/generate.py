@@ -10,6 +10,7 @@ from loom_core.styles import get_lang_config
 from loom_core.subs.processing import build_output_filename, generate_ass_file, generate_pgs_file
 from loom_core.video.mkv_handler import get_video_metadata
 
+from ..corpus_forward import forward_generate_capture
 from ..deps import get_jobs, get_storage
 from ..jobs import JobManager
 from ..storage import Storage
@@ -98,6 +99,17 @@ def generate_ass(
     )
     if result_path is None:
         raise HTTPException(status_code=500, detail="ASS generation failed (see server logs)")
+
+    # opt_in_training finally does something here (the step-2c contract):
+    # forward both input tracks (events + ASS styles) to the production
+    # corpus.  Fire-and-forget daemon thread — generation latency and
+    # failure behavior are untouched (loom_api/corpus_forward.py).
+    if req.opt_in_training:
+        forward_generate_capture(
+            native_path=native_path,
+            target_path=target_path,
+            target_lang_code=req.target_lang_code,
+        )
 
     file_id = storage.register_path(Path(result_path))
     return GenerateAssResponse(file_id=file_id)

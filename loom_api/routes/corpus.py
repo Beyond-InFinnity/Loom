@@ -42,6 +42,15 @@ class CaptureLine(BaseModel):
     start_ms: Optional[int] = Field(None, ge=0, description="Event start, milliseconds.")
     end_ms: Optional[int] = Field(None, ge=0, description="Event end, milliseconds.")
     text: str = Field(..., max_length=_MAX_TEXT_LENGTH)
+    style: Optional[str] = Field(
+        None,
+        max_length=128,
+        description=(
+            "ASS style name for this event (file sources: web upload / "
+            "desktop / player).  Streaming platforms have no style "
+            "visibility and omit it."
+        ),
+    )
 
 
 class CorpusCaptureRequest(BaseModel):
@@ -61,6 +70,15 @@ class CorpusCaptureRequest(BaseModel):
     is_cc: bool = Field(False, description="True for closed-captions/SDH tracks.")
     track_kind: Optional[str] = Field(None, max_length=32, description="e.g. manual | asr.")
     lines: List[CaptureLine] = Field(..., max_length=_MAX_LINES, description="Full ordered timed event list.")
+    styles: Optional[dict] = Field(
+        None,
+        description=(
+            "Style DEFINITIONS for the style names referenced by lines — "
+            "an opaque JSON map {style_name: {fontname, fontsize, colors, "
+            "...}} exactly as the client parsed it.  File sources only; "
+            "the (text, style, language) tuples for Step 6 OCR training."
+        ),
+    )
 
 
 class CorpusCaptureResponse(BaseModel):
@@ -75,7 +93,9 @@ def corpus_capture(req: CorpusCaptureRequest) -> CorpusCaptureResponse:
     if not req.opt_in_training:
         return CorpusCaptureResponse(stored=False, reason="opt_in_training not set")
 
-    lines = normalize_capture_lines([(ln.seq, ln.start_ms, ln.end_ms, ln.text) for ln in req.lines])
+    lines = normalize_capture_lines(
+        [(ln.seq, ln.start_ms, ln.end_ms, ln.text, ln.style) for ln in req.lines]
+    )
     if not lines:
         return CorpusCaptureResponse(stored=False, reason="no non-empty lines")
 
@@ -90,6 +110,7 @@ def corpus_capture(req: CorpusCaptureRequest) -> CorpusCaptureResponse:
             origin_lang=req.origin_lang,
             is_cc=req.is_cc,
             track_kind=req.track_kind,
+            styles=req.styles,
         )
     )
     return CorpusCaptureResponse(

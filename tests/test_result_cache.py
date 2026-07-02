@@ -206,6 +206,40 @@ class TestRomanizeCaching:
 
 
 # ---------------------------------------------------------------------------
+# Single endpoints — same cache (the web app fans out singles)
+# ---------------------------------------------------------------------------
+
+class TestSingleEndpointCaching:
+    def test_single_romanize_hits_cache_and_shares_it_with_batch(self, mem_cache, compute_counter):
+        from loom_api.routes.romanize import (
+            RomanizeBatchRequest,
+            RomanizeRequest,
+            romanize,
+            romanize_batch,
+        )
+        first = romanize(RomanizeRequest(text="привет", lang_code="ru"))
+        cold = compute_counter["n"]
+        assert cold == 1 and first.romanized
+        # Repeat single: zero compute.
+        second = romanize(RomanizeRequest(text="привет", lang_code="ru"))
+        assert compute_counter["n"] == cold
+        assert second.romanized == first.romanized
+        # The batch endpoint shares the same keys — also a hit.
+        batch = romanize_batch(RomanizeBatchRequest(texts=["привет"], lang_code="ru"))
+        assert compute_counter["n"] == cold
+        assert batch.results[0].romanized == first.romanized
+
+    def test_single_annotate_caches_spans_across_render_modes(self, mem_cache, compute_counter):
+        from loom_api.routes.annotate import AnnotateRequest, annotate
+        ruby = annotate(AnnotateRequest(text="東京に行く", lang_code="ja", render_mode="ruby"))
+        cold = compute_counter["n"]
+        inline = annotate(AnnotateRequest(text="東京に行く", lang_code="ja", render_mode="inline"))
+        assert compute_counter["n"] == cold  # spans from cache
+        assert inline.html != ruby.html
+        assert [s.model_dump() for s in inline.spans] == [s.model_dump() for s in ruby.spans]
+
+
+# ---------------------------------------------------------------------------
 # /annotate/batch — spans cached, HTML re-rendered
 # ---------------------------------------------------------------------------
 

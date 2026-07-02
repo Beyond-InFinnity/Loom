@@ -47,8 +47,8 @@ def capture_handler():
     return corpus_capture, CorpusCaptureRequest, CaptureLine
 
 
-def _req(Req, Line, *, opt_in=True, texts=("こんにちは", "ありがとう"), media_id="vid1", track_id="tr1", **kw):
-    lines = [Line(seq=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=t) for i, t in enumerate(texts)]
+def _req(Req, Line, *, opt_in=True, texts=("こんにちは", "ありがとう"), media_id="vid1", track_id="tr1", style=None, **kw):
+    lines = [Line(seq=i, start_ms=i * 1000, end_ms=i * 1000 + 900, text=t, style=style) for i, t in enumerate(texts)]
     return Req(
         opt_in_training=opt_in,
         platform="youtube",
@@ -123,6 +123,30 @@ class TestCaptureRoute:
         )
         assert ("netflix", "81234") in mem_store.media
 
+    def test_style_and_styles_map_are_captured(self, mem_store, capture_handler):
+        handler, Req, Line = capture_handler
+        resp = handler(
+            _req(
+                Req,
+                Line,
+                style="Default",
+                styles={"Default": {"fontname": "Trebuchet MS", "fontsize": 48}},
+            )
+        )
+        assert resp.stored is True
+        (cap,) = mem_store.tracks.values()
+        assert all(ln.style == "Default" for ln in cap.lines)
+        assert cap.styles == {"Default": {"fontname": "Trebuchet MS", "fontsize": 48}}
+
+    def test_style_participates_in_content_identity(self, mem_store, capture_handler):
+        # A restyled track is a new content version, not a dedup no-op —
+        # style is training data for the OCR corpus.
+        handler, Req, Line = capture_handler
+        handler(_req(Req, Line, style="Default"))
+        resp = handler(_req(Req, Line, style="Signs"))
+        assert resp.stored is True and resp.deduped is False
+        assert len(mem_store.tracks) == 2
+
     def test_default_store_is_fail_soft_no_op(self, capture_handler, monkeypatch):
         # No DSN configured → NullCorpusStore → 200 stored=false, never a raise.
         handler, Req, Line = capture_handler
@@ -176,7 +200,7 @@ def _track(**kw):
 
 
 class TestExportRecords:
-    LINES = [(0, 0, 900, "こんにちは"), (1, 1000, 1900, "東京")]
+    LINES = [(0, 0, 900, "こんにちは", None), (1, 1000, 1900, "東京", "Default")]
 
     def test_records_are_self_contained_and_ordered(self):
         cache_rows = [
@@ -218,6 +242,17 @@ class TestExportRecords:
         records = build_records(_track(), self.LINES[:1], [("romanize", "Romaji", "こんにちは", "not-a-dict", 1)])
         assert json.loads(records[0]["romanizations_json"]) == {}
 
+    def test_style_columns_export(self):
+        styles = {"Default": {"fontname": "Trebuchet MS", "fontsize": 48}}
+        records = build_records(_track(styles_json=styles), self.LINES, [])
+        assert records[0]["style"] is None
+        assert records[1]["style"] == "Default"
+        assert json.loads(records[1]["track_styles_json"]) == styles
+
+    def test_styleless_track_exports_null_styles(self):
+        records = build_records(_track(), self.LINES[:1], [])
+        assert records[0]["track_styles_json"] is None
+
 
 class TestPartitioning:
     def test_grouping(self):
@@ -235,6 +270,62 @@ class TestPartitioning:
     def test_partition_path_is_hive_style(self):
         path = partition_path("netflix", "ja", "2026-07", "abc123")
         assert path == "corpus/platform=netflix/lang=ja/captured=2026-07/part-abc123.parquet"
+
+
+# ---------------------------------------------------------------------------
+# Sidecar → prod forward: file payload shaping (loom_api/corpus_forward.py)
+# ---------------------------------------------------------------------------
+
+class TestForwardPayload:
+    def _subs(self):
+        import pysubs2
+
+        subs = pysubs2.SSAFile()
+        subs.styles["Default"] = pysubs2.SSAStyle(fontname="Trebuchet MS", fontsize=48)
+        subs.styles["Signs"] = pysubs2.SSAStyle(fontname="Impact", fontsize=60)
+        subs.append(pysubs2.SSAEvent(start=0, end=900, text="こんにちは", style="Default"))
+        note = pysubs2.SSAEvent(start=500, end=600, text="editor note", style="Default")
+        note.is_comment = True
+        subs.append(note)
+        subs.append(
+            pysubs2.SSAEvent(start=1000, end=1900, text="{\\pos(10,10)}東京", style="Signs")
+        )
+        return subs
+
+    def test_payload_shape_styles_and_comment_skip(self):
+        from pathlib import Path
+
+        from loom_api.corpus_forward import build_file_capture_payload
+
+        payload = build_file_capture_payload(
+            path=Path("/tmp/Show.S01E01.[Fansub].ass"),
+            lang_code="ja",
+            role="target",
+            subs=self._subs(),
+        )
+        assert payload["platform"] == "desktop"
+        assert payload["media_id"] == "Show.S01E01.[Fansub]"
+        assert payload["track_id"].startswith("target:")
+        assert payload["track_lang"] == "ja"
+        assert payload["opt_in_training"] is True
+        # Comment dropped; ASS override tags stripped via plaintext; seq
+        # preserves the original event index across the drop.
+        assert [(ln["seq"], ln["text"], ln["style"]) for ln in payload["lines"]] == [
+            (0, "こんにちは", "Default"),
+            (2, "東京", "Signs"),
+        ]
+        assert payload["styles"]["Default"]["fontname"] == "Trebuchet MS"
+        assert payload["styles"]["Signs"]["fontsize"] in {"60", "60.0"}
+
+    def test_forward_disabled_by_env(self, monkeypatch):
+        from loom_api import corpus_forward
+
+        monkeypatch.setenv("LOOM_CORPUS_FORWARD_URL", "off")
+        assert corpus_forward._forward_url() is None
+        monkeypatch.setenv("LOOM_CORPUS_FORWARD_URL", "https://example.com/")
+        assert corpus_forward._forward_url() == "https://example.com"
+        monkeypatch.delenv("LOOM_CORPUS_FORWARD_URL", raising=False)
+        assert corpus_forward._forward_url() == "https://api.loom.nerv-analytic.ai"
 
 
 # ---------------------------------------------------------------------------

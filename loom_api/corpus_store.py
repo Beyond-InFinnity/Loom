@@ -59,6 +59,10 @@ class CorpusLine:
     start_ms: Optional[int]
     end_ms: Optional[int]
     text: str  # normalized (normalize_text) by the route before storage
+    # ASS style name (file sources: web upload / desktop / Loom Player).
+    # The extension has no style visibility and sends None.  This is the
+    # "style" of Step 6's (text, style, language) OCR training tuple.
+    style: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,10 @@ class CorpusCapture:
     origin_lang: Optional[str] = None
     is_cc: bool = False
     track_kind: Optional[str] = None  # e.g. manual / asr
+    # Style DEFINITIONS for the style names referenced by lines — an
+    # opaque JSON map {style_name: {fontname, fontsize, colors, ...}}
+    # exactly as the client has it.  Nullable; file sources only.
+    styles: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -84,11 +92,18 @@ class CaptureResult:
 
 def track_content_hash(lines: tuple[CorpusLine, ...] | list[CorpusLine]) -> bytes:
     """Identity of a track's CONTENT: sha256 over the ordered normalized
-    texts + timings.  Same episode rewatched → same hash → dedup no-op;
-    platform revises the track → new hash → captured as a new version."""
+    texts + timings + style names.  Same episode rewatched → same hash →
+    dedup no-op; platform revises the track (or a restyle changes the
+    training-relevant style names) → new hash → captured as a new version.
+    Style DEFINITIONS (CorpusCapture.styles) deliberately don't hash —
+    they're per-capture metadata, not line identity."""
     h = hashlib.sha256()
     for line in lines:
-        h.update(f"{line.seq}\x1f{line.start_ms}\x1f{line.end_ms}\x1f{line.text}\x1e".encode("utf-8"))
+        h.update(
+            f"{line.seq}\x1f{line.start_ms}\x1f{line.end_ms}\x1f{line.text}\x1f{line.style or ''}\x1e".encode(
+                "utf-8"
+            )
+        )
     return h.digest()
 
 
@@ -144,6 +159,7 @@ CREATE TABLE IF NOT EXISTS corpus_track (
     kind               TEXT,
     content_hash       BYTEA NOT NULL,
     line_count         INT NOT NULL,
+    styles_json        JSONB,
     captured_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     archived_at        TIMESTAMPTZ,
     UNIQUE (media_id, platform_track_id, content_hash)
@@ -154,9 +170,15 @@ CREATE TABLE IF NOT EXISTS corpus_line (
     start_ms  INT,
     end_ms    INT,
     text      TEXT NOT NULL,
+    style     TEXT,
     PRIMARY KEY (track_id, seq)
 );
 CREATE INDEX IF NOT EXISTS corpus_line_text_idx ON corpus_line (text);
+-- Style columns arrived after the initial schema shipped; a database
+-- created by an earlier build needs them added (CREATE TABLE IF NOT
+-- EXISTS never alters an existing table).  Both are idempotent.
+ALTER TABLE corpus_track ADD COLUMN IF NOT EXISTS styles_json JSONB;
+ALTER TABLE corpus_line  ADD COLUMN IF NOT EXISTS style TEXT;
 CREATE TABLE IF NOT EXISTS corpus_export_manifest (
     id              BIGSERIAL PRIMARY KEY,
     partition_path  TEXT NOT NULL,
@@ -219,13 +241,24 @@ class PostgresCorpusStore:
 
                     # Insert the track version; conflict = identical content
                     # already captured → dedup no-op, no line writes.
+                    from psycopg.types.json import Json  # lazy: web-only dep
+
                     cur.execute(
                         "INSERT INTO corpus_track"
-                        " (media_id, platform_track_id, lang_code, is_cc, kind, content_hash, line_count)"
-                        " VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                        " (media_id, platform_track_id, lang_code, is_cc, kind, content_hash, line_count, styles_json)"
+                        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
                         " ON CONFLICT (media_id, platform_track_id, content_hash) DO NOTHING"
                         " RETURNING id",
-                        (media_id, cap.platform_track_id, cap.track_lang, cap.is_cc, cap.track_kind, content_hash, len(cap.lines)),
+                        (
+                            media_id,
+                            cap.platform_track_id,
+                            cap.track_lang,
+                            cap.is_cc,
+                            cap.track_kind,
+                            content_hash,
+                            len(cap.lines),
+                            Json(cap.styles) if cap.styles is not None else None,
+                        ),
                     )
                     row = cur.fetchone()
                     if row is None:
@@ -233,9 +266,9 @@ class PostgresCorpusStore:
                     track_id = row[0]
 
                     cur.executemany(
-                        "INSERT INTO corpus_line (track_id, seq, start_ms, end_ms, text)"
-                        " VALUES (%s, %s, %s, %s, %s)",
-                        [(track_id, ln.seq, ln.start_ms, ln.end_ms, ln.text) for ln in cap.lines],
+                        "INSERT INTO corpus_line (track_id, seq, start_ms, end_ms, text, style)"
+                        " VALUES (%s, %s, %s, %s, %s, %s)",
+                        [(track_id, ln.seq, ln.start_ms, ln.end_ms, ln.text, ln.style) for ln in cap.lines],
                     )
             logger.info(
                 "capture platform=%s media=%s track=%s lang=%s lines=%d",
@@ -247,12 +280,16 @@ class PostgresCorpusStore:
             return CaptureResult(stored=False, reason="corpus backend error")
 
 
-def normalize_capture_lines(raw: list[tuple[int, Optional[int], Optional[int], str]]) -> tuple[CorpusLine, ...]:
+def normalize_capture_lines(
+    raw: list[tuple[int, Optional[int], Optional[int], str, Optional[str]]],
+) -> tuple[CorpusLine, ...]:
     """Route-side helper: normalize texts identically to the result cache
     (export joins are exact-match on normalized text) and drop empties."""
     out: list[CorpusLine] = []
-    for seq, start_ms, end_ms, text in raw:
+    for seq, start_ms, end_ms, text, style in raw:
         norm = normalize_text(text)
         if norm:
-            out.append(CorpusLine(seq=seq, start_ms=start_ms, end_ms=end_ms, text=norm))
+            out.append(
+                CorpusLine(seq=seq, start_ms=start_ms, end_ms=end_ms, text=norm, style=style)
+            )
     return tuple(out)

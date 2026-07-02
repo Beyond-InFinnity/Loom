@@ -94,15 +94,44 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
     # Japanese path: route through annotation_func + spans_to_romaji_func so
     # the caller's long_vowel_mode is honored (the default romanize_func bakes
     # in macrons).  Other languages use romanize_func directly.
-    if spans_to_romaji_func and annotation_func:
-        spans = annotation_func(req.text)
-        romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
-    elif romanize_func:
-        romanized = romanize_func(req.text)
-    else:
+    has_japanese_path = bool(spans_to_romaji_func and annotation_func)
+    if not has_japanese_path and not romanize_func:
         raise HTTPException(
             status_code=500,
             detail=f"Lang {req.lang_code!r} reports has_phonetic_layer=True but no callable",
+        )
+
+    # Same read-through cache as /romanize/batch — the web app's generation
+    # flow fans out singles, and without this it bypasses Layer 1 entirely.
+    cache = get_result_cache()
+    system_name = cfg.get("romanization_name", "N/A")
+    mode = req.long_vowel_mode if has_japanese_path else "-"
+    eng_ver = engine_version(req.lang_code)
+    norm = normalize_text(req.text)
+    key = cache_key("romanize", req.lang_code, system_name, mode, eng_ver, norm)
+
+    hit = cache.get_many([key]).get(key)
+    if isinstance(hit, dict) and isinstance(hit.get("romanized"), str):
+        romanized = hit["romanized"]
+    else:
+        if has_japanese_path:
+            spans = annotation_func(norm)
+            romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
+        else:
+            romanized = romanize_func(norm)
+        cache.put_many(
+            [
+                CacheRow(
+                    key=key,
+                    kind="romanize",
+                    lang_code=req.lang_code,
+                    phonetic_system=system_name,
+                    mode=mode,
+                    engine_version=eng_ver,
+                    input_text=norm,
+                    output={"romanized": romanized},
+                )
+            ]
         )
 
     return RomanizeResponse(

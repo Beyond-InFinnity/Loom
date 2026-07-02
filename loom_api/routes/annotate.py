@@ -99,7 +99,33 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
             lang_code=req.lang_code,
         )
 
-    raw_spans = annotation_func(req.text)
+    # Same spans-only read-through cache as /annotate/batch (html is
+    # re-rendered per request so render_mode stays out of the key).
+    cache = get_result_cache()
+    system_name = cfg.get("annotation_system_name", "Annotation")
+    eng_ver = engine_version(req.lang_code)
+    norm = normalize_text(req.text)
+    key = cache_key("annotate", req.lang_code, system_name, "-", eng_ver, norm)
+
+    hit = cache.get_many([key]).get(key)
+    if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
+        raw_spans = [(s[0], s[1]) for s in hit["spans"]]
+    else:
+        raw_spans = annotation_func(norm)
+        cache.put_many(
+            [
+                CacheRow(
+                    key=key,
+                    kind="annotate",
+                    lang_code=req.lang_code,
+                    phonetic_system=system_name,
+                    mode="-",
+                    engine_version=eng_ver,
+                    input_text=norm,
+                    output={"spans": [[base, reading] for base, reading in raw_spans]},
+                )
+            ]
+        )
     spans = [AnnotateSpan(base=base, reading=reading) for base, reading in raw_spans]
     html = build_annotation_html(raw_spans, mode=mode)
 

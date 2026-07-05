@@ -186,23 +186,82 @@ create themselves at the next worker boot.  Kill switch: `LOOM_CORPUS=off`
 
 ## 3. Object storage + scheduled export
 
-1. **Create the bucket.**  Recommended: Cloudflare R2 (`loom-corpus`) — zero
-   egress for training reads, S3-compatible.  Create an R2 API token scoped
-   to that bucket (Object Read & Write).
-2. **GitHub repo secrets** (Settings → Secrets → Actions):
-   - `CORPUS_DATABASE_URL` — Railway Postgres **DATABASE_PUBLIC_URL** (the
-     internal `.railway.internal` URL is unreachable from CI).
-   - `CORPUS_BUCKET` — bucket name.
-   - `CORPUS_S3_ENDPOINT` — `https://<account_id>.r2.cloudflarestorage.com`
-     (omit for AWS S3).
-   - `CORPUS_AWS_ACCESS_KEY_ID` / `CORPUS_AWS_SECRET_ACCESS_KEY` — the R2
-     token pair (or AWS IAM keys).
-3. The workflow (`.github/workflows/export-corpus.yml`) runs monthly and
-   **no-ops green until the secrets exist**.  First real run: trigger
-   manually (Actions → export-corpus → Run workflow, `dry_run: true` first).
-   Pruning is opt-in per run (`prune: true`) — leave it off until bucket
-   contents have been spot-checked once (open a Parquet in
-   pandas/DuckDB: `duckdb -c "SELECT * FROM 'part-*.parquet' LIMIT 5"`).
+**STATUS: VALIDATED LIVE 2026-07-05.**  First real export ran end-to-end from
+a laptop against prod Postgres → Cloudflare R2: 6 partitions / 8,994 rows
+(netflix en/ja/zh-Hant/zh-Hans + youtube zh/en), `corpus_export_manifest`
+populated, all 20 source tracks stamped `archived_at`.  The monthly cron
+(step 3 below) is the remaining piece — the manual path is proven.
+
+### 3a. One-time infra (owner, Cloudflare + Railway)
+
+1. **Create the bucket FIRST**, then the token — the token's bucket-scope
+   dropdown only lists buckets that already exist.  Cloudflare R2 →
+   Overview → Create bucket → `loom-corpus` (location: North America / auto;
+   R2 has no egress fees so location barely matters for a monthly batch).
+2. **Create an R2 *Account* API token** (not a user token — account tokens
+   survive membership/role changes, correct for CI).  Manage R2 API Tokens →
+   Create → **Object Read & Write** (NOT "Object Read only" — read-only gives
+   `AccessDenied` on `PutObject`) → scope to `loom-corpus` → TTL Forever.
+   Copy **both** the Access Key ID (32 hex) and Secret Access Key (64 hex)
+   from the final screen via the copy buttons — the secret is shown ONCE.
+   - **Do NOT save keys via "print to PDF"** — a monospace 64-char key runs
+     off the page and silently truncates → `SignatureDoesNotMatch` (cost us
+     ~30 min on 2026-07-05).  Verify length before use: fish
+     `string length $AWS_SECRET_ACCESS_KEY` must print `64`.
+3. **Endpoint** = `https://<account_id>.r2.cloudflarestorage.com`.  The
+   account id is the path segment in any dashboard URL
+   (`dash.cloudflare.com/<account_id>/…`), or shown on the R2 page.
+4. **Railway DSN** = the Postgres service's **DATABASE_PUBLIC_URL** value (the
+   internal `.railway.internal` URL is unreachable from CI / a laptop).
+
+### 3b. Validate manually before trusting cron (the proven run)
+
+Fish shell — note `set -x`, not bash `export`.  A fresh venv mirrors CI:
+
+```fish
+python3 -m venv /tmp/loom-export-venv
+source /tmp/loom-export-venv/bin/activate.fish
+pip install -r scripts/requirements-export.txt
+
+set -x DATABASE_URL '<DATABASE_PUBLIC_URL value>'
+set -x LOOM_CORPUS_BUCKET 'loom-corpus'
+set -x LOOM_CORPUS_S3_ENDPOINT 'https://<account_id>.r2.cloudflarestorage.com'
+set -x AWS_ACCESS_KEY_ID '<32-hex>'
+set -x AWS_SECRET_ACCESS_KEY '<64-hex>'
+set -x AWS_DEFAULT_REGION auto
+set -x LOOM_ENRICH_AUTH_KEY '<a LOOM_BYPASS_KEYS value>'   # optional: skips rate limit on enrich
+
+python scripts/export_corpus.py --settle-days 0 --dry-run   # walks, writes nothing
+python scripts/export_corpus.py --settle-days 0 --enrich    # real: enrich → Parquet → R2
+```
+
+**`--settle-days 0` is only for same-day validation** — the default (7) skips
+recently-captured rows so late captures settle; the cron keeps 7.  `--enrich`
+replays caption text through the prod romanize/annotate batch endpoints to
+populate the cache, then joins romanizations into the Parquet; idempotent
+(cache hits free), so re-runs are fast.  Expect `wrote 6 partition file(s)`.
+Verify: R2 objects under `corpus/platform=…/lang=…/captured=YYYY-MM/`,
+`corpus_export_manifest` rows, and `archived_at` stamped on the tracks.
+
+### 3c. Wire the monthly cron (the remaining piece)
+
+**GitHub repo secrets** (Settings → Secrets → Actions) — same fresh keys:
+- `CORPUS_DATABASE_URL` — the DATABASE_PUBLIC_URL.
+- `CORPUS_BUCKET` — `loom-corpus`.
+- `CORPUS_S3_ENDPOINT` — `https://<account_id>.r2.cloudflarestorage.com`.
+- `CORPUS_AWS_ACCESS_KEY_ID` / `CORPUS_AWS_SECRET_ACCESS_KEY` — the R2 pair.
+- `CORPUS_API_AUTH_KEY` — optional `LOOM_BYPASS_KEYS` entry for `--enrich`.
+
+The workflow (`.github/workflows/export-corpus.yml`) **no-ops green until the
+secrets exist**, then runs monthly (1st @ 06:17 UTC) with the safe 7-day
+settle.  Confirm CI auth once via Actions → export-corpus → Run workflow,
+`dry_run: true` (it'll export 0 until data ages past 7 days — expected).
+Pruning is opt-in per run (`prune: true`); leave off until a Parquet's been
+spot-checked (`duckdb -c "SELECT * FROM 'part-*.parquet' LIMIT 5"`).
+
+**Security:** after keys are in GitHub secrets, delete any interim key copies
+(desktop PDFs/screenshots) and any dead/rotated R2 tokens.  Secrets live in
+GitHub (CI) + the ephemeral shell session only.
 
 ## 4. Privacy / store copy (ship WITH the extension toggle)
 
@@ -300,3 +359,34 @@ style fields **now**; desktop captures **via the prod API**, not direct DB.
   (platform `player`, media identity = filename stem + container title,
   full styles) behind the same visible default-ON toggle, reusing the
   `/corpus/capture` contract unchanged.
+
+## 7. Backlog (quality/durability, non-blocking — opened 2026-07-05)
+
+Surfaced while validating the live corpus.  Neither blocks the pipeline;
+capture is proven working on the extension (youtube + netflix) → Postgres →
+R2.
+
+1. **Extension capture has NO retry (durability hole).**  `lib/corpus/
+   capture.ts` is fire-and-forget: a failed POST (server down / corpus
+   disabled / network blip) is swallowed and that track's data is lost —
+   no spool, no retry.  The *desktop* app already has store-and-forward
+   (`corpus_forward.py` spool); the extension doesn't.  This is why the
+   first Frieren episodes captured NOTHING: they were watched before the
+   server's corpus store was enabled (`DATABASE_URL` unset → Null store →
+   `{stored:false,"reason":"corpus disabled"}`), and fire-and-forget never
+   retried.  Fix: a small `storage.local` retry queue (mirror the desktop
+   spool), or at minimum surface persistent failures.  For a data-
+   collection feature this is a real gap — do it when next hardening corpus.
+
+2. **Netflix `title` capture is cosmetic-broken.**  Rows land with
+   `title = "Netflix"` instead of the show name, because capture reads
+   `document.title`, which on a Netflix watch page is often the literal
+   string "Netflix" (show name never reaches the tab title, or lands after
+   the one-shot capture fires).  IDENTITY is unaffected — `platform` +
+   `platform_media_id` (movieId) is correct, and `title` is display-only,
+   COALESCE'd, never used for joins.  So no data is corrupted; the label is
+   just useless.  Fix: read the title from a reliable source (the manifest,
+   or a DOM selector like `[data-uia="video-title"]`) instead of
+   `document.title`.  Won't retroactively fix stored rows, but movieId→title
+   is externally recoverable.  YouTube is unaffected (its `document.title`
+   IS the video name).

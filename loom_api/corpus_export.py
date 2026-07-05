@@ -172,6 +172,39 @@ PARQUET_COLUMNS = [
 ]
 
 
+def _parquet_schema():
+    """Explicit, pinned column types so EVERY partition is schema-identical
+    regardless of its contents.  Without this, `pa.Table.from_pylist` infers
+    types per-batch — and an all-null column (e.g. `style` / `track_styles_json`
+    on streaming captures, which carry no ASS styles) infers as `null`, while a
+    later file-source partition WITH styles infers `string`.  Mixed types across
+    partitions break a union scan (`read_parquet('corpus/**/*.parquet')`).
+    Pinning here means streaming and file-source Parquet always agree.  Column
+    order matches PARQUET_COLUMNS.  Lazy so pyarrow stays an export-only dep."""
+    import pyarrow as pa
+
+    return pa.schema([
+        ("platform", pa.string()),
+        ("media_id", pa.string()),
+        ("title", pa.string()),
+        ("origin_lang", pa.string()),
+        ("track_id", pa.string()),
+        ("track_lang", pa.string()),
+        ("is_cc", pa.bool_()),
+        ("track_kind", pa.string()),
+        ("captured_at", pa.string()),
+        ("seq", pa.int64()),
+        ("start_ms", pa.int64()),
+        ("end_ms", pa.int64()),
+        ("text", pa.string()),
+        ("style", pa.string()),
+        ("track_styles_json", pa.string()),
+        ("romanizations_json", pa.string()),
+        ("annotations_json", pa.string()),
+        ("engine_versions_json", pa.string()),
+    ])
+
+
 # ---------------------------------------------------------------------------
 # Runner — SQL + Parquet + upload (lazy heavy deps; exercised live, not in CI)
 # ---------------------------------------------------------------------------
@@ -372,7 +405,9 @@ def _to_parquet_bytes(records: list[dict[str, Any]]) -> bytes:
     import pyarrow as pa  # lazy: export-script-only dep
     import pyarrow.parquet as pq
 
-    table = pa.Table.from_pylist(records).select(PARQUET_COLUMNS)
+    # Build against the PINNED schema (not inferred) so all partitions —
+    # streaming (null styles) and file-source (real styles) — are identical.
+    table = pa.Table.from_pylist(records, schema=_parquet_schema())
     buf = io.BytesIO()
     pq.write_table(table, buf, compression="zstd")
     return buf.getvalue()

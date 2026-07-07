@@ -139,3 +139,56 @@ describe("parseTtml", () => {
     expect(parseTtml("<html><body>hi</body></html>")).toEqual([]);
   });
 });
+
+describe("parseTtml layout (positional / vertical)", () => {
+  it("inherits the body region (横下) → horizontal, bottom, center", () => {
+    const ev = parseTtml(FIXTURE);
+    // Every cue in FIXTURE inherits <body region="横下"> (none override).
+    for (const e of ev) {
+      expect(e.layout).toBeDefined();
+      expect(e.layout?.writingMode).toBe("horizontal");
+      expect(e.layout?.block).toBe("bottom"); // tts:displayAlign="after"
+      expect(e.layout?.inline).toBe("center");
+      expect(e.layout?.regionId).toBe("横下");
+      // 80vw 15vh extent (no origin) → not precisely placed.
+      expect(e.layout?.origin).toBeUndefined();
+      expect(e.layout?.extent).toEqual({ w: 0.8, h: 0.15 });
+    }
+  });
+
+  it("resolves a per-cue vertical region (縦右) → vertical-rl, top, right", () => {
+    const withVertical = FIXTURE.replace(
+      "  </div>",
+      '   <p begin="00:02:00.000" end="00:02:02.000" region="縦右" style="s1"><span style="s2">（シンジ）あ…</span></p>\n  </div>',
+    );
+    const ev = parseTtml(withVertical);
+    const vcue = ev.find((e) => e.text.includes("シンジ"));
+    expect(vcue).toBeDefined();
+    expect(vcue?.layout?.writingMode).toBe("vertical-rl"); // tts:writingMode="tbrl"
+    expect(vcue?.layout?.inline).toBe("right"); // 縦右 mnemonic
+    expect(vcue?.layout?.block).toBe("top"); // vertical default (no coords/displayAlign)
+    expect(vcue?.layout?.extent).toEqual({ w: 0.15, h: 0.8 });
+  });
+
+  it("uses precise tts:origin when the region defines it", () => {
+    const doc = `<tt xmlns:tts="http://www.w3.org/ns/ttml#styling">
+ <head><layout>
+  <region tts:origin="60vw 5vh" tts:extent="35vw 30vh" xml:id="r1" />
+ </layout></head>
+ <body><div>
+  <p begin="00:00:01.000" end="00:00:02.000" region="r1">hi</p>
+ </div></body></tt>`;
+    const ev = parseTtml(doc);
+    expect(ev[0].layout?.origin).toEqual({ x: 0.6, y: 0.05 });
+    // center (0.6+0.175, 0.05+0.15) = (0.775, 0.2) → right, top
+    expect(ev[0].layout?.inline).toBe("right");
+    expect(ev[0].layout?.block).toBe("top");
+  });
+
+  it("leaves layout undefined when the track has no regions", () => {
+    const doc = `<tt><body><div>
+  <p begin="00:00:01.000" end="00:00:02.000">plain</p>
+ </div></body></tt>`;
+    expect(parseTtml(doc)[0].layout).toBeUndefined();
+  });
+});

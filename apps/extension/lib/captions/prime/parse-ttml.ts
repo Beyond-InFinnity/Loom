@@ -48,7 +48,7 @@
 // ruby-text spans are leaf spans (reading only, no nesting), so a
 // non-greedy per-style removal is safe.
 
-import type { CaptionEvent } from "../types";
+import type { CaptionEvent, CueLayout, WritingMode } from "../types";
 
 const NAMED: Record<string, string> = {
   "&amp;": "&",
@@ -140,10 +140,168 @@ function cueTextFrom(inner: string, rubyTextIds: Set<string>): string {
     .trim();
 }
 
+// ---- Layout / region extraction (non-destructive positional parse) -------
+//
+// Prime's TTML defines regions in <head><layout>, e.g. (real, Evangelion):
+//   <region tts:displayAlign="after" tts:extent="80vw 15vh" xml:id="横下" />
+//   <region tts:extent="15vw 80vh" tts:writingMode="tbrl"  xml:id="縦右" />
+// and cues reference one via `region=` on <p> (or inherit <body region=>).
+// The region carries orientation (tts:writingMode) + placement
+// (tts:origin/extent/displayAlign); the id is a JP mnemonic (横=horizontal /
+// 縦=vertical, 上/中/下 = top/mid/bottom, 左/中/右 = left/center/right) we use
+// as a fallback when coordinates are absent.  We resolve each cue to a
+// CueLayout so the overlay can reproduce vertical / positioned cues instead
+// of flattening them.
+
+interface RegionDef {
+  writingMode?: string;
+  origin?: string;
+  extent?: string;
+  displayAlign?: string;
+  textAlign?: string;
+}
+
+/** Extract an attribute value from a raw tag/attr string (colon-safe). */
+function attrOf(s: string, name: string): string | undefined {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`(?:^|\\s)${esc}\\s*=\\s*"([^"]*)"`).exec(s);
+  return m ? m[1] : undefined;
+}
+
+/** regionId → definition, parsed from <head><layout>.  Empty when the
+    document defines no regions (plain TTML → cues get no layout). */
+function parseRegions(doc: string): Map<string, RegionDef> {
+  const map = new Map<string, RegionDef>();
+  const layout = /<layout\b[^>]*>([^]*?)<\/layout>/i.exec(doc);
+  if (!layout) return map;
+  for (const tag of layout[1].match(/<region\b[^>]*\/?>/g) ?? []) {
+    const id = attrOf(tag, "xml:id");
+    if (!id) continue;
+    map.set(id, {
+      writingMode: attrOf(tag, "tts:writingMode"),
+      origin: attrOf(tag, "tts:origin"),
+      extent: attrOf(tag, "tts:extent"),
+      displayAlign: attrOf(tag, "tts:displayAlign"),
+      textAlign: attrOf(tag, "tts:textAlign"),
+    });
+  }
+  return map;
+}
+
+function writingModeOf(wm?: string): WritingMode {
+  const v = (wm ?? "").toLowerCase();
+  if (v.startsWith("tblr")) return "vertical-lr";
+  if (v.startsWith("tbrl") || v === "tb") return "vertical-rl";
+  return "horizontal";
+}
+
+/** "80vw 15vh" / "10% 82%" → { a, b } as [0..1] fractions.  px is
+    un-normalizable without the frame size → undefined. */
+function parseLenPair(s?: string): { a: number; b: number } | undefined {
+  if (!s) return undefined;
+  const m = s
+    .trim()
+    .match(/^(-?[\d.]+)(vw|vh|%|px|c)?\s+(-?[\d.]+)(vw|vh|%|px|c)?$/i);
+  if (!m) return undefined;
+  if ((m[2] ?? "").toLowerCase() === "px" || (m[4] ?? "").toLowerCase() === "px") {
+    return undefined;
+  }
+  const a = parseFloat(m[1]) / 100;
+  const b = parseFloat(m[3]) / 100;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
+  return { a, b };
+}
+
+/** Decode the JP position mnemonic in a region id, orientation-aware:
+    for horizontal regions 中 means the middle ROW; for vertical it means
+    the center COLUMN. */
+function mnemonicZone(
+  id: string | undefined,
+  vertical: boolean,
+): { block?: CueLayout["block"]; inline?: CueLayout["inline"] } {
+  if (!id) return {};
+  const out: { block?: CueLayout["block"]; inline?: CueLayout["inline"] } = {};
+  if (id.includes("上")) out.block = "top";
+  if (id.includes("下")) out.block = "bottom";
+  if (id.includes("左")) out.inline = "left";
+  if (id.includes("右")) out.inline = "right";
+  if (id.includes("中") || id.includes("央")) {
+    if (vertical) out.inline = "center";
+    else out.block = "middle";
+  }
+  return out;
+}
+
+/** Resolve a cue's region reference → CueLayout, or undefined when the
+    cue references no defined region (→ overlay default placement). */
+function resolveLayout(
+  regions: Map<string, RegionDef>,
+  regionId: string | undefined,
+): CueLayout | undefined {
+  if (!regionId) return undefined;
+  const def = regions.get(regionId);
+  if (!def) return undefined;
+
+  const writingMode = writingModeOf(def.writingMode);
+  const vertical = writingMode !== "horizontal";
+  const o = parseLenPair(def.origin);
+  const e = parseLenPair(def.extent);
+  const origin = o ? { x: o.a, y: o.b } : undefined;
+  const extent = e ? { w: e.a, h: e.b } : undefined;
+  const mnem = mnemonicZone(regionId, vertical);
+
+  // Block (vertical zone): precise center → displayAlign → mnemonic →
+  // orientation default (horizontal captions sit bottom; vertical columns
+  // start at top).
+  let block: CueLayout["block"];
+  if (origin && extent) {
+    const cy = origin.y + extent.h / 2;
+    block = cy < 0.4 ? "top" : cy < 0.66 ? "middle" : "bottom";
+  } else if (def.displayAlign) {
+    const da = def.displayAlign.toLowerCase();
+    block = da === "before" ? "top" : da === "center" ? "middle" : "bottom";
+  } else {
+    block = mnem.block ?? (vertical ? "top" : "bottom");
+  }
+
+  // Inline (horizontal zone): precise center → mnemonic → orientation
+  // default (horizontal captions center; vertical columns sit right).
+  let inline: CueLayout["inline"];
+  if (origin && extent) {
+    const cx = origin.x + extent.w / 2;
+    inline = cx < 0.4 ? "left" : cx < 0.66 ? "center" : "right";
+  } else {
+    inline = mnem.inline ?? (vertical ? "right" : "center");
+  }
+
+  const ta = (def.textAlign ?? "").toLowerCase();
+  const textAlign =
+    ta === "start" || ta === "left"
+      ? "start"
+      : ta === "center"
+        ? "center"
+        : ta === "end" || ta === "right"
+          ? "end"
+          : undefined;
+
+  return {
+    writingMode,
+    block,
+    inline,
+    ...(textAlign ? { textAlign } : {}),
+    ...(origin ? { origin } : {}),
+    ...(extent ? { extent } : {}),
+    regionId,
+  };
+}
+
 /** Parse a full TTML2 document body → CaptionEvent[]. */
 export function parseTtml(body: string): CaptionEvent[] {
   const doc = String(body);
   const rubyTextIds = rubyTextStyleIds(doc);
+  const regions = parseRegions(doc);
+  const bodyTag = /<body\b([^>]*)>/i.exec(doc);
+  const bodyRegion = bodyTag ? attrOf(bodyTag[1], "region") : undefined;
   const result: CaptionEvent[] = [];
 
   // Match each timed <p …begin=…>…</p>.  [^]*? = any char incl. newlines,
@@ -164,7 +322,12 @@ export function parseTtml(body: string): CaptionEvent[] {
     const text = cueTextFrom(inner, rubyTextIds);
     if (text.length === 0) continue;
 
-    result.push({ start, end, text });
+    // Cue region: own `region=` attr, else inherit <body region=>.  (A
+    // <div region=> level exists in the spec but Prime doesn't use it.)
+    const regionId = attrOf(attrs, "region") ?? bodyRegion;
+    const layout = resolveLayout(regions, regionId);
+
+    result.push({ start, end, text, ...(layout ? { layout } : {}) });
   }
 
   result.sort((a, b) => a.start - b.start);

@@ -48,6 +48,38 @@ export interface CaptionTrack {
   audioLangCode?: string;
 }
 
+/** Writing orientation of a cue, resolved from the source's region /
+    cue-settings.  `horizontal` = normal left-to-right, top-to-bottom
+    (`lrtb`).  `vertical-rl` = Japanese tategaki (`tbrl`: columns run
+    top-to-bottom, advancing right-to-left).  `vertical-lr` = `tblr`. */
+export type WritingMode = "horizontal" | "vertical-rl" | "vertical-lr";
+
+/** Source-derived layout for a cue — where it sits on the frame and how
+    it's oriented.  Extracted non-destructively at parse time (Prime TTML
+    regions today; Netflix VTT cue-settings next) so Loom can REPRODUCE a
+    vertical / positioned cue faithfully instead of flattening every cue to
+    one bottom slot.  All positional fields are best-effort: a coarse 3×3
+    zone (always resolvable) plus the precise region box when the source
+    defines `tts:origin`/`tts:extent`. */
+export interface CueLayout {
+  writingMode: WritingMode;
+  /** Coarse vertical zone of the cue's region. */
+  block: "top" | "middle" | "bottom";
+  /** Coarse horizontal zone of the cue's region. */
+  inline: "left" | "center" | "right";
+  /** Text alignment within the cue, when the source specifies it. */
+  textAlign?: "start" | "center" | "end";
+  /** Region top-left as a fraction [0..1] of the frame, when the source
+      region defines `tts:origin`.  Overlay prefers this over `block`/
+      `inline` when present. */
+  origin?: { x: number; y: number };
+  /** Region size as a fraction [0..1] of the frame, from `tts:extent`. */
+  extent?: { w: number; h: number };
+  /** Raw source region id (e.g. "横下"), for debugging + future precise
+      placement. */
+  regionId?: string;
+}
+
 /** One caption event from a parsed track.  Times in milliseconds since
     video start.  Mirrors SSAEvent's `start`/`end`/`text` fields. */
 export interface CaptionEvent {
@@ -57,6 +89,12 @@ export interface CaptionEvent {
   end: number;
   /** Plain-text caption content with all segs concatenated.  No tags. */
   text: string;
+  /** Source-derived position + orientation, when the track carries it
+      (Prime TTML regions; Netflix VTT cue-settings).  Undefined = no
+      positional data → the overlay uses its default placement (the
+      pre-existing behavior).  Preserving this is what lets Loom render
+      vertical / positioned cues faithfully rather than flattening them. */
+  layout?: CueLayout;
 }
 
 /** Stream lifecycle state.  The pill renders directly from this. */

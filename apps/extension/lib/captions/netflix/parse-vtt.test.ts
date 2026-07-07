@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { cleanText, decodeEntities, parseVtt, vttTimeToMs } from "./parse-vtt";
+import {
+  cleanText,
+  decodeEntities,
+  parseCueSettings,
+  parseVtt,
+  vttTimeToMs,
+} from "./parse-vtt";
 
 describe("vttTimeToMs", () => {
   it("parses HH:MM:SS.mmm", () => {
@@ -97,5 +103,50 @@ describe("parseVtt", () => {
       "WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.000\r\nhello\r\n";
     const [e] = parseVtt(body);
     expect(e.text).toBe("hello");
+  });
+});
+
+describe("parseCueSettings (real Netflix shapes)", () => {
+  it("returns undefined for the default bottom-center cue", () => {
+    // The overwhelmingly common Netflix cue.
+    expect(parseCueSettings("position:50.00%,middle align:middle")).toBeUndefined();
+    expect(parseCueSettings("line:84.67% position:50.00%,middle align:middle")).toBeUndefined();
+    expect(parseCueSettings("line:79.33% position:50.00%,middle align:middle")).toBeUndefined();
+    expect(parseCueSettings("")).toBeUndefined();
+  });
+
+  it("lifts a line:10% cue to the top", () => {
+    const l = parseCueSettings("line:10.00% position:50.00%,middle align:middle");
+    expect(l).toBeDefined();
+    expect(l?.writingMode).toBe("horizontal");
+    expect(l?.block).toBe("top");
+    expect(l?.inline).toBe("center");
+    expect(l?.textAlign).toBe("center"); // align:middle → center
+  });
+
+  it("maps position to the inline zone", () => {
+    expect(parseCueSettings("line:10% position:10%")?.inline).toBe("left");
+    expect(parseCueSettings("line:10% position:90%")?.inline).toBe("right");
+  });
+
+  it("handles vertical settings (spec-correct, though Netflix never emits them)", () => {
+    const rl = parseCueSettings("vertical:rl");
+    expect(rl?.writingMode).toBe("vertical-rl");
+    expect(rl?.inline).toBe("right"); // default column side for rl
+    const lr = parseCueSettings("vertical:lr line:80%");
+    expect(lr?.writingMode).toBe("vertical-lr");
+    expect(lr?.inline).toBe("right"); // lr, line 80% → right
+  });
+
+  it("parseVtt attaches layout only to positioned cues", () => {
+    const body =
+      "WEBVTT\n\n" +
+      "00:00:01.000 --> 00:00:02.000 line:84.67% position:50.00%,middle align:middle\nbottom line\n\n" +
+      "00:00:01.000 --> 00:00:02.000 line:10.00% position:50.00%,middle align:middle\ntop sign";
+    const ev = parseVtt(body);
+    const bottom = ev.find((e) => e.text === "bottom line");
+    const top = ev.find((e) => e.text === "top sign");
+    expect(bottom?.layout).toBeUndefined();
+    expect(top?.layout?.block).toBe("top");
   });
 });

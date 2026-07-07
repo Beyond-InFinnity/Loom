@@ -272,10 +272,16 @@ function findActiveAll(events: CaptionEvent[], t: number): CaptionEvent[] {
     have); when every active cue is vertical the primary is null and they
     all render in place as positional extras. */
 function pickPrimary(cues: CaptionEvent[]): CaptionEvent | null {
-  const horizontal = cues.find(
+  const horizontals = cues.filter(
     (c) => !c.layout || c.layout.writingMode === "horizontal",
   );
-  return horizontal ?? null;
+  if (horizontals.length === 0) return null;
+  // Prefer a BOTTOM-anchored cue for the main slot (a cue with no layout is
+  // bottom by default).  So when a top-positioned sign (Netflix `line:10%`)
+  // is concurrent with bottom dialogue, the dialogue stays in the main slot
+  // and the sign renders at the top as an extra — not the other way round.
+  const bottom = horizontals.find((c) => !c.layout || c.layout.block === "bottom");
+  return bottom ?? horizontals[0];
 }
 
 /** Reference-equality list compare (events are stable objects from the

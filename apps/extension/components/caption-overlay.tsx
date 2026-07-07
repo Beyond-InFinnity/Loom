@@ -203,7 +203,9 @@ export function CaptionOverlay() {
   // promoted to the horizontal main slot), so it stays vertical in place.
   // Cues without layout (YouTube / Netflix) never enter this list.
   const extraCues = topLineEnabled
-    ? targets.filter((e) => e !== target && e.layout)
+    ? targets.filter(
+        (e) => e !== target && e.layout && !isDefaultZone(e.layout),
+      )
     : [];
 
   // Nothing to draw: no primary text, no native text, no positioned extras.
@@ -701,6 +703,19 @@ function zoneAnchor(layout: CueLayout): React.CSSProperties {
 
 function clampPct(n: number): number {
   return Math.max(0, Math.min(100, n));
+}
+
+/** A layout that resolves to the ordinary bottom-center horizontal spot —
+    i.e. the main slot's position.  Such a cue must NOT render as a positional
+    extra (it would overlap the primary dual-subs stack).  Netflix already
+    drops layout for these at parse time; this also covers Prime, whose
+    bottom cues carry an explicit {horizontal,bottom,center} region. */
+function isDefaultZone(layout: CueLayout): boolean {
+  return (
+    layout.writingMode === "horizontal" &&
+    layout.block === "bottom" &&
+    layout.inline === "center"
+  );
 }
 
 function zoneStyle(

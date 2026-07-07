@@ -28,7 +28,7 @@
 // VTTCue path so this module is identical under vitest (no DOM) and in
 // the extension, and so the cue-text cleanup stays under our control.
 
-import type { CaptionEvent } from "../types";
+import type { CaptionEvent, CueLayout, WritingMode } from "../types";
 
 const NAMED: Record<string, string> = {
   "&amp;": "&",
@@ -66,6 +66,124 @@ export function cleanText(raw: string): string {
 
 const TIMESTAMP = /(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
 
+/** Parse a WebVTT cue-settings string — everything after the end timestamp,
+    e.g. "line:10.00% position:50.00%,middle align:middle" (or a
+    "vertical:rl" that Netflix never actually emits) — into a CueLayout.
+
+    Returns undefined for the DEFAULT bottom-center horizontal placement (the
+    vast majority of cues), so standard cues stay layout-free and render
+    through the normal main slot; only genuinely positioned / vertical cues
+    carry layout the overlay reproduces.  Real Netflix captures (2026-06-18,
+    ja/ko/th/hi) show no `vertical:` ever and `line:` ∈ {10% (top signs),
+    ~79-85% (bottom)} — so in practice this lifts top-positioned cues to the
+    top and leaves everything else exactly as before. */
+export function parseCueSettings(settings: string): CueLayout | undefined {
+  if (!settings.trim()) return undefined;
+
+  let vertical: string | undefined;
+  let line: string | undefined;
+  let position: string | undefined;
+  let align: string | undefined;
+  let region: string | undefined;
+  for (const tok of settings.trim().split(/\s+/)) {
+    const ci = tok.indexOf(":");
+    if (ci === -1) continue;
+    const key = tok.slice(0, ci).toLowerCase();
+    const val = tok.slice(ci + 1);
+    if (key === "vertical") vertical = val.toLowerCase();
+    else if (key === "line") line = val;
+    else if (key === "position") position = val;
+    else if (key === "align") align = val.toLowerCase();
+    else if (key === "region") region = val;
+  }
+
+  const writingMode: WritingMode =
+    vertical === "rl"
+      ? "vertical-rl"
+      : vertical === "lr"
+        ? "vertical-lr"
+        : "horizontal";
+  const isVertical = writingMode !== "horizontal";
+  const linePct = pctOf(line);
+  const posPct = pctOf(position);
+
+  let block: CueLayout["block"];
+  let inline: CueLayout["inline"];
+  if (!isVertical) {
+    // Horizontal: `line` is the block (vertical) axis, `position` the inline.
+    block =
+      linePct === undefined
+        ? "bottom"
+        : linePct < 33
+          ? "top"
+          : linePct < 66
+            ? "middle"
+            : "bottom";
+    inline =
+      posPct === undefined
+        ? "center"
+        : posPct < 33
+          ? "left"
+          : posPct < 66
+            ? "center"
+            : "right";
+  } else {
+    // Vertical: `line` places the column on the inline (horizontal) axis —
+    // for vertical-rl it grows right→left (0%=right); `position` runs the
+    // block (vertical) axis along the column.
+    if (linePct === undefined) {
+      inline = writingMode === "vertical-rl" ? "right" : "left";
+    } else if (writingMode === "vertical-rl") {
+      inline = linePct < 33 ? "right" : linePct < 66 ? "center" : "left";
+    } else {
+      inline = linePct < 33 ? "left" : linePct < 66 ? "center" : "right";
+    }
+    block =
+      posPct === undefined
+        ? "top"
+        : posPct < 33
+          ? "top"
+          : posPct < 66
+            ? "middle"
+            : "bottom";
+  }
+
+  const textAlign =
+    align === "start" || align === "left"
+      ? "start"
+      : align === "end" || align === "right"
+        ? "end"
+        : align === "center" || align === "middle"
+          ? "center"
+          : undefined;
+
+  // Default bottom-center horizontal → no layout (render via the normal main
+  // slot), so only genuinely positioned/vertical cues carry layout.
+  if (writingMode === "horizontal" && block === "bottom" && inline === "center") {
+    return undefined;
+  }
+
+  return {
+    writingMode,
+    block,
+    inline,
+    ...(textAlign ? { textAlign } : {}),
+    ...(region ? { regionId: region } : {}),
+  };
+}
+
+/** A WebVTT length value → percentage number, dropping Netflix's
+    ",alignment" suffix (position:50.00%,middle).  Non-percentage values
+    (e.g. an integer `line` number) → undefined (treated as unspecified). */
+function pctOf(v: string | undefined): number | undefined {
+  if (!v) return undefined;
+  const head = v.split(",")[0].trim();
+  const m = /^(-?[\d.]+)%$/.exec(head);
+  if (!m) return undefined;
+  const n = parseFloat(m[1]);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** "HH:MM:SS.mmm" or "MM:SS.mmm" → integer milliseconds (null if unparseable). */
 export function vttTimeToMs(stamp: string): number | null {
   const m = TIMESTAMP.exec(String(stamp).trim());
@@ -95,7 +213,11 @@ export function parseVtt(body: string): CaptionEvent[] {
 
     const [startRaw, rest] = lines[timingIdx].split("-->");
     if (rest === undefined) continue;
-    const endRaw = rest.trim().split(/\s+/)[0]; // drop cue settings after end ts
+    const restTrim = rest.trim();
+    const firstSpace = restTrim.search(/\s/);
+    const endRaw = firstSpace === -1 ? restTrim : restTrim.slice(0, firstSpace);
+    // Everything after the end timestamp is the cue-settings string.
+    const settings = firstSpace === -1 ? "" : restTrim.slice(firstSpace + 1);
     const start = vttTimeToMs(startRaw);
     const end = vttTimeToMs(endRaw);
     if (start === null || end === null) continue;
@@ -108,7 +230,8 @@ export function parseVtt(body: string): CaptionEvent[] {
       .trim();
     if (text.length === 0) continue;
 
-    result.push({ start, end, text });
+    const layout = parseCueSettings(settings);
+    result.push({ start, end, text, ...(layout ? { layout } : {}) });
   }
 
   result.sort((a, b) => a.start - b.start);

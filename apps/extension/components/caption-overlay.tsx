@@ -195,7 +195,19 @@ export function CaptionOverlay() {
   // skipped, and its slot isn't reserved below.
   const topText = topLineEnabled ? target?.text ?? "" : "";
   const bottomText = bottomLineEnabled ? native?.text ?? "" : "";
-  if (!topText && !bottomText) return null;
+
+  // Positioned EXTRA cues (substep 3): every active target cue that ISN'T
+  // the horizontal primary AND carries source layout is drawn at its own
+  // zone + orientation.  This INCLUDES the case where a vertical cue is the
+  // ONLY thing on screen (primary is then null — a vertical cue is never
+  // promoted to the horizontal main slot), so it stays vertical in place.
+  // Cues without layout (YouTube / Netflix) never enter this list.
+  const extraCues = topLineEnabled
+    ? targets.filter((e) => e !== target && e.layout)
+    : [];
+
+  // Nothing to draw: no primary text, no native text, no positioned extras.
+  if (!topText && !bottomText && extraCues.length === 0) return null;
 
   // Look up spans for the currently-active event text.  When the
   // annotation map is null (loading / disabled / not annotatable) OR
@@ -333,19 +345,6 @@ export function CaptionOverlay() {
       variantCollapseHighlightColor: variantCollapseColor,
     };
   }
-
-  // Positioned EXTRA cues (substep 3): every concurrently-active target cue
-  // that ISN'T the primary AND carries source layout (a vertical side cue,
-  // a positioned description) is drawn at its own zone + orientation, so we
-  // preserve the placement/verticality the source chose instead of dropping
-  // it.  Ambient-light by design: foreign text + furigana only (from the
-  // shared annotate map) — no romanization line, no native pairing.  Cues
-  // without layout (YouTube / Netflix today) never enter this list, so
-  // those platforms render exactly as before.
-  const extraCues =
-    topLineEnabled && targets.length > 1
-      ? targets.filter((e) => e !== target && e.layout)
-      : [];
 
   return (
     <>

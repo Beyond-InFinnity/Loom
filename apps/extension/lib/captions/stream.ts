@@ -263,18 +263,19 @@ function findActiveAll(events: CaptionEvent[], t: number): CaptionEvent[] {
   return out;
 }
 
-/** The PRIMARY cue for the main dual-subs slot.  Prefers a horizontal cue
-    (the main dialogue reads horizontally in the primary slot); a cue with
-    NO layout counts as horizontal — so YouTube / Netflix (no positional
-    data) resolve to the first active cue, identical to the pre-multi-cue
-    behavior.  Vertical / positioned cues become "extras" the overlay draws
-    in place. */
+/** The PRIMARY cue for the main (horizontal) dual-subs slot.  ONLY a
+    horizontal cue qualifies — a cue with no layout counts as horizontal, so
+    YouTube / Netflix (no positional data) resolve to the first active cue,
+    identical to the pre-multi-cue behavior.  A VERTICAL cue is never
+    promoted here (that would transpose it to horizontal in the main slot,
+    losing its orientation + position + adding a romaji line it shouldn't
+    have); when every active cue is vertical the primary is null and they
+    all render in place as positional extras. */
 function pickPrimary(cues: CaptionEvent[]): CaptionEvent | null {
-  if (cues.length === 0) return null;
   const horizontal = cues.find(
     (c) => !c.layout || c.layout.writingMode === "horizontal",
   );
-  return horizontal ?? cues[0];
+  return horizontal ?? null;
 }
 
 /** Reference-equality list compare (events are stable objects from the

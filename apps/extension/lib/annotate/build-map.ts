@@ -28,6 +28,20 @@ import type { AnnotateMap, AnnotateSpan } from "./types";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// The /annotate/batch server cap is 2000 texts per request (Pydantic
+// max_length → HTTP 422 over it).  A dense feature-length track exceeds
+// it (Evangelion 3.33: 2064 unique lines → 422 → silent fallback to no
+// annotations).  Chunk under the cap and fan the chunks out in parallel:
+// a no-op single request for ordinary videos, unbounded-safe for long
+// ones.  1000 (not 1999) so chunks parallelize and each processes fast.
+const CHUNK_SIZE = 1000;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export interface BuildAnnotateMapOptions {
   langCode: string;
   phoneticSystem?: string | null;
@@ -65,11 +79,13 @@ export async function buildAnnotateMap(
 
   const client = getApiClient();
   const ownerKey = await getOwnerKey();
+  const chunks = chunk(unique, CHUNK_SIZE);
   logDev(
     "[Loom Annotate] batch start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
     "unique_texts=" + unique.length,
+    "chunks=" + chunks.length,
     "owner_key=" + (ownerKey ? "set" : "MISSING"),
   );
 
@@ -89,52 +105,59 @@ export async function buildAnnotateMap(
 
   const t0 = performance.now();
   try {
-    const { data, error, response } = await client.POST("/annotate/batch", {
-      body: {
-        texts: unique,
-        lang_code: opts.langCode,
-        phonetic_system: opts.phoneticSystem ?? null,
-        opt_in_training: opts.optInTraining ?? false,
-      },
-      signal: requestCtrl.signal,
-    });
+    // One /annotate/batch per chunk, in parallel.  Chunks are independent:
+    // a single chunk failing (e.g. transient 5xx) still lets the rest
+    // populate — better than all-or-nothing on a long video.
+    const responses = await Promise.all(
+      chunks.map((texts) =>
+        client.POST("/annotate/batch", {
+          body: {
+            texts,
+            lang_code: opts.langCode,
+            phonetic_system: opts.phoneticSystem ?? null,
+            opt_in_training: opts.optInTraining ?? false,
+          },
+          signal: requestCtrl.signal,
+        }),
+      ),
+    );
 
-    if (error) {
-      const status = response?.status ?? 0;
-      console.warn(
-        "[Loom Annotate] /annotate/batch HTTP " + status,
-        "for lang=" + opts.langCode + " — falling back to plain rendering.",
-        status === 429
-          ? "Rate-limited; set an owner key via the popup to bypass."
-          : "",
-        error,
-      );
-      return result;
-    }
-
-    if (!data || !Array.isArray(data.results)) {
-      console.warn(
-        "[Loom Annotate] /annotate/batch returned malformed response",
-      );
-      return result;
-    }
-
-    // Server result is positionally aligned with the request.  Some
-    // entries may be empty (server-side filtered or oversized) — the
-    // map simply won't have those keys, overlay falls back to plain.
-    for (let i = 0; i < unique.length && i < data.results.length; i++) {
-      const text = unique[i];
-      const item = data.results[i];
-      if (item && Array.isArray(item.spans) && item.spans.length > 0) {
-        result.set(text, item.spans as AnnotateSpan[]);
+    responses.forEach(({ data, error, response }, c) => {
+      if (error) {
+        const status = response?.status ?? 0;
+        console.warn(
+          "[Loom Annotate] /annotate/batch HTTP " + status,
+          "for lang=" + opts.langCode + " chunk " + c +
+            " — those texts fall back to plain rendering.",
+          status === 429
+            ? "Rate-limited; set an owner key via the popup to bypass."
+            : "",
+          error,
+        );
+        return;
       }
-    }
+      if (!data || !Array.isArray(data.results)) {
+        console.warn(
+          "[Loom Annotate] /annotate/batch returned malformed response (chunk " + c + ")",
+        );
+        return;
+      }
+      // Server results are positionally aligned with THIS chunk's texts.
+      const texts = chunks[c];
+      for (let i = 0; i < texts.length && i < data.results.length; i++) {
+        const item = data.results[i];
+        if (item && Array.isArray(item.spans) && item.spans.length > 0) {
+          result.set(texts[i], item.spans as AnnotateSpan[]);
+        }
+      }
+    });
 
     const dt = Math.round(performance.now() - t0);
     logDev(
       "[Loom Annotate] batch done:",
       "lang=" + opts.langCode,
       "requested=" + unique.length,
+      "chunks=" + chunks.length,
       "got_spans=" + result.size,
       "elapsed=" + dt + "ms",
     );

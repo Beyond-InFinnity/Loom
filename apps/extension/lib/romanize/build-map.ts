@@ -23,6 +23,19 @@ import type { RomanizeMap } from "./types";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// The /romanize/batch server cap is 2000 texts per request (Pydantic
+// max_length → HTTP 422 over it) — a dense feature-length track exceeds
+// it (Evangelion 3.33: 2064 unique lines → 422 → no romanization line).
+// Chunk under the cap and fan out in parallel; a no-op single request for
+// ordinary videos.  Mirrors buildAnnotateMap.
+const CHUNK_SIZE = 1000;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export interface BuildRomanizeMapOptions {
   langCode: string;
   phoneticSystem?: string | null;
@@ -64,12 +77,14 @@ export async function buildRomanizeMap(
 
   const client = getApiClient();
   const ownerKey = await getOwnerKey();
+  const chunks = chunk(unique, CHUNK_SIZE);
   logDev(
     "[Loom Romanize] batch start:",
     "lang=" + opts.langCode,
     "system=" + (opts.phoneticSystem ?? "auto"),
     "long_vowel=" + (opts.longVowelMode ?? "macrons"),
     "unique_texts=" + unique.length,
+    "chunks=" + chunks.length,
     "owner_key=" + (ownerKey ? "set" : "MISSING"),
   );
 
@@ -89,42 +104,57 @@ export async function buildRomanizeMap(
 
   const t0 = performance.now();
   try {
-    const { data, error, response } = await client.POST("/romanize/batch", {
-      body: {
-        texts: unique,
-        lang_code: opts.langCode,
-        phonetic_system: opts.phoneticSystem ?? null,
-        long_vowel_mode: opts.longVowelMode ?? "macrons",
-        opt_in_training: opts.optInTraining ?? false,
-      },
-      signal: requestCtrl.signal,
+    // One /romanize/batch per chunk, in parallel; independent chunks so
+    // one failure doesn't sink the rest (mirrors buildAnnotateMap).
+    const responses = await Promise.all(
+      chunks.map((texts) =>
+        client.POST("/romanize/batch", {
+          body: {
+            texts,
+            lang_code: opts.langCode,
+            phonetic_system: opts.phoneticSystem ?? null,
+            long_vowel_mode: opts.longVowelMode ?? "macrons",
+            opt_in_training: opts.optInTraining ?? false,
+          },
+          signal: requestCtrl.signal,
+        }),
+      ),
+    );
+
+    let sawPhoneticLayer = false;
+    responses.forEach(({ data, error, response }, c) => {
+      if (error) {
+        const status = response?.status ?? 0;
+        console.warn(
+          "[Loom Romanize] /romanize/batch HTTP " + status,
+          "for lang=" + opts.langCode + " chunk " + c +
+            " — those texts get no romanization line.",
+          status === 429
+            ? "Rate-limited; set an owner key via the popup to bypass."
+            : "",
+          error,
+        );
+        return;
+      }
+      if (!data || !Array.isArray(data.results)) {
+        console.warn(
+          "[Loom Romanize] /romanize/batch returned malformed response (chunk " + c + ")",
+        );
+        return;
+      }
+      if (data.has_phonetic_layer) sawPhoneticLayer = true;
+      // Positional alignment with THIS chunk's texts.
+      const texts = chunks[c];
+      for (let i = 0; i < texts.length && i < data.results.length; i++) {
+        const item = data.results[i];
+        if (item && typeof item.romanized === "string" && item.romanized.length > 0) {
+          result.set(texts[i], item.romanized);
+        }
+      }
     });
 
-    if (error) {
-      const status = response?.status ?? 0;
-      console.warn(
-        "[Loom Romanize] /romanize/batch HTTP " + status,
-        "for lang=" + opts.langCode + " — falling back to no romanization line.",
-        status === 429
-          ? "Rate-limited; set an owner key via the popup to bypass."
-          : "",
-        error,
-      );
-      return result;
-    }
-
-    if (!data || !Array.isArray(data.results)) {
-      console.warn(
-        "[Loom Romanize] /romanize/batch returned malformed response",
-      );
-      return result;
-    }
-
-    if (!data.has_phonetic_layer) {
+    if (!sawPhoneticLayer && result.size === 0) {
       // Language has no romanization at all (Latin / unsupported).
-      // Backend already returned all-empty results; surface the fact
-      // in the log so a confused operator can tell "no phonetic line"
-      // from "phonetic line failed to fetch".
       logDev(
         "[Loom Romanize] lang=" + opts.langCode +
         " has no phonetic layer — returning empty map.",
@@ -132,22 +162,12 @@ export async function buildRomanizeMap(
       return result;
     }
 
-    // Positional alignment with the request: result[i] ↔ unique[i].
-    // Empty entries (server-side filtered or oversized) are simply
-    // not inserted; the overlay falls back to nothing for those keys.
-    for (let i = 0; i < unique.length && i < data.results.length; i++) {
-      const text = unique[i];
-      const item = data.results[i];
-      if (item && typeof item.romanized === "string" && item.romanized.length > 0) {
-        result.set(text, item.romanized);
-      }
-    }
-
     const dt = Math.round(performance.now() - t0);
     logDev(
       "[Loom Romanize] batch done:",
       "lang=" + opts.langCode,
       "requested=" + unique.length,
+      "chunks=" + chunks.length,
       "got_romanized=" + result.size,
       "elapsed=" + dt + "ms",
     );

@@ -53,6 +53,37 @@ Prime India-origin catalog; Loom has IAST end-to-end), ko, zh.
 > the shape that failed Crunchyroll), and text-on-the-wire in the
 > deep-check.
 
+### ✅ DEEP-CHECK PASSED 2026-07-07 — Evangelion 3.33, from Connor's HAR
+
+- **Same-language CONFIRMED:** TWO Japanese subtitle tracks
+  (`xml:lang="jp"`; one appears SDH-style with （speaker） markers) on a
+  ja-audio licensed anime film. 1,482 cues.
+- **Wire format CONFIRMED (matches research):** whole-file **TTML2**
+  (~170–195 KB per track) from `cf-timedtext.aux.pv-cdn.net`, fetched
+  once per track at page load / track-select. Playback envelope:
+  `POST atv-ps.primevideo.com/playback/prs/GetVodPlaybackResources`
+  (200, ~30 KB JSON; params incl. `titleId=amzn1.dv.gti.…`,
+  `deviceTypeID=AOAGZA014O5RE`). A DASH manifest (text/xml, ~80 KB)
+  rides the `…vod-dash…pv-cdn.net` CDN for A/V.
+- **NO AUTH on the timedtext CDN:** `.ttml2` fetches via plain curl →
+  200; `Access-Control-Allow-Origin: *` — content-script re-fetch needs
+  no proxy.
+- **🎁 AUTHORED FURIGANA:** the ja TTML carries native ruby markup —
+  `tts:ruby container/base/text` spans, e.g. `青[あお]葉[ば]` — plus
+  tate-chu-yoko (`tts:textCombine`) and `tts:fontShear`. The TTML
+  parser should EXTRACT authored ruby and feed it into the ja
+  pipeline's pre-existing-furigana tier (higher quality than MeCab for
+  names) rather than strip it.
+- **Capture gotchas for the platform impl:** the GetVod call happens at
+  PAGE LOAD (a play-press on an already-loaded page never re-fires
+  it) — the MAIN-world hook must be in place at document_start, and the
+  extension needs a graceful story for "activated on an already-loaded
+  page" (re-select track to force a ttml2 fetch, or webRequest-observe
+  the ttml2 URL directly since track-select refetches it). Firefox HAR
+  exports came out body-less; not blocking (CDNs are open).
+- Still owed for full gate: menu-sweep breadth (rows 1–15) — but the
+  acquisition question is SETTLED.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Vinland Saga (Amazon-exclusive seasons) | ja | | |

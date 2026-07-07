@@ -39,7 +39,6 @@ import type { CueLayout } from "@/lib/captions/types";
 // users can override per layer via the settings panel.
 const OUTLINE_PX = 2.5;
 const SHADOW_OFFSET_PX = 1.5;
-const LAYER_GAP_PX = 4;
 const HORIZONTAL_PADDING_PX = 12;
 /** Default font stack — used when a layer's fontFamily is the "auto"
     sentinel.  Listed in order Noto-JP → Noto-SC/TC/KR → Noto-Thai →
@@ -129,6 +128,10 @@ export function CaptionOverlay() {
     annotationFontFamily,
     topFontSizePx,
     bottomFontSizePx,
+    captionSizePct,
+    topPositionOffsetPct,
+    bottomPositionOffsetPct,
+    lineSpacingPx,
     annotationFontRatio,
     targetPosition,
     nativePosition,
@@ -187,7 +190,10 @@ export function CaptionOverlay() {
   // Annotation rt inherits the parent layer's text-shadow + color via
   // CSS inheritance — explicit annotation-only overlay control would
   // need to apply per-rt style, deferred until a real user request.
-  const scale = usePlayerScale();
+  // Global "Subtitle size" knob folds into the player-scale so every
+  // typography measurement (top / bottom / annotation / romanization) scales
+  // uniformly.  100 = the tuned Prime-look defaults.
+  const scale = usePlayerScale() * (captionSizePct / 100);
 
   if (status.kind !== "tracking") return null;
   // Per-line master enable (C-8): a disabled line contributes no text, so
@@ -350,8 +356,8 @@ export function CaptionOverlay() {
 
   return (
     <>
-      {renderZone("top", slots, scale)}
-      {renderZone("bottom", slots, scale)}
+      {renderZone("top", slots, scale, topPositionOffsetPct, lineSpacingPx)}
+      {renderZone("bottom", slots, scale, bottomPositionOffsetPct, lineSpacingPx)}
       {extraCues.map((e) => (
         <PositionalCue
           key={`${e.start}-${e.end}-${e.layout?.regionId ?? ""}`}
@@ -415,6 +421,8 @@ function renderZone(
   zone: "top" | "bottom",
   slots: Record<CaptionPosition, SlotState>,
   scale: number,
+  offsetPct: number,
+  lineSpacingPx: number,
 ): React.ReactNode {
   const key1: CaptionPosition = zone === "top" ? "top-1" : "bottom-1";
   const key2: CaptionPosition = zone === "top" ? "top-2" : "bottom-2";
@@ -441,7 +449,7 @@ function renderZone(
   const bothConfigured = s1.configured && s2.configured;
 
   return (
-    <div style={zoneStyle(zone, scale)} key={zone}>
+    <div style={zoneStyle(zone, scale, offsetPct, lineSpacingPx)} key={zone}>
       <SlotNode state={s1} scale={scale} bothConfigured={bothConfigured} />
       <SlotNode state={s2} scale={scale} bothConfigured={bothConfigured} />
     </div>
@@ -721,6 +729,8 @@ function isDefaultZone(layout: CueLayout): boolean {
 function zoneStyle(
   zone: "top" | "bottom",
   scale: number,
+  offsetPct: number,
+  lineSpacingPx: number,
 ): React.CSSProperties {
   // Top zone anchored at top: 8% — first child sits there, second
   // child stacks below.  Bottom zone anchored at bottom: 8% — first
@@ -728,6 +738,13 @@ function zoneStyle(
   // (touching the 8% anchor).  Both use flex-column with the JSX in
   // [slot-1, slot-2] order, which yields slot-1-above-slot-2 visually
   // in both zones.
+  //
+  // `offsetPct` (user "vertical nudge", % of player height) is ADDED to
+  // the anchor inset: positive grows the inset, moving the zone away from
+  // its edge = toward the picture center for BOTH zones (down for top, up
+  // for bottom).  `lineSpacingPx` overrides the inter-line gap.  Clamp the
+  // resulting inset ≥ 0 so a large negative nudge can't push it off-screen.
+  const inset = Math.max(0, ZONE_INSET_PCT + offsetPct);
   const base: React.CSSProperties = {
     position: "absolute",
     left: 0,
@@ -735,7 +752,7 @@ function zoneStyle(
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: `${LAYER_GAP_PX * scale}px`,
+    gap: `${lineSpacingPx * scale}px`,
     pointerEvents: "none",
     // Per-zone compositor layer.  YT's overlay-host promotion already
     // isolates us from YT's repaints, but explicit translateZ on each
@@ -744,9 +761,9 @@ function zoneStyle(
     transform: "translateZ(0)",
   };
   if (zone === "top") {
-    return { ...base, top: `${ZONE_INSET_PCT}%` };
+    return { ...base, top: `${inset}%` };
   }
-  return { ...base, bottom: `${ZONE_INSET_PCT}%` };
+  return { ...base, bottom: `${inset}%` };
 }
 
 function layerStyle(layer: Layer, scale: number): React.CSSProperties {

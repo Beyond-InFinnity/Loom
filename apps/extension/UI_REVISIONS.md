@@ -403,5 +403,54 @@ reserved (no gap). tsc clean, 189/189, dev build rebuilt for live test.
   picker belongs on the Romanization row and must be capability-driven
   (I-1). Annotation ruby for Thai/Indic stays deferred (CJK glyph-width
   assumption is real).
-</content>
-</invoke>
+
+---
+
+## Sizing + positioning controls (2026-07-08) · ✅ DONE
+
+> Added after the Prime + Netflix positional-handling work landed, in
+> response to live testing on Prime / Netflix / WeTV / iQIYI / YouTube.
+> All in the settings panel; engine/render notes live in `CLAUDE.md`'s
+> 2026-07-08 block + the inline comments.
+
+- **Picture-relative scaling (why the non-Prime platforms were oversized).**
+  `usePlayerScale` now measures the visible VIDEO PICTURE height (the
+  `<video>`'s `object-fit: contain` box, via intrinsic aspect) on every
+  platform, not the player container. Prime already looked right because its
+  anchor (`.atvwebplayersdk-video-surface`) *is* the video box; Netflix /
+  YouTube / WeTV / iQIYI resolved to larger player containers, so the same
+  1080-scale font sizes (top 52 / bottom 48) rendered noticeably bigger.
+  Now consistent across platforms.
+- **"Subtitle size" knob (per platform).** New Settings → "Subtitle size"
+  section: one `RangeRow` (50–150%, default 100) that scales the WHOLE
+  overlay stack uniformly on top of the per-line sizes + player-scale. It
+  does NOT change the per-line size numbers shown in the panel — it's a
+  separate multiplier applied at render. Stored PER PLATFORM (a map keyed by
+  `getPlatform().id`) because the same relative size reads large on one
+  platform (Netflix fullscreen) and perfect on another (Prime).
+- **Vertical nudge + line spacing (per platform).** Three `RangeRow`s in the
+  Position section: Top-line nudge, Bottom-line nudge (each −40…+40% of
+  player height, positive = toward picture center — pulls a line off the
+  black bars on letterboxed video), and Line spacing (0–40 px gap between
+  stacked lines). Applies ONLY to the main top/bottom lines (`zoneStyle`);
+  positional signs / vertical cues keep their source location because they
+  render through the separate `zoneAnchor` path. Stored per platform under
+  one `{ [platformId]: {top,bottom,spacing} }` map.
+- **Per-platform persistence survives Prime's remount reconciler.** Prime
+  rebuilds the React tree (and the `CaptionProvider`) 2–3× on a close→reopen
+  as it migrates preview-surface → episode-surface, so a fresh mount at
+  defaults racing the async storage read made settings *appear* not to
+  persist. Fixed by holding the per-platform size + position prefs in a
+  MODULE-LEVEL cache read synchronously in the `useState` initializers →
+  every rebuild restores instantly. Storage stays the durable source of
+  truth. (Also fixed a real bug: the position keys were written but never
+  added to the load-time `storage.local.get([...])` list, so they never
+  round-tripped at all.)
+- **Romanize LINE default is now per SCRIPT FAMILY.** The secondary
+  full-utterance romanization line defaults ON only for Japanese (kana ruby
+  isn't a romanization) + pure-`romanize` scripts, and OFF for Chinese
+  (zh-Hans Pinyin / zh-Hant alt-orthography) + Korean (RR) whose per-char
+  ruby already covers the reading. Was a single global boolean, so a romaji
+  line enabled on a Japanese title leaked onto Chinese / Korean; now keyed
+  by `ScriptFamily` in `discover.ts` so a choice on one family never touches
+  another (legacy global boolean discarded on load).

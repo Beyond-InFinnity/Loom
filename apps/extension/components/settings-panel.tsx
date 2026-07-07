@@ -239,6 +239,10 @@ export function SettingsPanel({
     annotationFontFamily,
     topFontSizePx,
     bottomFontSizePx,
+    captionSizePct,
+    topPositionOffsetPct,
+    bottomPositionOffsetPct,
+    lineSpacingPx,
     annotationFontRatio,
     targetPosition,
     nativePosition,
@@ -312,6 +316,10 @@ export function SettingsPanel({
     setAnnotationFontFamily,
     setTopFontSizePx,
     setBottomFontSizePx,
+    setCaptionSizePct,
+    setTopPositionOffsetPct,
+    setBottomPositionOffsetPct,
+    setLineSpacingPx,
     setAnnotationFontRatio,
     setTargetPosition,
     setNativePosition,
@@ -527,6 +535,57 @@ export function SettingsPanel({
         <p style={hintStyle()}>
           Slot 1 = upper line in its zone, slot 2 = lower.  Solo in a
           zone uses the zone's default position.
+        </p>
+        <RangeRow
+          label="Top line — vertical nudge"
+          value={topPositionOffsetPct}
+          min={-40}
+          max={40}
+          step={1}
+          onChange={setTopPositionOffsetPct}
+          hint={`${topPositionOffsetPct > 0 ? "+" : ""}${topPositionOffsetPct}%`}
+        />
+        <RangeRow
+          label="Bottom line — vertical nudge"
+          value={bottomPositionOffsetPct}
+          min={-40}
+          max={40}
+          step={1}
+          onChange={setBottomPositionOffsetPct}
+          hint={`${bottomPositionOffsetPct > 0 ? "+" : ""}${bottomPositionOffsetPct}%`}
+        />
+        <RangeRow
+          label="Line spacing"
+          value={lineSpacingPx}
+          min={0}
+          max={40}
+          step={1}
+          onChange={setLineSpacingPx}
+          hint={`${lineSpacingPx}px`}
+        />
+        <p style={hintStyle()}>
+          Nudge moves a line toward the picture center as you raise it
+          (down for the top line, up for the bottom) — handy for pulling
+          text off the black bars on letterboxed video.  Signs and vertical
+          cues keep their own position.  Saved per platform.
+        </p>
+      </Section>
+
+      <Section title="Subtitle size" {...section("size")}>
+        <RangeRow
+          label="Overall size"
+          value={captionSizePct}
+          min={50}
+          max={150}
+          step={5}
+          onChange={setCaptionSizePct}
+          hint={`${captionSizePct}%`}
+        />
+        <p style={hintStyle()}>
+          Scales every line together, on top of the per-line sizes below.
+          100% matches the tuned default; drop it if the subtitles render
+          large here (e.g. Netflix in fullscreen).  Remembered separately
+          for each platform.
         </p>
       </Section>
 

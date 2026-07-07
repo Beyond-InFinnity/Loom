@@ -58,6 +58,8 @@ const STORAGE_KEY_BOTTOM_FONT_FAMILY = "loom_bottom_font_family";
 const STORAGE_KEY_ANNOTATION_FONT_FAMILY = "loom_annotation_font_family";
 const STORAGE_KEY_TOP_FONT_SIZE = "loom_top_font_size_px";
 const STORAGE_KEY_BOTTOM_FONT_SIZE = "loom_bottom_font_size_px";
+const STORAGE_KEY_CAPTION_SIZE_PCT = "loom_caption_size_pct";
+const STORAGE_KEY_POSITION_BY_PLATFORM = "loom_position_by_platform";
 const STORAGE_KEY_ANNOTATION_FONT_RATIO = "loom_annotation_font_ratio";
 // Romanization layer (5e — full-utterance phonetic line above the
 // foreign text, or the entire phonetic surface for non-CJK families).
@@ -131,6 +133,50 @@ const DEFAULT_ANNOTATION_COLOR = "#ffadad"; // pastel red — per-token reading
 const DEFAULT_FONT_FAMILY = "auto";
 const DEFAULT_TOP_FONT_SIZE_PX = 52;
 const DEFAULT_BOTTOM_FONT_SIZE_PX = 48;
+/** "Subtitle size" multiplier (percent), stored PER PLATFORM.  Scales the
+    WHOLE overlay stack — top / bottom / annotation / romanization —
+    uniformly, on top of the per-line font sizes and the player-scale.
+    100 = the tuned defaults (top 52 / bottom 48 @ 1080-scale, the Prime
+    look).  Per-platform because the same relative size can read large on
+    one platform's picture (e.g. Netflix fullscreen) and perfect on another
+    (Prime), so each site remembers its own value. */
+const DEFAULT_CAPTION_SIZE_PCT = 100;
+
+/** Identifier for the current site's per-platform size bucket. */
+function currentPlatformId(): string {
+  return getPlatform()?.id ?? "unknown";
+}
+
+/** Per-platform position prefs, stored under one map keyed by platform id.
+    - top/bottom: vertical nudge in % of player height.  Positive = toward
+      the picture center (down for the top zone, up for the bottom) — the
+      direction that pulls a line off a letterbox bar into the frame.  0 =
+      the tuned default inset.  Applies ONLY to the main top/bottom lines;
+      positional signs / vertical cues keep their source location.
+    - spacing: gap between stacked lines, px @ 1080-scale (mirrors the
+      overlay's LAYER_GAP_PX default).
+    Per-platform because a letterbox nudge that fixes one site shouldn't
+    move text on another (matches the size knob). */
+interface PositionPrefs {
+  top: number;
+  bottom: number;
+  spacing: number;
+}
+const DEFAULT_POSITION_PREFS: PositionPrefs = { top: 0, bottom: 0, spacing: 4 };
+
+// Module-level caches of the per-platform size + position prefs.  Prime
+// mounts the overlay through a REMOUNT reconciler (a surface migration tears
+// the React tree — and thus the CaptionProvider — down and rebuilds it,
+// often several times in a row as it lands on the preview surface then
+// migrates to the episode).  Each rebuild would otherwise start at defaults
+// and race an async storage read, so the last-set value appeared not to
+// persist.  Reading these module caches SYNCHRONOUSLY in the useState
+// initializers means every rebuild restores instantly; storage stays the
+// durable source of truth and these are just a warm in-memory mirror,
+// populated by the first read and kept current on every save.  Module scope
+// = one instance per content-script (per tab), which is exactly right.
+let cachedSizeByPlatform: Record<string, number> = {};
+let cachedPositionByPlatform: Record<string, PositionPrefs> = {};
 /** Annotation font is sized as a fraction of the TOP font (matches
     loom_core/styles.py::annotation_font_ratio).  0.5 for CJK ruby,
     0.4 for alphabetic.  User can override per-track. */
@@ -272,6 +318,15 @@ interface CaptionContextValue {
       desktop's annotation_font_ratio convention). */
   topFontSizePx: number;
   bottomFontSizePx: number;
+  /** Global "Subtitle size" multiplier (percent, 50–150).  Scales the whole
+      overlay uniformly on top of the per-line sizes + player-scale. */
+  captionSizePct: number;
+  /** Vertical nudge (% of player height) for the top / bottom main lines;
+      positive = toward picture center.  Line spacing = px gap between
+      stacked lines.  See the DEFAULT_* constants for rationale. */
+  topPositionOffsetPct: number;
+  bottomPositionOffsetPct: number;
+  lineSpacingPx: number;
   annotationFontRatio: number;
   /** Romanization (5e) styling — same shared-across-layers shape as
       annotation.  Ratio is relative to the parent layer's font (Top
@@ -391,6 +446,10 @@ interface CaptionContextValue {
   setBottomFontFamily: (family: string) => void;
   setAnnotationFontFamily: (family: string) => void;
   setTopFontSizePx: (px: number) => void;
+  setCaptionSizePct: (pct: number) => void;
+  setTopPositionOffsetPct: (pct: number) => void;
+  setBottomPositionOffsetPct: (pct: number) => void;
+  setLineSpacingPx: (px: number) => void;
   setBottomFontSizePx: (px: number) => void;
   setAnnotationFontRatio: (ratio: number) => void;
   setRomanizationColor: (hex: string) => void;
@@ -483,6 +542,28 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   );
   const [bottomFontSizePx, setBottomFontSizePxState] = useState(
     DEFAULT_BOTTOM_FONT_SIZE_PX,
+  );
+  // Each of these holds the CURRENT platform's value (what the overlay +
+  // settings consume).  The useState INITIALIZER reads the module cache
+  // synchronously so a Prime remount restores the last value on the first
+  // render — no flash to default, no race with the async storage read.
+  const [captionSizePct, setCaptionSizePctState] = useState(
+    () => cachedSizeByPlatform[currentPlatformId()] ?? DEFAULT_CAPTION_SIZE_PCT,
+  );
+  const [topPositionOffsetPct, setTopPositionOffsetPctState] = useState(
+    () =>
+      cachedPositionByPlatform[currentPlatformId()]?.top ??
+      DEFAULT_POSITION_PREFS.top,
+  );
+  const [bottomPositionOffsetPct, setBottomPositionOffsetPctState] = useState(
+    () =>
+      cachedPositionByPlatform[currentPlatformId()]?.bottom ??
+      DEFAULT_POSITION_PREFS.bottom,
+  );
+  const [lineSpacingPx, setLineSpacingPxState] = useState(
+    () =>
+      cachedPositionByPlatform[currentPlatformId()]?.spacing ??
+      DEFAULT_POSITION_PREFS.spacing,
   );
   const [annotationFontRatio, setAnnotationFontRatioState] = useState(
     DEFAULT_ANNOTATION_FONT_RATIO,
@@ -682,6 +763,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           STORAGE_KEY_ANNOTATION_FONT_FAMILY,
           STORAGE_KEY_TOP_FONT_SIZE,
           STORAGE_KEY_BOTTOM_FONT_SIZE,
+          STORAGE_KEY_CAPTION_SIZE_PCT,
+          STORAGE_KEY_POSITION_BY_PLATFORM,
           STORAGE_KEY_ANNOTATION_FONT_RATIO,
           STORAGE_KEY_TARGET_VARIANT_ENABLED,
           STORAGE_KEY_NATIVE_VARIANT_ENABLED,
@@ -753,6 +836,51 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
           setTopFontSizePxState(tSize);
         if (typeof bSize === "number" && bSize >= 12 && bSize <= 120)
           setBottomFontSizePxState(bSize);
+        // Per-platform map: { [platformId]: pct }.  A legacy plain-number
+        // value (the earlier global knob) is discarded so it can't leak one
+        // platform's size onto the others.
+        const sizePct = result[STORAGE_KEY_CAPTION_SIZE_PCT];
+        if (sizePct && typeof sizePct === "object") {
+          const map: Record<string, number> = {};
+          for (const [plat, val] of Object.entries(sizePct)) {
+            if (typeof val === "number" && val >= 50 && val <= 150)
+              map[plat] = val;
+          }
+          cachedSizeByPlatform = map;
+          const mine = map[currentPlatformId()];
+          if (typeof mine === "number") setCaptionSizePctState(mine);
+        }
+        // Per-platform position map: { [platformId]: {top,bottom,spacing} }.
+        const posMap = result[STORAGE_KEY_POSITION_BY_PLATFORM];
+        if (posMap && typeof posMap === "object") {
+          const clean: Record<string, PositionPrefs> = {};
+          for (const [plat, raw] of Object.entries(posMap)) {
+            if (!raw || typeof raw !== "object") continue;
+            const p = raw as Partial<PositionPrefs>;
+            const top =
+              typeof p.top === "number" && p.top >= -40 && p.top <= 40
+                ? p.top
+                : DEFAULT_POSITION_PREFS.top;
+            const bottom =
+              typeof p.bottom === "number" && p.bottom >= -40 && p.bottom <= 40
+                ? p.bottom
+                : DEFAULT_POSITION_PREFS.bottom;
+            const spacing =
+              typeof p.spacing === "number" &&
+              p.spacing >= 0 &&
+              p.spacing <= 40
+                ? p.spacing
+                : DEFAULT_POSITION_PREFS.spacing;
+            clean[plat] = { top, bottom, spacing };
+          }
+          cachedPositionByPlatform = clean;
+          const mine = clean[currentPlatformId()];
+          if (mine) {
+            setTopPositionOffsetPctState(mine.top);
+            setBottomPositionOffsetPctState(mine.bottom);
+            setLineSpacingPxState(mine.spacing);
+          }
+        }
         if (typeof aRatio === "number" && aRatio >= 0.2 && aRatio <= 1.0)
           setAnnotationFontRatioState(aRatio);
         // Romanization layer (5e) — same clamping shape as annotation.
@@ -1017,6 +1145,48 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       .set({ [STORAGE_KEY_BOTTOM_FONT_SIZE]: clamped })
       .catch((e) => console.warn("[Loom] persist bottomFontSizePx:", e));
   }, []);
+  const setCaptionSizePct = useCallback((pct: number) => {
+    const clamped = Math.max(50, Math.min(150, Math.round(pct)));
+    setCaptionSizePctState(clamped);
+    const map = { ...cachedSizeByPlatform, [currentPlatformId()]: clamped };
+    cachedSizeByPlatform = map;
+    void browser.storage.local
+      .set({ [STORAGE_KEY_CAPTION_SIZE_PCT]: map })
+      .catch((e) => console.warn("[Loom] persist captionSizePct:", e));
+  }, []);
+  const persistPositionPrefs = useCallback((patch: Partial<PositionPrefs>) => {
+    const id = currentPlatformId();
+    const prev = cachedPositionByPlatform[id] ?? { ...DEFAULT_POSITION_PREFS };
+    const map = { ...cachedPositionByPlatform, [id]: { ...prev, ...patch } };
+    cachedPositionByPlatform = map;
+    void browser.storage.local
+      .set({ [STORAGE_KEY_POSITION_BY_PLATFORM]: map })
+      .catch((e) => console.warn("[Loom] persist position prefs:", e));
+  }, []);
+  const setTopPositionOffsetPct = useCallback(
+    (pct: number) => {
+      const clamped = Math.max(-40, Math.min(40, Math.round(pct)));
+      setTopPositionOffsetPctState(clamped);
+      persistPositionPrefs({ top: clamped });
+    },
+    [persistPositionPrefs],
+  );
+  const setBottomPositionOffsetPct = useCallback(
+    (pct: number) => {
+      const clamped = Math.max(-40, Math.min(40, Math.round(pct)));
+      setBottomPositionOffsetPctState(clamped);
+      persistPositionPrefs({ bottom: clamped });
+    },
+    [persistPositionPrefs],
+  );
+  const setLineSpacingPx = useCallback(
+    (px: number) => {
+      const clamped = Math.max(0, Math.min(40, Math.round(px)));
+      setLineSpacingPxState(clamped);
+      persistPositionPrefs({ spacing: clamped });
+    },
+    [persistPositionPrefs],
+  );
   const setAnnotationFontRatio = useCallback((ratio: number) => {
     const clamped = Math.max(0.2, Math.min(1.0, ratio));
     setAnnotationFontRatioState(clamped);
@@ -1305,6 +1475,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       annotationFontFamily,
       topFontSizePx,
       bottomFontSizePx,
+      captionSizePct,
+      topPositionOffsetPct,
+      bottomPositionOffsetPct,
+      lineSpacingPx,
       annotationFontRatio,
       romanizationFontFamily,
       romanizationFontRatio,
@@ -1390,6 +1564,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setAnnotationFontFamily,
       setTopFontSizePx,
       setBottomFontSizePx,
+      setCaptionSizePct,
+      setTopPositionOffsetPct,
+      setBottomPositionOffsetPct,
+      setLineSpacingPx,
       setAnnotationFontRatio,
       setRomanizationColor,
       setRomanizationFontFamily,
@@ -1434,6 +1612,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       annotationFontFamily,
       topFontSizePx,
       bottomFontSizePx,
+      captionSizePct,
+      topPositionOffsetPct,
+      bottomPositionOffsetPct,
+      lineSpacingPx,
       annotationFontRatio,
       romanizationFontFamily,
       romanizationFontRatio,
@@ -1519,6 +1701,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setAnnotationFontFamily,
       setTopFontSizePx,
       setBottomFontSizePx,
+      setCaptionSizePct,
+      setTopPositionOffsetPct,
+      setBottomPositionOffsetPct,
+      setLineSpacingPx,
       setAnnotationFontRatio,
       setRomanizationColor,
       setRomanizationFontFamily,

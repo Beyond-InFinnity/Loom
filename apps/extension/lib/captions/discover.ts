@@ -223,12 +223,14 @@ let annotationPrefsLoaded = false;
 // prefs — survive emptySession() on video navigation, loaded once
 // during ensureInstalled().
 //
-// `targetRomanizeEnabled` is TRI-STATE: null = the user hasn't touched
-// it, so the romanization LINE follows a language-aware default
-// (`defaultTargetRomanizeEnabledFor`); a stored boolean is an explicit
-// user choice that persists across languages.  Native stays a plain
-// boolean (rarely used, no language default).
-let targetRomanizeEnabled: boolean | null = null;
+// The romanization LINE preference is TRI-STATE *per script family*: the
+// map holds an entry for a family → explicit user choice for that family;
+// absent → the language-aware default (`defaultRomanizeLineEnabledFor`).
+// Keyed by ScriptFamily (not one global boolean) so a romaji line the user
+// turns on for Japanese doesn't leak onto Chinese / Korean, whose
+// per-character annotation already makes the line redundant.  Native stays
+// a plain boolean (rarely used, no language default).
+const targetRomanizeEnabledByFamily = new Map<string, boolean>();
 let nativeRomanizeEnabled = DEFAULT_NATIVE_ROMANIZE_ENABLED;
 let longVowelMode: "macrons" | "doubled" | "unmarked" =
   DEFAULT_LONG_VOWEL_MODE;
@@ -243,8 +245,10 @@ let romanizationPrefsLoaded = false;
 // guard, and are used at BOTH the fetch gate and in the emitted payload so
 // the settings UI shows the same state the pipeline acts on.
 function effectiveTargetRomanizeEnabled(lang: string | null): boolean {
-  if (targetRomanizeEnabled !== null) return targetRomanizeEnabled;
-  return lang ? defaultRomanizeLineEnabledFor(lang) : false;
+  if (!lang) return false;
+  const override = targetRomanizeEnabledByFamily.get(classifyLang(lang).family);
+  if (override !== undefined) return override;
+  return defaultRomanizeLineEnabledFor(lang);
 }
 function effectiveTargetPhoneticSystem(lang: string | null): string | null {
   if (targetPhoneticSystem !== null) return targetPhoneticSystem;
@@ -1077,9 +1081,13 @@ function rerunAnnotations(): void {
 // ---- Romanization setters (5e) -------------------------------------
 
 export function setTargetRomanizeEnabled(v: boolean): void {
-  targetRomanizeEnabled = v;
+  const lang =
+    latest?.status.kind === "tracking" ? latest.status.targetLang : null;
+  if (lang) targetRomanizeEnabledByFamily.set(classifyLang(lang).family, v);
+  const persisted: Record<string, boolean> = {};
+  for (const [fam, val] of targetRomanizeEnabledByFamily) persisted[fam] = val;
   void browser.storage.local
-    .set({ [STORAGE_KEY_TARGET_ROMANIZE_ENABLED]: v })
+    .set({ [STORAGE_KEY_TARGET_ROMANIZE_ENABLED]: persisted })
     .catch((e) => console.warn("[Loom] persist targetRomanizeEnabled:", e));
   rerunRomanizations();
 }
@@ -1193,7 +1201,18 @@ async function loadRomanizationPrefs(): Promise<void> {
     const tEnabled = result[STORAGE_KEY_TARGET_ROMANIZE_ENABLED];
     const nEnabled = result[STORAGE_KEY_NATIVE_ROMANIZE_ENABLED];
     const lvm = result[STORAGE_KEY_LONG_VOWEL_MODE];
-    if (typeof tEnabled === "boolean") targetRomanizeEnabled = tEnabled;
+    // New shape: { [family]: boolean }.  A legacy plain-boolean value is
+    // intentionally DISCARDED — the old global setting leaked a Japanese
+    // romaji-line choice onto Chinese / Korean; dropping it lets every
+    // family fall back to its language-aware default (line on for Japanese
+    // + pure-romanize scripts, off for Han / Hangul).
+    if (tEnabled && typeof tEnabled === "object") {
+      for (const [fam, val] of Object.entries(tEnabled)) {
+        if (typeof val === "boolean") {
+          targetRomanizeEnabledByFamily.set(fam, val);
+        }
+      }
+    }
     if (typeof nEnabled === "boolean") nativeRomanizeEnabled = nEnabled;
     if (typeof lvm === "string" && _VALID_LONG_VOWEL_MODES.has(lvm)) {
       longVowelMode = lvm as "macrons" | "doubled" | "unmarked";

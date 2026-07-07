@@ -69,16 +69,21 @@ export interface CapturePayload {
     it's actively harmful: the server keeps the FIRST non-null title per
     media (`COALESCE(existing, new)`), so storing junk blocks a later good
     capture from ever healing the row.  Junk → null keeps it healable. */
-const JUNK_TITLE = /^(YouTube|Netflix|iQIYI|iQ\.com|WeTV)$/i;
+const JUNK_TITLE = /^(YouTube|Netflix|iQIYI|iQ\.com|WeTV|Prime Video|Amazon)$/i;
 
 /** Strip the platform suffix noise from document.title.  Best-effort —
     a wrong title is harmless (display metadata only, never identity),
-    but a KNOWN-junk title is worse than null (see JUNK_TITLE). */
+    but a KNOWN-junk title is worse than null (see JUNK_TITLE).  Prime's
+    document.title is e.g. "Watch Evangelion … | Prime Video" or bare
+    "Prime Video"; strip the suffix + drop a leading "Watch " verb. */
 export function cleanTitle(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = raw
-    .replace(/\s*[-–|]\s*(YouTube|Netflix|iQIYI|iQ\.com|WeTV)\s*$/i, "")
+  let cleaned = raw
+    .replace(/\s*[-–|]\s*(YouTube|Netflix|iQIYI|iQ\.com|WeTV|Prime Video|Amazon\.[a-z.]+)\s*$/i, "")
     .trim();
+  // Prime prefixes watch-page titles with "Watch " — drop it so the corpus
+  // title is the bare work name.
+  cleaned = cleaned.replace(/^Watch\s+/i, "").trim();
   if (cleaned.length === 0 || JUNK_TITLE.test(cleaned)) return null;
   return cleaned.slice(0, 512);
 }

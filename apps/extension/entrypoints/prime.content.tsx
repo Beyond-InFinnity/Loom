@@ -49,12 +49,29 @@ export default defineContentScript({
         uiContainer.style.inset = "0";
         const root = ReactDOM.createRoot(uiContainer);
         root.render(<LoomApp />);
-        logDev("[Loom] Prime overlay mounted inside", ANCHOR_SELECTOR);
+        // Log which surface we anchored to + whether it holds a real,
+        // sized, playable <video> — so a preview-vs-player mis-anchor race
+        // (Prime silently mounts a muted preview surface on the detail page
+        // before the real player swaps in) is visible in the console.
+        const rect = anchor?.getBoundingClientRect();
+        const v = anchor?.querySelector("video");
+        const count = document.querySelectorAll(ANCHOR_SELECTOR).length;
+        logDev(
+          "[Loom] Prime overlay MOUNTED —",
+          "surfaces on page:",
+          count,
+          "| anchor size:",
+          rect ? `${Math.round(rect.width)}x${Math.round(rect.height)}` : "?",
+          "| has video:",
+          !!v,
+          "| video duration:",
+          v ? String((v as HTMLVideoElement).duration) : "n/a",
+        );
         return root;
       },
       onRemove: (root) => {
         root?.unmount();
-        logDev("[Loom] Prime overlay unmounted");
+        logDev("[Loom] Prime overlay UNMOUNTED (surface removed / rebuilt)");
       },
     });
     ui.autoMount();

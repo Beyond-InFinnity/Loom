@@ -131,6 +131,10 @@ export default defineContentScript({
       logDev("[Loom PRIME MAIN] first subtitle entry:", JSON.stringify(rawTracks[0]).slice(0, 400));
 
       const audioLang = findAudioLang(json);
+      // Diagnostic: dump audio-language-bearing structure so the real field
+      // can be wired (auto-pick needs the spoken language to default Top).
+      logDev("[Loom PRIME MAIN] audioLang resolved:", audioLang ?? "(none)");
+      logDev("[Loom PRIME MAIN] audio-ish paths:", dumpAudioPaths(json));
       const tracks = rawTracks
         .map((e, i) => serializeTrack(e, i, audioLang))
         .filter((t): t is CaptionTrackSerialized => t !== null);
@@ -263,24 +267,77 @@ function findSubtitleEntries(json: unknown): Array<Record<string, unknown>> {
 }
 
 /** Best-effort audio language from the GetVod JSON (for auto-pick's
-    default Top layer).  Shape-searched; undefined when not found → the
-    consumer falls back to tier ordering. */
+    default Top layer).  Shape-searched with several patterns; undefined
+    when not found → the consumer falls back to tier ordering. */
 function findAudioLang(json: unknown): string | undefined {
   let found: string | undefined;
   const walk = (obj: unknown, depth: number): void => {
-    if (found || !obj || typeof obj !== "object" || depth > 6) return;
+    if (found || !obj || typeof obj !== "object" || depth > 8) return;
     const r = obj as Record<string, unknown>;
     for (const [k, v] of Object.entries(r)) {
       if (found) return;
-      if (/audio/i.test(k) && /lang|locale/i.test(k) && typeof v === "string") {
-        found = v as string;
+      // (1) a single audio-language field: audioLanguage / audioLocale /
+      //     defaultAudioLanguage / spokenLanguage / originalLanguage.
+      if (
+        typeof v === "string" &&
+        v.length > 0 &&
+        (/(audio|spoken|original|default).*(lang|locale)/i.test(k) ||
+          /(lang|locale).*(audio|spoken|original)/i.test(k))
+      ) {
+        found = v;
         return;
+      }
+      // (2) an array of audio-track objects (has language + an audio-ish
+      //     marker: codec / bitrate / channels), whose first / default
+      //     entry gives the spoken language.
+      if (Array.isArray(v) && /audio/i.test(k)) {
+        const track = v.find(
+          (t) =>
+            t &&
+            typeof t === "object" &&
+            Object.keys(t as object).some((kk) => /lang|locale/i.test(kk)),
+        ) as Record<string, unknown> | undefined;
+        if (track) {
+          for (const [kk, vv] of Object.entries(track)) {
+            if (/lang|locale/i.test(kk) && typeof vv === "string" && vv) {
+              found = vv;
+              return;
+            }
+          }
+        }
       }
       walk(v, depth + 1);
     }
   };
   walk(json, 0);
   return found;
+}
+
+/** Diagnostic (dev): compact list of paths whose key mentions "audio",
+    with a short value sketch, so the real audio-language field is
+    identifiable from one live session. */
+function dumpAudioPaths(json: unknown): string {
+  const hits: string[] = [];
+  const walk = (obj: unknown, path: string, depth: number): void => {
+    if (!obj || typeof obj !== "object" || depth > 8 || hits.length > 30) return;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      const p = path ? `${path}.${k}` : k;
+      if (/audio/i.test(k)) {
+        const val =
+          typeof v === "string"
+            ? `"${v.slice(0, 40)}"`
+            : Array.isArray(v)
+              ? `[${v.length}]`
+              : v && typeof v === "object"
+                ? `{${Object.keys(v as object).slice(0, 8).join(",")}}`
+                : String(v);
+        hits.push(`${p}=${val}`);
+      }
+      walk(v, p, depth + 1);
+    }
+  };
+  walk(json, "", 0);
+  return hits.length ? hits.join(" | ") : "(no audio-keyed paths)";
 }
 
 /** Best-effort title id (GTI/ASIN) from the GetVod JSON. */

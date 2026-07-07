@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_result_cache
 from .routes import annotate, corpus, health, language, romanize, styles
@@ -156,6 +157,10 @@ class BypassAwareSlowAPI:
         return await self._inner(scope, receive, send)
 
 
+# Extension-version telemetry: log X-Loom-Version headers (ext ≥0.4.0) so
+# Railway logs show the live version mix across all browsers.  Watch via
+# `loom.version` lines.  Implementation + rationale: loom_api/client_version.py.
+app.add_middleware(ClientVersionLog)
 app.add_middleware(BypassAwareSlowAPI)
 
 # Eagerly build the romanize/annotate result cache (ROMANIZATION_CACHE.md

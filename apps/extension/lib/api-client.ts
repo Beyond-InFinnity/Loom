@@ -16,14 +16,28 @@ import { API_BASE_URL } from "./env";
 
 let cached: LoomClient | null = null;
 
+/** Extension version for the X-Loom-Version header — server-side version
+    observability across ALL browsers (AMO usage stats cover Firefox only;
+    Railway logs + this header answer "who runs what" everywhere).  Guarded:
+    outside a real extension context (vitest) there is no `browser`. */
+function extensionVersion(): string | null {
+  try {
+    return browser.runtime.getManifest().version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function getApiClient(): LoomClient {
   if (cached) return cached;
 
+  const version = extensionVersion();
   const client = createLoomClient(API_BASE_URL);
   client.use({
     async onRequest({ request }) {
       const key = await getOwnerKey();
       if (key) request.headers.set("X-Loom-Auth", key);
+      if (version) request.headers.set("X-Loom-Version", version);
       return request;
     },
   });

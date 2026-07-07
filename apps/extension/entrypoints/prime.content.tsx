@@ -81,21 +81,17 @@ export default defineContentScript({
     // catches the pure-resize transition) fixes it.  Idempotent; always
     // remove() a stale mount before re-mounting (no duplicate React root).
     let mountedTo: HTMLElement | null = null;
-    const isSized = (el: HTMLElement): boolean => {
-      const r = el.getBoundingClientRect();
-      return r.width * r.height >= 40000;
-    };
     const ensureMount = () => {
-      // STABILITY: if the current mount is still valid — host connected,
-      // its surface still in the DOM + sized + containing our host — keep
-      // it.  Don't re-resolve to whichever surface is "largest" this tick;
-      // that caused remount thrash on Prime's resize (1386→1531) and could
-      // flip the anchor between frames, tearing down the CaptionStream each
-      // time and rebinding the playhead.
+      // STABILITY: keep the current mount as long as its surface is still
+      // in the DOM and hosts our shadow host.  Deliberately NOT gated on
+      // size — Prime transiently resizes / restructures the video-surface
+      // (pausing shows chrome, the surface can briefly shrink), and an
+      // isSized() gate here made those transients tear the overlay down and
+      // then fail to remount ("worked, then disappeared, won't come back").
+      // We only re-resolve when the mounted surface is actually GONE.
       if (
         mountedTo &&
         mountedTo.isConnected &&
-        isSized(mountedTo) &&
         ui.shadowHost?.isConnected &&
         mountedTo.contains(ui.shadowHost)
       ) {
@@ -104,12 +100,18 @@ export default defineContentScript({
       const anchor = resolvePrimeAnchor();
       if (!anchor) {
         if (mountedTo) {
+          logDev("[Loom] Prime reconcile: mounted surface gone, no replacement yet — unmounting");
           ui.remove();
           mountedTo = null;
+        } else {
+          // Not mounted AND no eligible surface — diagnose why (throttled),
+          // so a "won't mount after refresh" load shows the surface state.
+          diagnoseNoAnchor();
         }
         return;
       }
       if (mountedTo) {
+        logDev("[Loom] Prime reconcile: surface replaced — remounting on new one");
         try {
           ui.remove();
         } catch {
@@ -119,6 +121,29 @@ export default defineContentScript({
       }
       ui.mount();
       mountedTo = anchor;
+    };
+
+    // Throttled diagnostic for the no-eligible-surface case.
+    let lastDiag = -Infinity;
+    const diagnoseNoAnchor = () => {
+      // Use a monotonic-ish gate via a counter on the backstop instead of a
+      // clock (Date.now is fine in content scripts, but keep it cheap): log
+      // at most every ~3s worth of ticks.
+      lastDiag += 1;
+      if (lastDiag % 3 !== 0) return;
+      const surfaces = Array.from(
+        document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR),
+      ).map((el) => {
+        const r = el.getBoundingClientRect();
+        return `${Math.round(r.width)}x${Math.round(r.height)}${el.querySelector("video") ? "+video" : "-novideo"}`;
+      });
+      logDev(
+        "[Loom] Prime reconcile: no eligible surface —",
+        ANCHOR_SELECTOR,
+        "count:",
+        surfaces.length,
+        surfaces.length ? "sizes: " + surfaces.join(", ") : "(none in DOM)",
+      );
     };
 
     let raf = 0;

@@ -24,7 +24,13 @@
 import { logDev } from "../env";
 import { getApiClient } from "../api-client";
 import { getOwnerKey } from "../owner-key";
-import type { AnnotateMap, AnnotateSpan } from "./types";
+import type {
+  AnnotateMap,
+  AnnotateResult,
+  AnnotateSpan,
+  AnnotateToken,
+  AnnotateTokenMap,
+} from "./types";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 
@@ -62,7 +68,7 @@ export interface BuildAnnotateMapOptions {
 export async function buildAnnotateMap(
   texts: Iterable<string>,
   opts: BuildAnnotateMapOptions,
-): Promise<AnnotateMap> {
+): Promise<AnnotateResult> {
   // Dedup + trim — server processes whatever we send, so smaller =
   // faster + cheaper.  Filter empty texts; backend returns empty
   // results for them but no need to ship the round-trip cost.
@@ -75,7 +81,11 @@ export async function buildAnnotateMap(
   );
 
   const result: AnnotateMap = new Map();
-  if (unique.length === 0) return result;
+  // Parallel word-level token map (VOCAB_LOOKUP.md Phase 2).  Populated from
+  // the same batch response, keyed by the same trimmed text.  Kept separate
+  // from `result` so the spans render path is untouched.
+  const tokens: AnnotateTokenMap = new Map();
+  if (unique.length === 0) return { spans: result, tokens };
 
   const client = getApiClient();
   const ownerKey = await getOwnerKey();
@@ -149,6 +159,9 @@ export async function buildAnnotateMap(
         if (item && Array.isArray(item.spans) && item.spans.length > 0) {
           result.set(texts[i], item.spans as AnnotateSpan[]);
         }
+        if (item && Array.isArray(item.tokens) && item.tokens.length > 0) {
+          tokens.set(texts[i], item.tokens as AnnotateToken[]);
+        }
       }
     });
 
@@ -170,7 +183,7 @@ export async function buildAnnotateMap(
           REQUEST_TIMEOUT_MS + "ms for lang=" + opts.langCode,
         );
       }
-      return result;
+      return { spans: result, tokens };
     }
     console.warn(
       "[Loom Annotate] /annotate/batch threw for lang=" + opts.langCode,
@@ -183,5 +196,5 @@ export async function buildAnnotateMap(
     }
   }
 
-  return result;
+  return { spans: result, tokens };
 }

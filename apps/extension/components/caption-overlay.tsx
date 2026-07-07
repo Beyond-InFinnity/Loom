@@ -1,6 +1,9 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useCaptionStream } from "./caption-context";
 import type { CaptionPosition } from "./caption-context";
 import { AnnotatedText } from "./annotated-text";
+import { DefinitionCard } from "./definition-card";
 import { buildRichSegments } from "@/lib/orthography/build-segments";
 import type { RichSegment } from "@/lib/orthography/types";
 import {
@@ -8,7 +11,31 @@ import {
   type OrthographyTable,
 } from "@loom/orthography-tables";
 import { usePlayerScale } from "@/lib/overlay/player-scale";
+import { usePaused } from "@/lib/overlay/use-paused";
 import type { CueLayout } from "@/lib/captions/types";
+
+/** A word the user clicked in the target line while paused — drives the
+    DefinitionCard (VOCAB_LOOKUP.md Phase 2). */
+interface SelectedWord {
+  word: string;
+  lemma: string;
+  rect: DOMRect;
+  langCode: string | null;
+}
+
+/** Hover-glow for clickable vocab words.  A <style> in the overlay's shadow
+    root (inline styles can't express :hover).  GPU-friendly (background +
+    text-shadow only, NO backdrop-filter). */
+const VOCAB_WORD_CSS = `
+.loom-vocab-word {
+  border-radius: 3px;
+  transition: background-color 90ms ease, text-shadow 90ms ease;
+}
+.loom-vocab-word:hover {
+  background-color: rgba(120, 170, 255, 0.28);
+  text-shadow: 0 0 7px rgba(150, 195, 255, 0.95);
+}
+`;
 
 // CaptionOverlay — dual-subs surface inside #movie_player's shadow root.
 //
@@ -104,6 +131,12 @@ interface Layer {
   variantHighlightEnabled: boolean;
   variantCleanHighlightColor: string;
   variantCollapseHighlightColor: string;
+  /** Word-level vocab-lookup wiring (VOCAB_LOOKUP.md Phase 2).  Set only
+      on the TARGET layer, and only when the video is paused.  null/false
+      leave the layer non-interactive (the native layer never sets them). */
+  tokens?: import("@/lib/annotate/types").AnnotateToken[] | null;
+  interactive?: boolean;
+  onWordClick?: (word: string, lemma: string, rect: DOMRect) => void;
 }
 
 function resolveFontFamily(family: string): string {
@@ -137,6 +170,7 @@ export function CaptionOverlay() {
     nativePosition,
     targetAnnotateMap,
     nativeAnnotateMap,
+    targetTokenMap,
     targetRomanizeMap,
     nativeRomanizeMap,
     romanizationFontFamily,
@@ -195,12 +229,29 @@ export function CaptionOverlay() {
   // uniformly.  100 = the tuned Prime-look defaults.
   const scale = usePlayerScale() * (captionSizePct / 100);
 
+  // Per-word vocab lookup (VOCAB_LOOKUP.md Phase 2) — active only while
+  // paused.  Hooks must run before any early return.
+  const paused = usePaused();
+  const [selectedWord, setSelectedWord] = useState<SelectedWord | null>(null);
+  const targetLangCode = selectedTarget?.languageCode ?? null;
+  const handleWordClick = useCallback(
+    (word: string, lemma: string, rect: DOMRect) => {
+      setSelectedWord({ word, lemma, rect, langCode: targetLangCode });
+    },
+    [targetLangCode],
+  );
+  // Clicking a word only makes sense while paused; drop any selection the
+  // moment playback resumes (the card unmounts with it).
+  useEffect(() => {
+    if (!paused) setSelectedWord(null);
+  }, [paused]);
+
   if (status.kind !== "tracking") return null;
   // Per-line master enable (C-8): a disabled line contributes no text, so
   // its whole layer — base + annotation + romanization + alt-orth — is
   // skipped, and its slot isn't reserved below.
-  const topText = topLineEnabled ? target?.text ?? "" : "";
-  const bottomText = bottomLineEnabled ? native?.text ?? "" : "";
+  const topText = topLineEnabled ? (target?.text ?? "") : "";
+  const bottomText = bottomLineEnabled ? (native?.text ?? "") : "";
 
   // Positioned EXTRA cues (substep 3): every active target cue that ISN'T
   // the horizontal primary AND carries source layout is drawn at its own
@@ -222,20 +273,27 @@ export function CaptionOverlay() {
   // doesn't have an entry for this exact text, spans stays null and
   // buildRichSegments falls through to the table-walk or plain path.
   const targetSpans = topText
-    ? targetAnnotateMap?.get(topText.trim()) ?? null
+    ? (targetAnnotateMap?.get(topText.trim()) ?? null)
     : null;
   const nativeSpans = bottomText
-    ? nativeAnnotateMap?.get(bottomText.trim()) ?? null
+    ? (nativeAnnotateMap?.get(bottomText.trim()) ?? null)
     : null;
+
+  // Word-level tokens for the target line (VOCAB_LOOKUP.md Phase 2) — same
+  // trimmed-text key as the spans lookup.  Interactivity is gated on paused.
+  const targetTokens = topText
+    ? (targetTokenMap?.get(topText.trim()) ?? null)
+    : null;
+  const wordsInteractive = paused && !!targetTokens && targetTokens.length > 0;
 
   // Romanization line (5e) — same lookup pattern as annotation spans.
   // null when the map hasn't populated yet OR the event text has no
   // romanization (empty / oversized / no phonetic layer for the lang).
   const targetRomanizationLine = topText
-    ? targetRomanizeMap?.get(topText.trim()) ?? null
+    ? (targetRomanizeMap?.get(topText.trim()) ?? null)
     : null;
   const nativeRomanizationLine = bottomText
-    ? nativeRomanizeMap?.get(bottomText.trim()) ?? null
+    ? (nativeRomanizeMap?.get(bottomText.trim()) ?? null)
     : null;
 
   // Resolve the orthography variant table for each layer, if any.
@@ -258,6 +316,10 @@ export function CaptionOverlay() {
     spans: targetSpans,
     rawText: topText,
     variantTable: targetVariantTable,
+    // When words are interactive (paused), keep segments 1:1 with spans so
+    // token start/length (span indices) wrap the correct glyphs — coalescing
+    // adjacent plains would shift segment indices. See build-segments.ts.
+    coalescePlain: !wordsInteractive,
   });
   const nativeSegments = buildRichSegments({
     spans: nativeSpans,
@@ -321,6 +383,9 @@ export function CaptionOverlay() {
       variantHighlightEnabled,
       variantCleanHighlightColor: variantCleanColor,
       variantCollapseHighlightColor: variantCollapseColor,
+      tokens: targetTokens,
+      interactive: wordsInteractive,
+      onWordClick: handleWordClick,
     };
   }
   if (bottomText) {
@@ -356,8 +421,15 @@ export function CaptionOverlay() {
 
   return (
     <>
+      {wordsInteractive ? <style>{VOCAB_WORD_CSS}</style> : null}
       {renderZone("top", slots, scale, topPositionOffsetPct, lineSpacingPx)}
-      {renderZone("bottom", slots, scale, bottomPositionOffsetPct, lineSpacingPx)}
+      {renderZone(
+        "bottom",
+        slots,
+        scale,
+        bottomPositionOffsetPct,
+        lineSpacingPx,
+      )}
       {extraCues.map((e) => (
         <PositionalCue
           key={`${e.start}-${e.end}-${e.layout?.regionId ?? ""}`}
@@ -382,6 +454,15 @@ export function CaptionOverlay() {
           glowAlpha={topGlowAlpha}
         />
       ))}
+      {paused && selectedWord ? (
+        <DefinitionCard
+          word={selectedWord.word}
+          lemma={selectedWord.lemma}
+          rect={selectedWord.rect}
+          langCode={selectedWord.langCode}
+          onDismiss={() => setSelectedWord(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -532,6 +613,9 @@ function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
         highlightEnabled={layer.variantHighlightEnabled}
         cleanHighlightColor={layer.variantCleanHighlightColor}
         collapseHighlightColor={layer.variantCollapseHighlightColor}
+        tokens={layer.tokens}
+        interactive={layer.interactive}
+        onWordClick={layer.onWordClick}
       />
     </div>
   );
@@ -542,13 +626,7 @@ function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
     the parent layer's text-shadow + outline via CSS (the .layer div
     sets text-shadow on the whole subtree); only color, font-size,
     and font-family override the inherited values. */
-function RomanizationLine({
-  layer,
-  scale,
-}: {
-  layer: Layer;
-  scale: number;
-}) {
+function RomanizationLine({ layer, scale }: { layer: Layer; scale: number }) {
   const fontPx = layer.fontSizePx * layer.romanizationRatio * scale;
   // Romanization opacity is resolved by the overlay (C-5): it follows the
   // base alpha while the Top group is linked, or its own when unlinked.
@@ -649,8 +727,20 @@ function PositionalCue({
     // Vertical column caps at the frame height; horizontal cue caps at a
     // fraction of the width so a positioned line doesn't span edge-to-edge.
     ...(vertical
-      ? { writingMode: layout.writingMode as "vertical-rl" | "vertical-lr", maxHeight: "84%" }
-      : { maxWidth: "44%", textAlign: layout.textAlign === "start" ? "start" : layout.textAlign === "end" ? "end" : "center", whiteSpace: "pre-wrap" }),
+      ? {
+          writingMode: layout.writingMode as "vertical-rl" | "vertical-lr",
+          maxHeight: "84%",
+        }
+      : {
+          maxWidth: "44%",
+          textAlign:
+            layout.textAlign === "start"
+              ? "start"
+              : layout.textAlign === "end"
+                ? "end"
+                : "center",
+          whiteSpace: "pre-wrap",
+        }),
   };
   return (
     <div style={style}>
@@ -811,7 +901,10 @@ function buildTextShadow(layer: ShadowSpec, scale: number): string {
   // ring floating at full strength.  (`layer.alpha` is the same 0–100
   // the fill color uses in layerStyle.)
   const masterA = Math.max(0, Math.min(100, layer.alpha)) / 100;
-  const outlineRgba = hexToRgba(layer.outlineColor, layer.outlineAlpha * masterA);
+  const outlineRgba = hexToRgba(
+    layer.outlineColor,
+    layer.outlineAlpha * masterA,
+  );
   // Shadow stays hard-coded black — the desktop's StyleConfig splits
   // shadow_color from outline_color, but the extension hasn't surfaced
   // shadow color separately yet.  Acceptable: shadow is the dimmer

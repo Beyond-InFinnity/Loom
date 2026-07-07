@@ -20,6 +20,31 @@ describe("buildRichSegments — combination matrix", () => {
     expect(buildRichSegments({ spans: [], rawText: "", variantTable: ZH_TABLE })).toEqual([]);
   });
 
+  it("coalescePlain=false keeps segments 1:1 with spans (word-grouping invariant)", () => {
+    // Two adjacent reading-less spans: coalesced by default, but word-level
+    // vocab lookup needs one segment per span so token span-indices align.
+    const spans: AnnotateSpan[] = [
+      { base: "。", reading: null },
+      { base: "。", reading: null },
+      { base: "你", reading: "nǐ" },
+    ];
+    const coalesced = buildRichSegments({ spans, rawText: "。。你", variantTable: null });
+    expect(coalesced).toHaveLength(2); // "。。" merged + 你
+
+    const uncoalesced = buildRichSegments({
+      spans,
+      rawText: "。。你",
+      variantTable: null,
+      coalescePlain: false,
+    });
+    expect(uncoalesced).toHaveLength(spans.length); // strict 1:1
+    expect(uncoalesced.map((s) => (s.kind === "plain" ? s.text : s.base))).toEqual([
+      "。",
+      "。",
+      "你",
+    ]);
+  });
+
   it("spans only (no table) → over-ruby only segments", () => {
     const spans: AnnotateSpan[] = [
       { base: "我", reading: "ㄨㄛˇ" },

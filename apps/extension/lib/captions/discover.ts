@@ -41,7 +41,7 @@ import {
   getCachedAnnotateMap,
   setCachedAnnotateMap,
 } from "../annotate/cache";
-import type { AnnotateMap } from "../annotate/types";
+import type { AnnotateMap, AnnotateTokenMap } from "../annotate/types";
 import { buildRomanizeMap } from "../romanize/build-map";
 import {
   romanizeCacheKey,
@@ -143,6 +143,11 @@ export interface CaptionPayload {
       second-stage emit after buildAnnotateMap completes. */
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
+  /** Word-level token maps keyed by event text (VOCAB_LOOKUP.md Phase 2),
+      parallel to the annotate maps.  Drives per-word vocab lookup on the
+      target line.  null when disabled / fetch in flight. */
+  targetTokenMap: AnnotateTokenMap | null;
+  nativeTokenMap: AnnotateTokenMap | null;
   /** Per-track romanization enable flag (5e).  Persisted.  When
       enabled + lang has a phonetic layer, resolveCaptions fans out
       /romanize/batch and re-emits with the layer's map populated. */
@@ -689,8 +694,8 @@ async function fetchLayerAnnotations(
     opts.phoneticSystem,
   );
 
-  let map = getCachedAnnotateMap(cacheKey);
-  if (!map) {
+  let result = getCachedAnnotateMap(cacheKey);
+  if (!result) {
     // Cache miss — fire the batch.  buildAnnotateMap already dedups
     // + trims, so we can hand it the raw events list.
     logDev(
@@ -701,7 +706,7 @@ async function fetchLayerAnnotations(
         " events=" +
         opts.events.length,
     );
-    map = await buildAnnotateMap(
+    result = await buildAnnotateMap(
       opts.events.map((e) => e.text),
       {
         langCode: opts.lang,
@@ -710,8 +715,8 @@ async function fetchLayerAnnotations(
       },
     );
     if (opts.signal.aborted) return;
-    if (map.size > 0) {
-      setCachedAnnotateMap(cacheKey, map);
+    if (result.spans.size > 0 || result.tokens.size > 0) {
+      setCachedAnnotateMap(cacheKey, result);
     }
   } else {
     logDev(
@@ -720,7 +725,7 @@ async function fetchLayerAnnotations(
         " lang=" +
         opts.lang +
         " map_size=" +
-        map.size,
+        result.spans.size,
     );
   }
 
@@ -728,13 +733,19 @@ async function fetchLayerAnnotations(
   if (!latest || latest.status.kind !== "tracking") return;
 
   // Emit fresh reference so React picks up the change.  Only update
-  // this layer's field; preserve the other layer's current map.
+  // this layer's fields; preserve the other layer's current maps.
+  const spans = result.spans;
+  const tokens = result.tokens;
   emit({
     ...latest,
     targetAnnotateMap:
-      opts.layerName === "target" ? new Map(map) : latest.targetAnnotateMap,
+      opts.layerName === "target" ? new Map(spans) : latest.targetAnnotateMap,
     nativeAnnotateMap:
-      opts.layerName === "native" ? new Map(map) : latest.nativeAnnotateMap,
+      opts.layerName === "native" ? new Map(spans) : latest.nativeAnnotateMap,
+    targetTokenMap:
+      opts.layerName === "target" ? new Map(tokens) : latest.targetTokenMap,
+    nativeTokenMap:
+      opts.layerName === "native" ? new Map(tokens) : latest.nativeTokenMap,
   });
 }
 
@@ -942,6 +953,8 @@ function buildBasePayload(): CaptionPayload {
     nativePhoneticSystem,
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
+    targetTokenMap: null,
+    nativeTokenMap: null,
     targetRomanizeEnabled: effectiveTargetRomanizeEnabled(targetLangForDefaults),
     nativeRomanizeEnabled,
     longVowelMode,
@@ -1069,6 +1082,8 @@ function rerunAnnotations(): void {
     nativePhoneticSystem,
     targetAnnotateMap: null,
     nativeAnnotateMap: null,
+    targetTokenMap: null,
+    nativeTokenMap: null,
   });
   void fetchAllAnnotationsForLayers(
     targetEvents,

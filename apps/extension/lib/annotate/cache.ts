@@ -12,9 +12,11 @@
 // (~20KB for a typical 25-min episode of Chinese), so the unbounded
 // growth isn't a real concern over a normal browsing session.
 
-import type { AnnotateMap } from "./types";
+import type { AnnotateResult } from "./types";
 
-const cache = new Map<string, AnnotateMap>();
+// Stores the full AnnotateResult (spans + word-level tokens) per key, so a
+// cache hit restores both the ruby spans and the vocab-lookup tokens.
+const cache = new Map<string, AnnotateResult>();
 
 export function annotateCacheKey(
   videoId: string,
@@ -24,12 +26,12 @@ export function annotateCacheKey(
   return `${videoId}::${lang}::${phoneticSystem ?? ""}`;
 }
 
-export function getCachedAnnotateMap(key: string): AnnotateMap | null {
+export function getCachedAnnotateMap(key: string): AnnotateResult | null {
   return cache.get(key) ?? null;
 }
 
-export function setCachedAnnotateMap(key: string, map: AnnotateMap): void {
-  cache.set(key, map);
+export function setCachedAnnotateMap(key: string, result: AnnotateResult): void {
+  cache.set(key, result);
 }
 
 export function clearAnnotateCache(): void {

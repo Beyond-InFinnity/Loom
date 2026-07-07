@@ -245,7 +245,19 @@ response: { lang, results: [ { word, found,
   2026-07-08** — 502,656 rows loaded into the prod Postgres (neighbors untouched: cache 54,816 /
   corpus_line 53,605), `/define` deployed to `main`, and `POST api.loom.nerv-analytic.ai/define/batch`
   smoke-tested live (食べる 2 senses + POS, kana たべる, zh 吃/你好). **Phase 1 COMPLETE.**
-- **Phase 2 — extension UX:** 🔲 consume tokens; pause-gated hover-glow; click → card (JA + ZH).
+- **Phase 2 — extension UX:** 🟡 BUILT 2026-07-08, awaiting live verification. Pause-gated
+  per-word hover-glow + click → `DefinitionCard` (fetches `/define/batch`). Seams: (a) `tokens`
+  threaded through a parallel `AnnotateTokenMap` (spans render path untouched) — `lib/annotate/`
+  {types,build-map,cache} + discover + caption-context; (b) `planWordGroups` groups segments into
+  word runs, `annotated-text.tsx` wraps each token's run in a `.loom-vocab-word` span
+  (`swallowPlayerEventsExceptClick`, glow `<style>` only when interactive); (c) `usePaused`
+  (capture-phase play/pause on the tracked `<video>`, target-gated + 1s resync), `defineLangFor`
+  (BCP-47→ja/zh), `definition-card.tsx` (solid bg, own layer, shadow-aware dismiss).
+  **Interactivity fully gated on `paused` → zero playback-time change.** Review fix: `buildRichSegments`
+  gained `coalescePlain` — disabled for the interactive target line so segments stay 1:1 with spans
+  (coalescing adjacent plains would mis-wrap tokens after a punctuation/kana run). tsc + 290 vitest
+  green. **Owed: live browser test** — card positioning (windowed + fullscreen), glow/wrap on the
+  right glyphs, pause events firing per platform (Netflix MSE / Prime surface), native line inert.
 - **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
   then reuse the Phase 2 UX.
 

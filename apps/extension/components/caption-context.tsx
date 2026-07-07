@@ -26,7 +26,7 @@ import {
 } from "@/lib/captions/discover";
 import { CaptionStream } from "@/lib/captions/stream";
 import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
-import type { AnnotateMap } from "@/lib/annotate/types";
+import type { AnnotateMap, AnnotateTokenMap } from "@/lib/annotate/types";
 import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
 import type { Preset, PresetCatalog, PresetLayerColors } from "@/lib/presets/types";
@@ -352,6 +352,11 @@ interface CaptionContextValue {
       render <ruby> for the currently-active event. */
   targetAnnotateMap: AnnotateMap | null;
   nativeAnnotateMap: AnnotateMap | null;
+  /** Word-level token maps keyed by event text (VOCAB_LOOKUP.md Phase 2),
+      parallel to the annotate maps.  Drives per-word vocab lookup on the
+      target line. */
+  targetTokenMap: AnnotateTokenMap | null;
+  nativeTokenMap: AnnotateTokenMap | null;
 
   /** Per-track romanization (5e) — controls the 4th caption layer
       (the full-utterance phonetic line above the foreign text).
@@ -600,6 +605,10 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     useState<AnnotateMap | null>(null);
   const [nativeAnnotateMap, setNativeAnnotateMapState] =
     useState<AnnotateMap | null>(null);
+  const [targetTokenMap, setTargetTokenMapState] =
+    useState<AnnotateTokenMap | null>(null);
+  const [nativeTokenMap, setNativeTokenMapState] =
+    useState<AnnotateTokenMap | null>(null);
   // Romanization state (5e) — mirrors annotation state shape.
   const [targetRomanizeEnabled, setTargetRomanizeEnabledState] = useState(true);
   const [nativeRomanizeEnabled, setNativeRomanizeEnabledState] =
@@ -708,6 +717,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setNativePhoneticSystemState(payload.nativePhoneticSystem);
       setTargetAnnotateMapState(payload.targetAnnotateMap);
       setNativeAnnotateMapState(payload.nativeAnnotateMap);
+      setTargetTokenMapState(payload.targetTokenMap);
+      setNativeTokenMapState(payload.nativeTokenMap);
       setTargetRomanizeEnabledState(payload.targetRomanizeEnabled);
       setNativeRomanizeEnabledState(payload.nativeRomanizeEnabled);
       setLongVowelModeState(payload.longVowelMode);
@@ -1491,6 +1502,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetTokenMap,
+      nativeTokenMap,
       targetRomanizeEnabled,
       nativeRomanizeEnabled,
       longVowelMode,
@@ -1628,6 +1641,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       nativePhoneticSystem,
       targetAnnotateMap,
       nativeAnnotateMap,
+      targetTokenMap,
+      nativeTokenMap,
       targetRomanizeEnabled,
       nativeRomanizeEnabled,
       longVowelMode,

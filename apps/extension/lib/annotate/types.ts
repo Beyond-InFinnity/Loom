@@ -16,3 +16,30 @@ export interface AnnotateSpan {
 /** Map keyed by an event's raw text → its parsed annotation spans.
     Returned by buildAnnotateMap; consumed by AnnotatedText. */
 export type AnnotateMap = Map<string, AnnotateSpan[]>;
+
+/** Word-level grouping over an event's spans, for per-word vocab lookup
+    (VOCAB_LOOKUP.md Phase 0/2).  `spans[start : start+length]` compose the
+    word; `lemma` is the dictionary form for /define (Japanese), else null.
+    Only Japanese + Chinese populate tokens; other langs return [].  Mirrors
+    components.schemas.AnnotateToken from @loom/api-client. */
+export interface AnnotateToken {
+  word: string;
+  /** Dictionary form for /define lookup (Japanese); null → use `word`. */
+  lemma?: string | null;
+  /** Part-of-speech tags (Japanese); [] for Chinese. */
+  pos?: string[];
+  /** Index into the event's spans where this word begins. */
+  start: number;
+  /** Number of spans this word covers. */
+  length: number;
+}
+
+/** Map keyed by an event's raw text → its word-level tokens. */
+export type AnnotateTokenMap = Map<string, AnnotateToken[]>;
+
+/** Bundle returned by buildAnnotateMap: spans (for ruby rendering, unchanged)
+    plus the parallel word-level token map (for per-word vocab lookup). */
+export interface AnnotateResult {
+  spans: AnnotateMap;
+  tokens: AnnotateTokenMap;
+}

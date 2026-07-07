@@ -1,4 +1,10 @@
 import type { RichSegment } from "@/lib/orthography/types";
+import type { AnnotateToken } from "@/lib/annotate/types";
+import { planWordGroups } from "@/lib/annotate/group-segments";
+import {
+  stopToPlayer,
+  swallowPlayerEventsExceptClick,
+} from "@/lib/overlay/stop-player-events";
 
 // Renders one layer of caption text as a flow of segments.
 //
@@ -88,6 +94,18 @@ interface AnnotatedTextProps {
    *  rt baseline and whatever sits below the layer (other slot in
    *  the same zone, or YT chrome).  In CSS px @ scale. */
   underRtTranslateYPx?: number;
+  /** Word-level tokens for this line (VOCAB_LOOKUP.md Phase 2).  When
+   *  `interactive` and present, each token's run of segments
+   *  (`start..start+length`) is wrapped in a clickable word element.
+   *  null/absent → flat rendering, identical to before. */
+  tokens?: AnnotateToken[] | null;
+  /** Enable per-word hover/click (gated on the video being PAUSED).
+   *  When false, renders exactly as before — no wrappers, no handlers,
+   *  no pointer-events — so playback is untouched. */
+  interactive?: boolean;
+  /** Called with the clicked word, its dictionary lemma (for /define),
+   *  and the word element's bounding rect (for positioning the card). */
+  onWordClick?: (word: string, lemma: string, rect: DOMRect) => void;
 }
 
 export function AnnotatedText({
@@ -102,86 +120,111 @@ export function AnnotatedText({
   cleanHighlightColor,
   collapseHighlightColor,
   underRtTranslateYPx = 2,
+  tokens = null,
+  interactive = false,
+  onWordClick,
 }: AnnotatedTextProps) {
   const rtFontPx = baseFontPxScaled * annotationRatio;
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (seg.kind === "plain") {
-          return <span key={i}>{seg.text}</span>;
-        }
-        const baseColor =
-          highlightEnabled && seg.variantForm
-            ? seg.highlightTier === "collapse"
-              ? collapseHighlightColor
-              : seg.highlightTier === "clean"
-                ? cleanHighlightColor
-                : undefined
-            : undefined;
-        const baseEl = baseColor ? (
-          <span style={{ color: baseColor }}>{seg.base}</span>
-        ) : (
-          <>{seg.base}</>
-        );
+  const els = segments.map((seg, i): React.ReactNode => {
+    if (seg.kind === "plain") {
+      return <span key={i}>{seg.text}</span>;
+    }
+    const baseColor =
+      highlightEnabled && seg.variantForm
+        ? seg.highlightTier === "collapse"
+          ? collapseHighlightColor
+          : seg.highlightTier === "clean"
+            ? cleanHighlightColor
+            : undefined
+        : undefined;
+    const baseEl = baseColor ? (
+      <span style={{ color: baseColor }}>{seg.base}</span>
+    ) : (
+      <>{seg.base}</>
+    );
 
-        // Three structural cases — picked deliberately to keep every
-        // <ruby> at single-rt for cross-browser ruby-position reliability.
-        //
-        //   1. reading only            → flat <ruby>{base}<rt over/></ruby>
-        //   2. variantForm only        → flat <ruby>{base}<rt under/></ruby>
-        //   3. both                    → nested: outer ruby holds under-rt,
-        //                                inner ruby holds base + over-rt.
-        const overRt = seg.reading ? (
-          <rt style={overRtStyle(rtFontPx, color, fontFamily)}>
-            {seg.reading}
-          </rt>
-        ) : null;
-        const underRt = seg.variantForm ? (
-          <rt
-            style={underRtStyle(
-              rtFontPx,
-              variantColor,
-              variantFontFamily,
-              underRtTranslateYPx,
-            )}
-          >
-            {seg.variantForm}
-          </rt>
-        ) : null;
+    // Three structural cases — picked deliberately to keep every
+    // <ruby> at single-rt for cross-browser ruby-position reliability.
+    //
+    //   1. reading only            → flat <ruby>{base}<rt over/></ruby>
+    //   2. variantForm only        → flat <ruby>{base}<rt under/></ruby>
+    //   3. both                    → nested: outer ruby holds under-rt,
+    //                                inner ruby holds base + over-rt.
+    const overRt = seg.reading ? (
+      <rt style={overRtStyle(rtFontPx, color, fontFamily)}>{seg.reading}</rt>
+    ) : null;
+    const underRt = seg.variantForm ? (
+      <rt
+        style={underRtStyle(
+          rtFontPx,
+          variantColor,
+          variantFontFamily,
+          underRtTranslateYPx,
+        )}
+      >
+        {seg.variantForm}
+      </rt>
+    ) : null;
 
-        if (overRt && underRt) {
-          return (
-            <ruby key={i}>
-              <ruby>
-                {baseEl}
-                {overRt}
-              </ruby>
-              {underRt}
-            </ruby>
-          );
-        }
-        if (overRt) {
-          return (
-            <ruby key={i}>
-              {baseEl}
-              {overRt}
-            </ruby>
-          );
-        }
-        if (underRt) {
-          return (
-            <ruby key={i}>
-              {baseEl}
-              {underRt}
-            </ruby>
-          );
-        }
-        // No annotation work after all — render the base as a plain
-        // span (preserves the highlight color if applied).
-        return <span key={i}>{baseEl}</span>;
-      })}
-    </>
-  );
+    if (overRt && underRt) {
+      return (
+        <ruby key={i}>
+          <ruby>
+            {baseEl}
+            {overRt}
+          </ruby>
+          {underRt}
+        </ruby>
+      );
+    }
+    if (overRt) {
+      return (
+        <ruby key={i}>
+          {baseEl}
+          {overRt}
+        </ruby>
+      );
+    }
+    if (underRt) {
+      return (
+        <ruby key={i}>
+          {baseEl}
+          {underRt}
+        </ruby>
+      );
+    }
+    // No annotation work after all — render the base as a plain
+    // span (preserves the highlight color if applied).
+    return <span key={i}>{baseEl}</span>;
+  });
+
+  // Word-level grouping for per-word vocab lookup (VOCAB_LOOKUP.md Phase 2).
+  // Only when interactive (video PAUSED) AND tokens are present — otherwise
+  // render the flat segment flow exactly as before (zero playback-time
+  // change: no wrappers, no pointer-events, no handlers).
+  if (!interactive || !tokens || tokens.length === 0) {
+    return <>{els}</>;
+  }
+  const out = planWordGroups(els.length, tokens).map((run) => {
+    if (run.kind === "loose") return els[run.index];
+    const tok = run.token;
+    return (
+      <span
+        key={`w${run.start}`}
+        className="loom-vocab-word"
+        style={{ pointerEvents: "auto", cursor: "pointer" }}
+        {...swallowPlayerEventsExceptClick}
+        onClick={(e) => {
+          stopToPlayer(e);
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          onWordClick?.(tok.word, tok.lemma ?? tok.word, rect);
+        }}
+      >
+        {els.slice(run.start, run.start + run.length)}
+      </span>
+    );
+  });
+  return <>{out}</>;
 }
 
 function overRtStyle(

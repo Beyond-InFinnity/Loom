@@ -37,18 +37,25 @@ interface BuildOptions {
    *  the language has no resolved variant OR the user disabled the
    *  feature in the settings panel. */
   variantTable: OrthographyTable | null;
+  /** Coalesce consecutive non-annotated spans into one plain segment
+   *  (default true — fewer DOM nodes).  MUST be false when the caller
+   *  groups segments into clickable WORDS by span index (per-word vocab
+   *  lookup): coalescing makes segment index != span index, which would
+   *  mis-wrap tokens after a punctuation/kana run.  Only the target line
+   *  while paused sets this false, so playback keeps the coalesced path. */
+  coalescePlain?: boolean;
 }
 
 /** Returns RichSegment[] for one layer's current event.  Empty array
  * when both spans and rawText are empty/absent. */
 export function buildRichSegments(opts: BuildOptions): RichSegment[] {
-  const { spans, rawText, variantTable } = opts;
+  const { spans, rawText, variantTable, coalescePlain = true } = opts;
 
   if (spans !== null && spans.length > 0) {
-    return mergeSpansWithTable(spans, variantTable);
+    return mergeSpansWithTable(spans, variantTable, coalescePlain);
   }
   if (variantTable !== null && rawText.length > 0) {
-    return walkRawTextWithTable(rawText, variantTable);
+    return walkRawTextWithTable(rawText, variantTable, coalescePlain);
   }
   if (rawText.length > 0) {
     return [{ kind: "plain", text: rawText }];
@@ -59,6 +66,7 @@ export function buildRichSegments(opts: BuildOptions): RichSegment[] {
 function mergeSpansWithTable(
   spans: AnnotateSpan[],
   variantTable: OrthographyTable | null,
+  coalescePlain: boolean,
 ): RichSegment[] {
   const out: RichSegment[] = [];
   for (const span of spans) {
@@ -74,8 +82,9 @@ function mergeSpansWithTable(
     if (variantEntry === null && reading === null) {
       // No annotation work at all → plain run.  Coalesce with previous
       // plain segment to avoid DOM fragmentation when MeCab/Jieba
-      // emitted multiple consecutive non-annotated tokens.
-      appendPlain(out, span.base);
+      // emitted multiple consecutive non-annotated tokens — UNLESS the
+      // caller needs 1 segment : 1 span for word grouping.
+      appendPlain(out, span.base, coalescePlain);
       continue;
     }
 
@@ -97,13 +106,14 @@ function mergeSpansWithTable(
 function walkRawTextWithTable(
   rawText: string,
   variantTable: OrthographyTable,
+  coalescePlain: boolean,
 ): RichSegment[] {
   const out: RichSegment[] = [];
   // Walk by codepoint so surrogate-pair CJK chars stay intact.
   for (const ch of rawText) {
     const entry = variantTable[ch] ?? null;
     if (entry === null) {
-      appendPlain(out, ch);
+      appendPlain(out, ch, coalescePlain);
       continue;
     }
     out.push({
@@ -117,11 +127,17 @@ function walkRawTextWithTable(
   return out;
 }
 
-function appendPlain(out: RichSegment[], text: string): void {
-  const last = out[out.length - 1];
-  if (last && last.kind === "plain") {
-    last.text += text;
-    return;
+function appendPlain(
+  out: RichSegment[],
+  text: string,
+  coalesce: boolean,
+): void {
+  if (coalesce) {
+    const last = out[out.length - 1];
+    if (last && last.kind === "plain") {
+      last.text += text;
+      return;
+    }
   }
   out.push({ kind: "plain", text });
 }

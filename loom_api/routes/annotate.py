@@ -24,7 +24,7 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import build_annotation_html, engine_version
+from loom_core.romanize import build_annotation_html, build_word_tokens, engine_version
 from loom_core.styles import get_lang_config
 
 from ..deps import get_result_cache
@@ -70,8 +70,47 @@ class AnnotateSpan(BaseModel):
     reading: Optional[str] = None
 
 
+class AnnotateToken(BaseModel):
+    """Word-level grouping over `spans` for per-word vocab lookup
+    (VOCAB_LOOKUP.md Phase 0).  `spans[start:start+length]` compose the word.
+    Only Japanese + Chinese populate this; other languages return []."""
+
+    word: str = Field(..., description="The clickable word surface form.")
+    lemma: Optional[str] = Field(None, description="Dictionary form for /define (JA); null → use word.")
+    pos: list[str] = Field(default_factory=list, description="Part-of-speech tags (JA); [] for ZH.")
+    start: int = Field(..., description="Index into `spans` where this word begins.")
+    length: int = Field(..., description="Number of spans this word covers.")
+
+
+def _tokens_to_cache(raw_tokens: list) -> list:
+    """Serialize (word, lemma, pos, start, length) tuples for the cache JSON."""
+    return [[w, lemma, list(pos), start, length] for (w, lemma, pos, start, length) in raw_tokens]
+
+
+def _tokens_from_cache(val) -> list:
+    """Parse cached token rows back to tuples; tolerant of malformed entries."""
+    if not isinstance(val, list):
+        return []
+    out = []
+    for t in val:
+        try:
+            w, lemma, pos, start, length = t
+            out.append((w, lemma, list(pos) if pos else [], int(start), int(length)))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def _to_tokens(raw_tokens: list) -> list:
+    return [
+        AnnotateToken(word=w, lemma=lemma, pos=pos, start=start, length=length)
+        for (w, lemma, pos, start, length) in raw_tokens
+    ]
+
+
 class AnnotateResponse(BaseModel):
     spans: list[AnnotateSpan]
+    tokens: list[AnnotateToken] = Field(default_factory=list)
     html: str
     render_mode: str
     annotation_system_name: str
@@ -110,8 +149,10 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
     hit = cache.get_many([key]).get(key)
     if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
         raw_spans = [(s[0], s[1]) for s in hit["spans"]]
+        raw_tokens = _tokens_from_cache(hit.get("tokens"))
     else:
         raw_spans = annotation_func(norm)
+        raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
         cache.put_many(
             [
                 CacheRow(
@@ -122,7 +163,10 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
                     mode="-",
                     engine_version=eng_ver,
                     input_text=norm,
-                    output={"spans": [[base, reading] for base, reading in raw_spans]},
+                    output={
+                        "spans": [[base, reading] for base, reading in raw_spans],
+                        "tokens": _tokens_to_cache(raw_tokens),
+                    },
                 )
             ]
         )
@@ -131,6 +175,7 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
 
     return AnnotateResponse(
         spans=spans,
+        tokens=_to_tokens(raw_tokens),
         html=html,
         render_mode=mode,
         annotation_system_name=cfg.get("annotation_system_name", "Annotation"),
@@ -187,6 +232,7 @@ class AnnotateBatchItem(BaseModel):
     batch and lives at the response root."""
 
     spans: list[AnnotateSpan]
+    tokens: list[AnnotateToken] = Field(default_factory=list)
     html: str
 
 
@@ -239,15 +285,20 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
                 unique[norm] = cache_key("annotate", req.lang_code, system_name, "-", eng_ver, norm)
 
     found = cache.get_many(list(unique.values())) if unique else {}
-    span_values: dict[str, list] = {}  # normalized text -> raw spans [(base, reading), ...]
+    # normalized text -> (raw spans [(base, reading), ...], raw tokens)
+    computed: dict[str, tuple[list, list]] = {}
     new_rows: list[CacheRow] = []
     for norm, key in unique.items():
         hit = found.get(key)
         if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
-            span_values[norm] = [(s[0], s[1]) for s in hit["spans"]]
+            computed[norm] = (
+                [(s[0], s[1]) for s in hit["spans"]],
+                _tokens_from_cache(hit.get("tokens")),
+            )
             continue
         raw_spans = annotation_func(norm)
-        span_values[norm] = raw_spans
+        raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
+        computed[norm] = (raw_spans, raw_tokens)
         new_rows.append(
             CacheRow(
                 key=key,
@@ -257,7 +308,10 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
                 mode="-",
                 engine_version=eng_ver,
                 input_text=norm,
-                output={"spans": [[base, reading] for base, reading in raw_spans]},
+                output={
+                    "spans": [[base, reading] for base, reading in raw_spans],
+                    "tokens": _tokens_to_cache(raw_tokens),
+                },
             )
         )
     if new_rows:
@@ -275,13 +329,13 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
     results: list[AnnotateBatchItem] = []
     for text in req.texts:
         if not _computable(text):
-            results.append(AnnotateBatchItem(spans=[], html=""))
+            results.append(AnnotateBatchItem(spans=[], html="", tokens=[]))
             continue
 
-        raw_spans = span_values[normalize_text(text)]
+        raw_spans, raw_tokens = computed[normalize_text(text)]
         spans = [AnnotateSpan(base=base, reading=reading) for base, reading in raw_spans]
         html = build_annotation_html(raw_spans, mode=mode)
-        results.append(AnnotateBatchItem(spans=spans, html=html))
+        results.append(AnnotateBatchItem(spans=spans, html=html, tokens=_to_tokens(raw_tokens)))
 
     return AnnotateBatchResponse(
         results=results,

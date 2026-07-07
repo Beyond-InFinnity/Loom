@@ -224,14 +224,27 @@ response: { lang, results: [ { word, found,
 
 ## 8. Phasing
 
-- **Phase 0 — backend tokens:** 🔲 emit word tokens; expose JA lemma/POS; jieba grouping for ZH.
-  Bump annotate `engine_version`.
+- **Phase 0 — backend tokens:** ✅ DONE 2026-07-08. `/annotate` + `/annotate/batch` now return a
+  `tokens` array alongside `spans` — each `{word, lemma?, pos[], start, length}` where
+  `spans[start:start+length]` compose the word (`loom_api/routes/annotate.py`). Production in
+  `loom_core.romanize.build_word_tokens`: **JA** carries the MeCab lemma+POS (1 token : 1 span;
+  UniDic `私-代名詞` disambiguator suffix stripped so JMdict lookup hits; inflected 見た→lemma 見る)
+  via a per-span metadata stash on `resolve_spans`; **ZH** (all variants) groups the atomic
+  per-char spans by jieba words (`_jieba_words`, incl. the Traditional→Simplified boundary
+  round-trip), exact char-count alignment. Other langs return `[]` (Korean = Phase 3). Cache:
+  `{spans, tokens}` cached together, `ENGINE_VERSIONS` bumped ja/zh/yue→2 so old spans-only rows
+  don't serve token-less results. `@loom/api-client` regenerated (additive). Tests:
+  `tests/test_annotate_tokens.py` (11, incl. the span-alignment invariant). Extension + api-client
+  tsc clean.
 - **Phase 1 — backend dictionaries:** 🟡 IN PROGRESS.
   ✅ parser (`scripts/ingest_dictionaries.py`, validated 502k rows); ✅ `/define/batch` + store +
-  tests (`loom_api/dictionary.py` / `routes/define.py`, 21 tests green). 🔲 **run the real Postgres
-  ingest** (full `jmdict-eng` + CC-CEDICT into `dictionary_entry`) against a DB, then live-verify
-  `/define` end-to-end (per the caption-verification posture, the SQL's real acceptance test is the
-  first live run).
+  tests (`loom_api/dictionary.py` / `routes/define.py`, 21 tests green); ✅ **local Postgres ingest
+  + lookup validated 2026-07-08** — 502,656 rows loaded in 21s (ja/jmdict 300,268 + zh/cc-cedict
+  202,388), `PostgresDictionaryStore.lookup` confirmed live incl. the kana→`reading` path (たべる
+  found) and 6-sense merge (吃); batch of 5 in 0.7ms. ✅ **Railway ingest + prod deploy DONE
+  2026-07-08** — 502,656 rows loaded into the prod Postgres (neighbors untouched: cache 54,816 /
+  corpus_line 53,605), `/define` deployed to `main`, and `POST api.loom.nerv-analytic.ai/define/batch`
+  smoke-tested live (食べる 2 senses + POS, kana たべる, zh 吃/你好). **Phase 1 COMPLETE.**
 - **Phase 2 — extension UX:** 🔲 consume tokens; pause-gated hover-glow; click → card (JA + ZH).
 - **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
   then reuse the Phase 2 UX.

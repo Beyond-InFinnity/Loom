@@ -432,6 +432,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/define/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Define Batch */
+        post: operations["define_batch_define_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -467,6 +484,8 @@ export interface components {
         AnnotateBatchItem: {
             /** Spans */
             spans: components["schemas"]["AnnotateSpan"][];
+            /** Tokens */
+            tokens?: components["schemas"]["AnnotateToken"][];
             /** Html */
             html: string;
         };
@@ -546,6 +565,8 @@ export interface components {
         AnnotateResponse: {
             /** Spans */
             spans: components["schemas"]["AnnotateSpan"][];
+            /** Tokens */
+            tokens?: components["schemas"]["AnnotateToken"][];
             /** Html */
             html: string;
             /** Render Mode */
@@ -561,6 +582,39 @@ export interface components {
             base: string;
             /** Reading */
             reading?: string | null;
+        };
+        /**
+         * AnnotateToken
+         * @description Word-level grouping over `spans` for per-word vocab lookup
+         *     (VOCAB_LOOKUP.md Phase 0).  `spans[start:start+length]` compose the word.
+         *     Only Japanese + Chinese populate this; other languages return [].
+         */
+        AnnotateToken: {
+            /**
+             * Word
+             * @description The clickable word surface form.
+             */
+            word: string;
+            /**
+             * Lemma
+             * @description Dictionary form for /define (JA); null → use word.
+             */
+            lemma?: string | null;
+            /**
+             * Pos
+             * @description Part-of-speech tags (JA); [] for ZH.
+             */
+            pos?: string[];
+            /**
+             * Start
+             * @description Index into `spans` where this word begins.
+             */
+            start: number;
+            /**
+             * Length
+             * @description Number of spans this word covers.
+             */
+            length: number;
         };
         /** AnnotationLayerStyle */
         AnnotationLayerStyle: {
@@ -935,6 +989,66 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /** DefineRequest */
+        DefineRequest: {
+            /**
+             * Lang
+             * @description Base language of the words: 'ja' | 'zh'.
+             */
+            lang: string;
+            /**
+             * Words
+             * @description Lemmas/surface forms to define (from the annotate tokens).
+             */
+            words: string[];
+        };
+        /** DefineResponse */
+        DefineResponse: {
+            /** Lang */
+            lang: string;
+            /** Results */
+            results: components["schemas"]["DefineResult"][];
+        };
+        /** DefineResult */
+        DefineResult: {
+            /**
+             * Word
+             * @description The requested word, echoed back.
+             */
+            word: string;
+            /** Found */
+            found: boolean;
+            /**
+             * Reading
+             * @description Reading/pronunciation (kana / numbered pinyin).
+             */
+            reading?: string | null;
+            /** Senses */
+            senses?: components["schemas"]["DefineSense"][];
+            /**
+             * Sources
+             * @description e.g. ['jmdict'] / ['cc-cedict'].
+             */
+            sources?: string[];
+        };
+        /** DefineSense */
+        DefineSense: {
+            /**
+             * Gloss
+             * @description Glosses for this sense (synonyms kept as given).
+             */
+            gloss: string[];
+            /**
+             * Pos
+             * @description Part-of-speech tags (JMdict; empty for CC-CEDICT).
+             */
+            pos?: string[];
+            /**
+             * Misc
+             * @description Misc/usage tags (e.g. 'usually kana').
+             */
+            misc?: string[];
         };
         /** DetectLanguageResponse */
         DetectLanguageResponse: {
@@ -2561,6 +2675,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorpusCaptureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    define_batch_define_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefineRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefineResponse"];
                 };
             };
             /** @description Validation Error */

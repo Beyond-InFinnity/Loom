@@ -920,6 +920,47 @@
           }
         }
       }
+    },
+    "/define/batch": {
+      "post": {
+        "tags": [
+          "define"
+        ],
+        "summary": "Define Batch",
+        "operationId": "define_batch_define_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefineResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -975,6 +1016,13 @@
             },
             "type": "array",
             "title": "Spans"
+          },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotateToken"
+            },
+            "type": "array",
+            "title": "Tokens"
           },
           "html": {
             "type": "string",
@@ -1135,6 +1183,13 @@
             "type": "array",
             "title": "Spans"
           },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotateToken"
+            },
+            "type": "array",
+            "title": "Tokens"
+          },
           "html": {
             "type": "string",
             "title": "Html"
@@ -1185,6 +1240,53 @@
           "base"
         ],
         "title": "AnnotateSpan"
+      },
+      "AnnotateToken": {
+        "properties": {
+          "word": {
+            "type": "string",
+            "title": "Word",
+            "description": "The clickable word surface form."
+          },
+          "lemma": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lemma",
+            "description": "Dictionary form for /define (JA); null \u2192 use word."
+          },
+          "pos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pos",
+            "description": "Part-of-speech tags (JA); [] for ZH."
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start",
+            "description": "Index into `spans` where this word begins."
+          },
+          "length": {
+            "type": "integer",
+            "title": "Length",
+            "description": "Number of spans this word covers."
+          }
+        },
+        "type": "object",
+        "required": [
+          "word",
+          "start",
+          "length"
+        ],
+        "title": "AnnotateToken",
+        "description": "Word-level grouping over `spans` for per-word vocab lookup\n(VOCAB_LOOKUP.md Phase 0).  `spans[start:start+length]` compose the word.\nOnly Japanese + Chinese populate this; other languages return []."
       },
       "AnnotationLayerStyle": {
         "properties": {
@@ -1745,6 +1847,131 @@
           "stored"
         ],
         "title": "CorpusCaptureResponse"
+      },
+      "DefineRequest": {
+        "properties": {
+          "lang": {
+            "type": "string",
+            "maxLength": 35,
+            "title": "Lang",
+            "description": "Base language of the words: 'ja' | 'zh'."
+          },
+          "words": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Words",
+            "description": "Lemmas/surface forms to define (from the annotate tokens)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "lang",
+          "words"
+        ],
+        "title": "DefineRequest"
+      },
+      "DefineResponse": {
+        "properties": {
+          "lang": {
+            "type": "string",
+            "title": "Lang"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/DefineResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lang",
+          "results"
+        ],
+        "title": "DefineResponse"
+      },
+      "DefineResult": {
+        "properties": {
+          "word": {
+            "type": "string",
+            "title": "Word",
+            "description": "The requested word, echoed back."
+          },
+          "found": {
+            "type": "boolean",
+            "title": "Found"
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading",
+            "description": "Reading/pronunciation (kana / numbered pinyin)."
+          },
+          "senses": {
+            "items": {
+              "$ref": "#/components/schemas/DefineSense"
+            },
+            "type": "array",
+            "title": "Senses"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "e.g. ['jmdict'] / ['cc-cedict']."
+          }
+        },
+        "type": "object",
+        "required": [
+          "word",
+          "found"
+        ],
+        "title": "DefineResult"
+      },
+      "DefineSense": {
+        "properties": {
+          "gloss": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Gloss",
+            "description": "Glosses for this sense (synonyms kept as given)."
+          },
+          "pos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pos",
+            "description": "Part-of-speech tags (JMdict; empty for CC-CEDICT)."
+          },
+          "misc": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Misc",
+            "description": "Misc/usage tags (e.g. 'usually kana')."
+          }
+        },
+        "type": "object",
+        "required": [
+          "gloss"
+        ],
+        "title": "DefineSense"
       },
       "DetectLanguageResponse": {
         "properties": {

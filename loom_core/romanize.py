@@ -77,7 +77,14 @@ import re
 _ENGINE_VERSION_DEFAULT = 1
 ENGINE_VERSIONS: dict[str, int] = {
     # primary lang code -> version; unlisted languages use the default.
-    # "ja": 1, "zh": 1, "yue": 1, "ko": 1, "th": 1, "he": 1, "ar": 1, ...
+    # Bumped to 2 for ja/zh/yue when /annotate gained word-level `tokens`
+    # (VOCAB_LOOKUP.md Phase 0): old cache rows hold spans-only annotate output,
+    # so the key must change or they'd serve token-less results forever. The
+    # version is shared with romanize (same key function) — those langs just
+    # recompute once on next request; harmless.
+    "ja": 2,
+    "zh": 2,
+    "yue": 2,
 }
 
 
@@ -930,6 +937,7 @@ def _make_japanese_pipeline():
 
         # Phase 3: Build spans + compute romaji metadata
         result = []
+        token_meta = []  # per-span (lemma, pos1) for word-level vocab tokens
         particle_ha = set()
         merge_mask = []
 
@@ -970,6 +978,12 @@ def _make_japanese_pipeline():
                 else:
                     result.append((surface, None))
 
+            # Per-span token metadata (dictionary lemma + POS) — appended once
+            # per iteration so it stays 1:1 with `result`. Consumed by
+            # build_word_tokens() for the /annotate `tokens` field; stashed in
+            # the closure like merge_mask/particle_ha (VOCAB_LOOKUP.md Phase 0).
+            token_meta.append((lemma or None, pos1 or ''))
+
             # Compute merge mask for romaji
             should_merge = False
             if idx + 1 < len(tokens):
@@ -980,6 +994,7 @@ def _make_japanese_pipeline():
 
         _romaji_meta['merge_mask'] = merge_mask
         _romaji_meta['particle_ha'] = particle_ha
+        _romaji_meta['token_meta'] = token_meta
         return result
 
     def spans_to_romaji(spans: list, long_vowel_mode: str = "macrons") -> str:
@@ -1023,6 +1038,11 @@ def _make_japanese_pipeline():
         romaji_parts = [_kana_to_romaji(k, long_vowel_mode) for k in merged]
         raw = ' '.join(p for p in romaji_parts if p.strip())
         return _polish_romaji(_clean_speaker_labels(raw), capitalize=True)
+
+    # Expose the per-span token metadata from the LAST resolve_spans call as a
+    # function attribute — non-breaking for the (resolve_spans, spans_to_romaji)
+    # callers, read by build_word_tokens() right after it calls resolve_spans.
+    resolve_spans._loom_token_meta = lambda: _romaji_meta.get('token_meta', [])
 
     return resolve_spans, spans_to_romaji
 
@@ -2876,6 +2896,118 @@ def get_annotation_func(lang_code: str, system: str = None):
         return _make_brahmic_annotation_func(primary)
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Word-level tokens for per-word vocab lookup (VOCAB_LOOKUP.md Phase 0)
+# ---------------------------------------------------------------------------
+# get_annotation_func() produces per-token (Japanese) / per-character (Chinese)
+# annotation SPANS.  build_word_tokens() groups those spans into WORDS — the
+# clickable unit for the /define dictionary lookup — carrying the dictionary
+# lemma + POS the JA pipeline already computes, and the jieba word boundaries
+# the ZH romanizer already knows.  Only Japanese and Chinese (all variants)
+# produce tokens; every other language returns [] (Korean is Phase 3).
+#
+# A token is a 5-tuple: (word, lemma_or_None, pos_list, span_start, span_length)
+# where spans[span_start : span_start + span_length] compose the word.
+
+_t2s_converter = None
+
+
+def _get_t2s():
+    """Lazily-built, cached OpenCC Traditional→Simplified converter (jieba's
+    dict is Simplified-oriented).  Cached so per-line token building across a
+    batch doesn't reconstruct it each call."""
+    global _t2s_converter
+    if _t2s_converter is None:
+        import opencc  # lazy
+        _t2s_converter = opencc.OpenCC('t2s')
+    return _t2s_converter
+
+
+def _jieba_words(clean: str, *, traditional: bool = False) -> list:
+    """Word boundaries for `clean` as surface slices of the ORIGINAL text.
+
+    Mirrors the segmentation inside _make_pinyin_romanizer (incl. the
+    Traditional→Simplified round-trip that maps boundaries back onto the
+    original characters) but kept SEPARATE so the live romanize output is never
+    touched.  Concatenation of the returned words == `clean`."""
+    if not clean:
+        return []
+    import jieba  # lazy
+    import logging as _logging
+    _logging.getLogger('jieba').setLevel(_logging.WARNING)
+    if traditional:
+        simplified = _get_t2s().convert(clean)
+        seg = list(jieba.cut(simplified))
+        words = []
+        pos = 0
+        for sw in seg:
+            words.append(clean[pos:pos + len(sw)])
+            pos += len(sw)
+        return words
+    return list(jieba.cut(clean))
+
+
+def _is_lookupable_word(s: str) -> bool:
+    """True for a word worth a dictionary affordance — excludes pure
+    punctuation / whitespace runs (which get no clickable token)."""
+    return any(c.isalnum() or _is_cjk(c) for c in s)
+
+
+def _japanese_tokens(spans: list, annotation_func) -> list:
+    """1 token : 1 span — Japanese annotation spans are already MeCab words.
+    Reads lemma/POS from the func's stashed per-span metadata."""
+    meta_fn = getattr(annotation_func, "_loom_token_meta", None)
+    meta = meta_fn() if callable(meta_fn) else []
+    tokens = []
+    for i, (surface, _reading) in enumerate(spans):
+        if not _is_lookupable_word(surface):
+            continue
+        lemma, pos = meta[i] if i < len(meta) else (None, '')
+        # UniDic lemmas sometimes carry a '-<disambiguator>' suffix (私 → 私-代名詞)
+        # that would miss a JMdict headword lookup; strip it (real Japanese
+        # lemmas contain no ASCII hyphen). Fall back to the surface form.
+        if lemma:
+            lemma = lemma.split('-', 1)[0] or None
+        tokens.append((surface, lemma or None, [pos] if pos else [], i, 1))
+    return tokens
+
+
+_TRADITIONAL_LANGS = {"zh-hant", "zh-tw", "zh-hk", "yue", "zh-yue"}
+
+
+def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
+    """Group per-character Chinese spans into jieba words.  Spans are atomic
+    characters over _strip_ass(text), so a jieba word of N chars maps to N
+    consecutive spans — exact alignment, no sub-span boundary risk."""
+    clean = _strip_ass(text)
+    if len(spans) != len(clean):
+        return []  # alignment broken (unexpected) — omit tokens, don't mis-map
+    traditional = (lang_code or "").lower() in _TRADITIONAL_LANGS
+    tokens = []
+    offset = 0
+    for w in _jieba_words(clean, traditional=traditional):
+        n = len(w)
+        if n and _is_lookupable_word(w):
+            tokens.append((w, w, [], offset, n))  # no inflection: lemma == word
+        offset += n
+    return tokens
+
+
+def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
+    """Word-level tokens over the annotation `spans` (VOCAB_LOOKUP.md Phase 0).
+
+    `spans` and `annotation_func` are the ones the caller already computed via
+    get_annotation_func()/get_lang_config — reused here so token and span
+    boundaries can't diverge.  Returns [] for every language except Japanese
+    and Chinese."""
+    primary = (lang_code or "").lower().split("-")[0].split("_")[0]
+    if primary == "ja":
+        return _japanese_tokens(spans, annotation_func)
+    if primary in ("zh", "yue"):
+        return _chinese_tokens(text, spans, lang_code)
+    return []
 
 
 def get_japanese_pipeline():

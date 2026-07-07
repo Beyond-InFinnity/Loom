@@ -89,32 +89,47 @@ export default defineContentScript({
     // remove() a stale mount before re-mounting (no duplicate React root).
     let mountedTo: HTMLElement | null = null;
     const ensureMount = () => {
-      // STABILITY: keep the current mount as long as its surface is still
-      // in the DOM and hosts our shadow host.  Deliberately NOT gated on
-      // size — Prime transiently resizes / restructures the video-surface
-      // (pausing shows chrome, the surface can briefly shrink), and an
-      // isSized() gate here made those transients tear the overlay down and
-      // then fail to remount ("worked, then disappeared, won't come back").
-      // We only re-resolve when the mounted surface is actually GONE.
+      // Resolve the REAL content surface (longest-duration video — the
+      // episode, never the ~30s autoplay preview Prime shows on an equally
+      // large surface while buffering; see resolvePrimePlayerSurface).
+      const target = resolvePrimeAnchor();
+
+      // Already correctly mounted on the resolved target?  Nothing to do.
+      // The gate is IDENTITY (mountedTo === target), not mere connectedness:
+      // the previous "keep while connected" rule clung to the paused,
+      // hidden preview-trailer surface forever once the real episode spun
+      // up on a DIFFERENT surface, so the pill+subs never appeared on the
+      // episode ("worked on the trailer, dead on the show").  Migrating on
+      // identity change is safe from thrash because duration is stable —
+      // the episode surface stays the longest-duration one, so once we land
+      // on it target stops changing.
       if (
-        mountedTo &&
+        target &&
+        mountedTo === target &&
         mountedTo.isConnected &&
         ui.shadowHost?.isConnected &&
         mountedTo.contains(ui.shadowHost)
       ) {
         return;
       }
-      const anchor = resolvePrimeAnchor();
-      if (!anchor) {
+
+      if (!target) {
         if (mountedTo) {
-          logDev("[Loom] Prime reconcile: mounted surface gone, no replacement yet — unmounting");
-          ui.remove();
+          logDev("[Loom] Prime reconcile: no content surface — unmounting");
+          try {
+            ui.remove();
+          } catch {
+            /* tolerate a half-torn-down state */
+          }
           mountedTo = null;
         }
         return;
       }
+
+      // First mount, OR migrate off a stale surface (preview→episode swap,
+      // or the mounted surface was torn down and rebuilt).
       if (mountedTo) {
-        logDev("[Loom] Prime reconcile: surface replaced — remounting on new one");
+        logDev("[Loom] Prime reconcile: migrating overlay to the content surface");
         try {
           ui.remove();
         } catch {
@@ -123,8 +138,17 @@ export default defineContentScript({
         mountedTo = null;
       }
       ui.mount();
-      mountedTo = anchor;
-      console.info("[Loom PRIME ISO] MOUNTED on surface", anchor.getBoundingClientRect().width + "x" + anchor.getBoundingClientRect().height);
+      mountedTo = target;
+      const r = target.getBoundingClientRect();
+      const v = target.querySelector("video");
+      console.info(
+        "[Loom PRIME ISO] MOUNTED on surface",
+        `${Math.round(r.width)}x${Math.round(r.height)}`,
+        "dur=",
+        v && Number.isFinite((v as HTMLVideoElement).duration)
+          ? Math.round((v as HTMLVideoElement).duration)
+          : "NaN",
+      );
     };
 
     // GROUND-TRUTH HEARTBEAT (unconditional).  Every ~2s report the exact

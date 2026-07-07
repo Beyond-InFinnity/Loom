@@ -29,22 +29,34 @@ export const PRIME_PLAYER_ROOT = ".atvwebplayersdk-video-surface";
     mounts on.) */
 export const PRIME_VIDEO_SELECTOR = ".atvwebplayersdk-video-surface video";
 
-/** The REAL player surface: the LARGEST sized `.atvwebplayersdk-video-
-    surface` that holds a <video>.  Prime keeps a hidden 0x0 preview
-    surface (and sometimes a small background-preview one) alongside the
-    playing surface, so "largest with a video" is the reliable pick.  null
-    until one exists.  Shared by BOTH the overlay anchor and the playhead
-    video binding so they can't diverge onto different <video> elements —
-    the divergence that left the playhead on an empty (duration=NaN)
-    placeholder while the overlay mounted on the real player. */
+/** The REAL player surface: the sized `.atvwebplayersdk-video-surface`
+    whose <video> is the actual CONTENT, not a preview/trailer.
+    Discriminator = LONGEST video duration.  (Heartbeat 2026-07-07: while
+    the episode buffers Prime autoplays a ~30s preview on a full-size
+    surface, then spins the real ~6000s episode up on a SEPARATE, nearly
+    identically-sized surface.  "Largest area" can't tell them apart — the
+    two surfaces are within 5% area — but their durations differ ~200×.)
+    Duration is pause-invariant, so pausing the episode doesn't flip the
+    pick back to the trailer.  Ties (both durations unknown early on) fall
+    back to largest area.  null until a sized surface with a <video> exists.
+    Shared by BOTH the overlay anchor and the playhead video binding so
+    they can't diverge onto different surfaces. */
 export function resolvePrimePlayerSurface(): HTMLElement | null {
   let best: HTMLElement | null = null;
+  let bestDur = -1;
   let bestArea = 0;
   for (const el of document.querySelectorAll<HTMLElement>(PRIME_PLAYER_ROOT)) {
     const r = el.getBoundingClientRect();
     const area = r.width * r.height;
-    if (area >= 40000 && el.querySelector("video") && area > bestArea) {
+    if (area < 40000) continue;
+    const v = el.querySelector("video");
+    if (!v) continue;
+    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+    // Primary key: longest content (episode ≫ trailer).  Tie-break (both
+    // still loading, dur 0): largest area.
+    if (dur > bestDur || (dur === bestDur && area > bestArea)) {
       best = el;
+      bestDur = dur;
       bestArea = area;
     }
   }

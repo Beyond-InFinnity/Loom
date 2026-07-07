@@ -61,31 +61,78 @@ export default defineContentScript({
   },
 });
 
-/** One-shot live-recon aid: when a Prime player <video> appears, log its
-    ancestor chain + the classes on each level, so the real anchor / video /
-    native-caption selectors can be confirmed from the dev console in one
-    session (dev builds only).  Remove once selectors are verified. */
+/** One-shot live-recon aid (dev builds only): when Prime's player chrome
+    has mounted, dump the STABLE `atvwebplayersdk-*` skeleton so the real
+    anchor / video / native-caption selectors are confirmable from the
+    console in one session.  Waits until a controls/overlay element (not
+    just the video) is present, since the video surface mounts before the
+    chrome.  Remove once selectors are verified. */
 function probePlayerDomOnce(): void {
   let done = false;
-  const obs = new MutationObserver(() => {
+  const stableTokens = (el: Element): string =>
+    (typeof el.className === "string" ? el.className : "")
+      .trim()
+      .split(/\s+/)
+      .filter((c) => c.startsWith("atvwebplayersdk-"))
+      .join(".");
+
+  const tryProbe = (force = false): void => {
     if (done) return;
-    const video = document.querySelector("video");
-    if (!video) return;
+    const sdkEls = Array.from(
+      document.querySelectorAll('[class*="atvwebplayersdk-"]'),
+    );
+    // Fire once the skeleton is substantially mounted (≥3 sdk elements =
+    // more than the bare video surface).  A timed fallback (below) dumps
+    // whatever exists even if the chrome never enriches, so we always get
+    // output.
+    if (!force && sdkEls.length < 3) return;
+    if (sdkEls.length === 0) return;
     done = true;
     obs.disconnect();
+
+    // Every distinct atvwebplayersdk-* token present = the stable hooks.
+    const tokens = new Set<string>();
+    for (const el of sdkEls)
+      for (const c of stableTokens(el).split("."))
+        if (c) tokens.add(c);
+    logDev(
+      "[Loom PRIME probe] atvwebplayersdk tokens present:",
+      [...tokens].sort().join("  "),
+    );
+
+    // The video's ancestor chain, stable tokens only (per level) so the
+    // real anchor (the LCA of video + chrome) is visible.
     const chain: string[] = [];
-    let el: HTMLElement | null = video as HTMLElement;
-    for (let i = 0; el && i < 12; i++) {
-      const cls = el.className && typeof el.className === "string"
-        ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".")
-        : "";
-      chain.push(`${el.tagName.toLowerCase()}${cls}`);
+    let el: Element | null = document.querySelector("video");
+    for (let i = 0; el && i < 14; i++) {
+      const t = stableTokens(el);
+      chain.push(`${el.tagName.toLowerCase()}${t ? "." + t : ""}`);
       el = el.parentElement;
     }
-    logDev("[Loom PRIME probe] <video> ancestor chain:", chain.join("  <  "));
-  });
+    logDev("[Loom PRIME probe] video ancestors (stable tokens):", chain.join("  <  "));
+
+    // Hunt the native-caption element (only present while a native cue is
+    // showing) so the suppression CSS can be finalized.  Watches for any
+    // element whose class mentions caption/subtitle/timedtext.
+    const capEls = Array.from(
+      document.querySelectorAll(
+        '[class*="caption" i],[class*="subtitle" i],[class*="timedtext" i]',
+      ),
+    )
+      .map((e) => (typeof e.className === "string" ? e.className : ""))
+      .filter((c) => c.length > 0);
+    logDev(
+      "[Loom PRIME probe] caption-ish classes present:",
+      capEls.length > 0 ? capEls.join(" | ") : "(none showing — turn a native sub ON to reveal)",
+    );
+  };
+
+  const obs = new MutationObserver(() => tryProbe());
   obs.observe(document.documentElement, { childList: true, subtree: true });
-  // Give up after 60s so the observer doesn't linger for the tab's life.
+  tryProbe();
+  // Fallback: after 8s, dump whatever atvwebplayersdk-* elements exist even
+  // if the chrome never reached the ≥3 threshold, so we always get output.
+  setTimeout(() => tryProbe(true), 8000);
   setTimeout(() => {
     if (!done) obs.disconnect();
   }, 60000);

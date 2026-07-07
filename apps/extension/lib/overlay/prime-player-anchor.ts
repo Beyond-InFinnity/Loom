@@ -1,43 +1,44 @@
 // Prime Video overlay-anchor helpers — the Prime counterpart to
 // netflix-player-anchor.ts.
 //
-// ⚠️ SELECTORS ARE BEST-GUESS FROM RESEARCH, NOT LIVE-VERIFIED.  A HAR
-// carries no DOM, so — exactly like every prior platform — the real
-// selectors must be confirmed in a live dev-build session (the first-run
-// probe below logs the player subtree to make that a 2-minute check).
-// Prime's web player uses `atvwebplayersdk-*` class names; the historic
-// fullscreen container is `.webPlayerSDKContainer` (a descendant
-// `.atvwebplayersdk-overlays-container` holds the native captions +
-// control chrome).  Apply the platform-gate anchor rule: the anchor must
-// be the element that becomes fullscreen OR a descendant of it, and the
-// LCA of the <video> and the control chrome — NEVER a comma-list.
+// Selectors from the live DOM probe (2026-07-07).  Prime's player exposes
+// only a handful of STABLE `atvwebplayersdk-*` classes (the rest are
+// per-build hashes like `fk9ydtn` we can't anchor to).  Crucially, NO
+// single stable element holds BOTH the <video> and the control chrome:
+//   - `.atvwebplayersdk-video-surface`   holds the <video> (video layer)
+//   - `.atvwebplayersdk-player-container` holds the controls/overlays
+// and their common ancestor is a hash-classed <div> with no stable
+// selector.  So we anchor to the VIDEO SURFACE: it's stable, video-sized
+// (a good usePlayerScale reference), and inside the fullscreen subtree.
 //
-// TODO(live-recon): replace the guesses below with confirmed selectors.
-// Candidates to check, outermost→in:
-//   .dv-player-fullscreen  /  .webPlayerSDKContainer
-//   .atvwebplayersdk-overlays-container  (likely the LCA + fullscreen desc)
-//   video  (single MSE element)
-//   .atvwebplayersdk-captions-text / .f35jcaz  (native caption rail)
+// Tradeoff vs the Netflix LCA rule: because the controls live in a
+// SIBLING container (player-container) with its own stacking context, the
+// pill can be occluded WHILE the control chrome is up.  Prime's chrome
+// auto-hides on idle, so the pill is clickable the rest of the time —
+// acceptable for a first pass.  A later refinement can anchor to the
+// computed LCA via a function anchor if the occlusion proves annoying.
 
 /** Player root: overlay shadow-host anchor + usePlayerScale target.
-    Best-guess; verify live. */
-export const PRIME_PLAYER_ROOT = ".webPlayerSDKContainer";
+    The video-surface layer — stable, video-sized, inside fullscreen. */
+export const PRIME_PLAYER_ROOT = ".atvwebplayersdk-video-surface";
 
-/** The HTML5 <video> CaptionStream hooks for the playhead.  Prime uses a
-    single MSE <video>; scoping to the player container avoids matching any
-    stray preview video elsewhere on the SPA. */
-export const PRIME_VIDEO_SELECTOR = ".webPlayerSDKContainer video";
+/** The HTML5 <video> CaptionStream hooks for the playhead.  Scoped to the
+    video surface so a stray preview <video> elsewhere on the SPA can't
+    match. */
+export const PRIME_VIDEO_SELECTOR = ".atvwebplayersdk-video-surface video";
 
 const STYLE_ID = "loom-prime-caption-suppress";
 
-// Prime renders native captions into an overlay text node inside the
-// player SDK container.  Best-guess selectors; the class hashes rotate, so
-// we target by the stable data/-attr where possible and fall back to the
-// documented class.  Verify + tighten live.
+// Prime renders native captions into an overlay inside the player.  The
+// probe didn't surface a captions element (none was displaying), so this
+// targets the SDK's caption classes broadly by prefix; refine once the
+// live element is seen (the probe now logs it).  Harmless if it matches
+// nothing — Loom provides the subtitle track, so the native rail is
+// normally off anyway.
 const CSS = `
-.atvwebplayersdk-captions-overlay,
-.atvwebplayersdk-captions-text,
-[class*="atvwebplayersdk-captions"] { display: none !important; }
+[class*="atvwebplayersdk-captions"],
+[class*="atvwebplayersdk-subtitle"],
+[class*="atvwebplayersdk-timedtext"] { display: none !important; }
 `;
 
 export function hidePrimeCaptions(): void {

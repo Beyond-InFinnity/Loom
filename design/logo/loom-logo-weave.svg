@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 170" width="480" height="170">
+  <defs>
+    <linearGradient id="w_strand" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#7775D6"/>
+      <stop offset="0.7" stop-color="#9089fc"/>
+      <stop offset="1" stop-color="#a5b4fc"/>
+    </linearGradient>
+    <linearGradient id="w_gold" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#c9a84c"/>
+      <stop offset="1" stop-color="#eac48e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ===== woven mark: strands braid, then fray into gold sparks ===== -->
+  <g fill="none" stroke-linecap="round">
+    <!-- three strands crossing (the weave) -->
+    <path d="M58 150 C36 116 92 104 60 74" stroke="url(#w_strand)" stroke-width="11"/>
+    <path d="M92 150 C114 116 58 104 90 74" stroke="url(#w_strand)" stroke-width="11"/>
+    <path d="M75 150 C75 124 75 98 75 74" stroke="url(#w_strand)" stroke-width="11" opacity="0.9"/>
+
+    <!-- fray into scintillation sparks (gold dendrite tips) -->
+    <g stroke="url(#w_gold)" stroke-width="3.4">
+      <path d="M60 74 C54 56 46 44 40 30"/>
+      <path d="M60 74 C60 54 58 42 55 26"/>
+      <path d="M75 74 C75 52 73 40 71 24"/>
+      <path d="M75 74 C77 54 82 42 88 28"/>
+      <path d="M90 74 C96 56 104 46 112 32"/>
+      <path d="M90 74 C92 54 94 42 96 26"/>
+    </g>
+  </g>
+  <!-- spark tips -->
+  <g fill="#eac48e">
+    <circle cx="40" cy="30" r="3"/>
+    <circle cx="55" cy="26" r="2.6"/>
+    <circle cx="71" cy="24" r="3.2"/>
+    <circle cx="88" cy="28" r="2.6"/>
+    <circle cx="112" cy="32" r="3"/>
+    <circle cx="96" cy="26" r="2.4"/>
+  </g>
+
+  <!-- ===== wordmark (convert to outlines before shipping) ===== -->
+  <text x="172" y="112" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+        font-size="78" font-weight="700" letter-spacing="1" fill="#f0f6fc">Loom</text>
+</svg>

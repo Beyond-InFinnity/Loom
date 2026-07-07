@@ -1,0 +1,51 @@
+# Local Metabase for browsing the Loom corpus (Railway Postgres).
+# See README.md in this directory for the full runbook.
+#
+# Metabase's own application state (saved questions, dashboards, users,
+# connection settings) lives in the `metabase-db` Postgres container below —
+# NOT in the Railway corpus DB and NOT in Metabase's default embedded H2
+# file.  Using Postgres for app state from day one is what makes the
+# later "host it on Railway" move a plain pg_dump/pg_restore.
+#
+# Start:  docker compose up -d      (first boot pulls ~700 MB, takes ~1-2 min)
+# Open:   http://localhost:3000
+# Stop:   docker compose down       (state persists in the named volume)
+
+services:
+  metabase:
+    image: metabase/metabase:latest
+    container_name: loom-metabase
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase-local-appdb # app-state DB inside this compose network only; not the corpus DB
+      MB_DB_HOST: metabase-db
+      # Java heap cap — Metabase idles ~600 MB, this keeps it from ballooning.
+      JAVA_OPTS: "-Xmx1g"
+    depends_on:
+      metabase-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  metabase-db:
+    image: postgres:16-alpine
+    container_name: loom-metabase-db
+    environment:
+      POSTGRES_DB: metabase
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: metabase-local-appdb
+    volumes:
+      - metabase-appdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  metabase-appdb:

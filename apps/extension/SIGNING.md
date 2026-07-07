@@ -49,8 +49,20 @@ The prod manifest already declares the extension ID **`loom@nerv-analytic.ai`**
   if served with `Content-Type: application/x-xpinstall`. AMO's hosted download
   URL does this; if self-hosting at e.g. `loom.nerv-analytic.ai/loom.xpi`, set
   that header.
-- Unlisted builds aren't in AMO search — you share the file/URL. Auto-updates
-  still work via AMO's update manifest for the signed XPI.
+- Unlisted builds aren't in AMO search — you share the file/URL.
+- **⚠️ Self-distributed builds DO NOT auto-update.** AMO does not serve
+  updates for unlisted versions; a self-distributed XPI only updates if its
+  manifest carries `browser_specific_settings.gecko.update_url` pointing at a
+  self-hosted `updates.json` — ours never did. **Empirically confirmed
+  2026-07:** the 0.1.5/0.1.7 hub-XPI installs stayed pinned for a month of
+  daily use while store installs rolled forward (Firefox checks AMO ~daily,
+  Chrome/Brave the Web Store ~5-hourly — but only for STORE installs).
+  Consequence: any XPI handed out directly is stranded at that version until
+  the human reinstalls from the store. If self-distribution is ever needed
+  again (e.g. testers), add `update_url` first — but never on store builds
+  (AMO rejects listed versions carrying it).
+  (An earlier revision of this doc claimed AMO auto-updates unlisted builds —
+  that was wrong.)
 
 ## After it's installed — the Step-1 side-by-side check
 

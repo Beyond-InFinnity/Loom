@@ -196,14 +196,20 @@ export class CaptionStream {
   }
 
   async #waitForVideo(signal: AbortSignal): Promise<HTMLVideoElement | null> {
-    const selector =
-      getPlatform()?.videoSelector ?? FALLBACK_VIDEO_SELECTOR;
-    const existing = document.querySelector<HTMLVideoElement>(selector);
+    const platform = getPlatform();
+    const selector = platform?.videoSelector ?? FALLBACK_VIDEO_SELECTOR;
+    // A platform may supply a custom resolver (Prime: the largest real
+    // player surface's <video>, not a hidden preview placeholder).  Falls
+    // back to the first selector match for platforms without one.
+    const resolveVideo = (): HTMLVideoElement | null =>
+      platform?.resolveVideo?.() ??
+      document.querySelector<HTMLVideoElement>(selector);
+    const existing = resolveVideo();
     if (existing) return existing;
 
     return new Promise<HTMLVideoElement | null>((resolve) => {
       const observer = new MutationObserver(() => {
-        const video = document.querySelector<HTMLVideoElement>(selector);
+        const video = resolveVideo();
         if (video) {
           observer.disconnect();
           clearTimeout(timeoutId);

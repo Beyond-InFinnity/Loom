@@ -5,6 +5,7 @@ import { LoomApp } from "@/components/loom-app";
 import {
   PRIME_PLAYER_ROOT,
   ensureAnchorPositioned,
+  resolvePrimePlayerSurface,
 } from "@/lib/overlay/prime-player-anchor";
 
 // ISOLATED-world content script for Amazon Prime Video pages.
@@ -24,27 +25,10 @@ import {
 const ANCHOR_SELECTOR = PRIME_PLAYER_ROOT;
 const HOST_STYLE_ID = "loom-host-positioning";
 
-/** Resolve the REAL player surface to anchor to.  Prime silently mounts a
-    0x0 (hidden) video-surface on the detail page before the real player
-    swaps in, and can keep a small background-preview surface around — so a
-    bare querySelector races onto the wrong one (observed: mount on a 0x0
-    surface → invisible pill, dead playhead).  Pick the LARGEST sized
-    surface that actually holds a <video>: that's the playing player.  null
-    until one exists, so mounting waits for the real player. */
-function resolvePrimeAnchor(): HTMLElement | null {
-  let best: HTMLElement | null = null;
-  let bestArea = 0;
-  for (const el of document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR)) {
-    const r = el.getBoundingClientRect();
-    const area = r.width * r.height;
-    // ≥ 200x200 rules out the 0x0 preview + tiny thumbnails.
-    if (area >= 40000 && el.querySelector("video") && area > bestArea) {
-      best = el;
-      bestArea = area;
-    }
-  }
-  return best;
-}
+// The overlay anchors to the SAME surface the playhead binds to
+// (resolvePrimePlayerSurface, shared in prime-player-anchor.ts) — so they
+// can't diverge onto different <video> elements.  See that helper's header.
+const resolvePrimeAnchor = resolvePrimePlayerSurface;
 
 export default defineContentScript({
   // All of primevideo.com — the player is embedded on the detail page and
@@ -97,7 +81,26 @@ export default defineContentScript({
     // catches the pure-resize transition) fixes it.  Idempotent; always
     // remove() a stale mount before re-mounting (no duplicate React root).
     let mountedTo: HTMLElement | null = null;
+    const isSized = (el: HTMLElement): boolean => {
+      const r = el.getBoundingClientRect();
+      return r.width * r.height >= 40000;
+    };
     const ensureMount = () => {
+      // STABILITY: if the current mount is still valid — host connected,
+      // its surface still in the DOM + sized + containing our host — keep
+      // it.  Don't re-resolve to whichever surface is "largest" this tick;
+      // that caused remount thrash on Prime's resize (1386→1531) and could
+      // flip the anchor between frames, tearing down the CaptionStream each
+      // time and rebinding the playhead.
+      if (
+        mountedTo &&
+        mountedTo.isConnected &&
+        isSized(mountedTo) &&
+        ui.shadowHost?.isConnected &&
+        mountedTo.contains(ui.shadowHost)
+      ) {
+        return;
+      }
       const anchor = resolvePrimeAnchor();
       if (!anchor) {
         if (mountedTo) {
@@ -106,11 +109,6 @@ export default defineContentScript({
         }
         return;
       }
-      const ok =
-        mountedTo === anchor &&
-        ui.shadowHost?.isConnected &&
-        anchor.contains(ui.shadowHost);
-      if (ok) return;
       if (mountedTo) {
         try {
           ui.remove();

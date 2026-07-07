@@ -90,6 +90,15 @@ export interface CaptionPlatform {
       "#appMountPoint video". */
   readonly videoSelector: string;
 
+  /** Optional custom resolver for the playhead <video>, when a plain
+      `document.querySelector(videoSelector)` (first match) would pick the
+      wrong element.  Prime keeps a hidden preview <video> alongside the
+      playing one, and the overlay anchors to the LARGEST surface — so the
+      playhead must resolve to that SAME surface's video, or it tracks an
+      empty (duration=NaN) placeholder and subtitles never advance.
+      Undefined → CaptionStream uses videoSelector's first match. */
+  resolveVideo?(): HTMLVideoElement | null;
+
   /** Hide / restore the site's OWN caption rail while Loom's overlay is
       active.  Implemented by injecting + removing a document-level
       <style> (the rule targets the host page's DOM, so it can't live in

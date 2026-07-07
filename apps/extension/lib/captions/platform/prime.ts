@@ -24,6 +24,7 @@ import {
   PRIME_VIDEO_SELECTOR,
   hidePrimeCaptions,
   restorePrimeCaptions,
+  resolvePrimeVideo,
 } from "../../overlay/prime-player-anchor";
 import type {
   CaptionPlatform,
@@ -35,9 +36,13 @@ export const primePlatform: CaptionPlatform = {
   id: "primevideo",
   supportsTranslate: false,
 
-  // Overlay seam (selectors best-guess; verify live — see the anchor file).
+  // Overlay seam.  playerRootSelector is the fallback; the ISO entrypoint
+  // anchors via resolvePrimePlayerSurface (largest sized surface).  The
+  // playhead binds via resolveVideo → resolvePrimeVideo so it tracks the
+  // SAME real surface the overlay mounts on (not a placeholder video).
   playerRootSelector: PRIME_PLAYER_ROOT,
   videoSelector: PRIME_VIDEO_SELECTOR,
+  resolveVideo: resolvePrimeVideo,
   hideNativeCaptions: hidePrimeCaptions,
   restoreNativeCaptions: restorePrimeCaptions,
 

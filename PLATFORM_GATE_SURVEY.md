@@ -92,6 +92,33 @@ risk of the three — expect possible failure; that's a valid outcome.
 > specific zh titles to rows 11–15 and deep-check one of them alongside
 > a Ghibli title.
 
+### ✅ DEEP-CHECK PASSED 2026-07-07 — "Scent Time" (C-drama), from Connor's HAR
+
+- **Same-language CONFIRMED:** audio `cmn-CN` (+ th, en-US dubs); text
+  tracks **zh-Hans-CN, zh-Hant-HK, zh-Hant-TW** (+ th, id, ms-MY, en-GB,
+  en-US SDH). Mandarin audio with THREE Chinese sub tracks, and Thai
+  audio+subs — two phonetic-layer languages passing on one title.
+- **Wire format CONFIRMED:** DASH MPD (`…_fallback.mpd` on
+  `cf.asia.prd.media.max.com`) → `contentType="text"` AdaptationSets →
+  `SegmentTemplate media="t/<hash>/tN/$Number$.vtt"` → **raw WebVTT**
+  (`text/plain; charset=utf-8`) with `X-TIMESTAMP-MAP` header +
+  `position:50%` cues. Verified by fetching a zh-Hans segment via curl.
+- **NO AUTH on the media CDN:** both the MPD and the .vtt segments
+  fetch with plain curl — no cookies, no token headers; the URL path
+  (UUID) is the grant. `Access-Control-Allow-Origin: *` on segments →
+  content-script re-fetch needs no proxy.
+- **Segments are ~14 min each** (CMCD `d=840600`) → an episode is only
+  ~3–5 subtitle segments. Stitching burden is trivial.
+- **⚠️ Multi-Period DASH:** the MPD has 4 `<Period>`s (AdaptationSets
+  repeat per period; text path hash differs per period). The stitcher
+  must iterate periods and apply per-period time offsets.
+- Playback API seen: `POST default.any-any.prd.api.hbomax.com/any/
+  playback/v1/playbackInfo` (~49 KB JSON; body not captured — likely
+  carries the manifest URL; the MAIN-world `.mpd`-URL hook makes its
+  contents non-essential).
+- Still owed for full gate: Ghibli/ja sweep + menu sweep breadth
+  (rows 1–10) — but the acquisition question is SETTLED.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Spirited Away | ja | | Ghibli |

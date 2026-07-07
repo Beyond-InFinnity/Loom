@@ -40,9 +40,15 @@ export default defineContentScript({
   runAt: "document_idle",
 
   async main(ctx) {
+    // Unconditional (console.info, NOT logDev) so we can tell "ISO script
+    // never ran" from "ran but hung/failed later".  Past diagnostics all
+    // sat AFTER the createShadowRootUi await, so a failure at/before it was
+    // invisible.  This is the ground-truth entry marker.
+    console.info("[Loom PRIME ISO] main ENTER —", location.href);
     injectHostPositioningStyle();
     probePlayerDomOnce();
 
+    console.info("[Loom PRIME ISO] creating shadow UI…");
     const ui = await createShadowRootUi(ctx, {
       name: "loom-overlay-root",
       position: "inline",
@@ -71,6 +77,7 @@ export default defineContentScript({
         logDev("[Loom] Prime overlay UNMOUNTED (surface removed / not yet sized)");
       },
     });
+    console.info("[Loom PRIME ISO] shadow UI ready — reconciler starting");
 
     // STATE-BASED mount reconciliation (replaces ui.autoMount) — same pattern
     // as WeTV, but gated on a SIZED surface.  Prime's 0x0→full-size player
@@ -103,10 +110,6 @@ export default defineContentScript({
           logDev("[Loom] Prime reconcile: mounted surface gone, no replacement yet — unmounting");
           ui.remove();
           mountedTo = null;
-        } else {
-          // Not mounted AND no eligible surface — diagnose why (throttled),
-          // so a "won't mount after refresh" load shows the surface state.
-          diagnoseNoAnchor();
         }
         return;
       }
@@ -121,28 +124,38 @@ export default defineContentScript({
       }
       ui.mount();
       mountedTo = anchor;
+      console.info("[Loom PRIME ISO] MOUNTED on surface", anchor.getBoundingClientRect().width + "x" + anchor.getBoundingClientRect().height);
     };
 
-    // Throttled diagnostic for the no-eligible-surface case.
-    let lastDiag = -Infinity;
-    const diagnoseNoAnchor = () => {
-      // Use a monotonic-ish gate via a counter on the backstop instead of a
-      // clock (Date.now is fine in content scripts, but keep it cheap): log
-      // at most every ~3s worth of ticks.
-      lastDiag += 1;
-      if (lastDiag % 3 !== 0) return;
+    // GROUND-TRUTH HEARTBEAT (unconditional).  Every ~2s report the exact
+    // DOM state the reconciler sees: whether we're mounted, every
+    // `.atvwebplayersdk-video-surface` with its size + whether it holds a
+    // <video> (readyState + duration), and the TOTAL <video> count on the
+    // page.  This is the diagnostic that was missing — it distinguishes
+    // "no player surface exists (Amazon didn't load one)" from "surface
+    // exists but we're not mounting" from "video present but not loaded".
+    let hbTick = 0;
+    const heartbeat = () => {
+      hbTick += 1;
+      if (hbTick % 2 !== 0) return; // ~every 2s (backstop is 1s)
       const surfaces = Array.from(
         document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR),
       ).map((el) => {
         const r = el.getBoundingClientRect();
-        return `${Math.round(r.width)}x${Math.round(r.height)}${el.querySelector("video") ? "+video" : "-novideo"}`;
+        const v = el.querySelector("video");
+        const vinfo = v
+          ? `+video(rs${(v as HTMLVideoElement).readyState},dur${Number.isFinite((v as HTMLVideoElement).duration) ? Math.round((v as HTMLVideoElement).duration) : "NaN"},${(v as HTMLVideoElement).paused ? "paused" : "playing"})`
+          : "-novideo";
+        return `${Math.round(r.width)}x${Math.round(r.height)}${vinfo}`;
       });
-      logDev(
-        "[Loom] Prime reconcile: no eligible surface —",
-        ANCHOR_SELECTOR,
-        "count:",
-        surfaces.length,
-        surfaces.length ? "sizes: " + surfaces.join(", ") : "(none in DOM)",
+      const totalVideos = document.querySelectorAll("video").length;
+      console.info(
+        "[Loom PRIME ISO] hb — mounted:",
+        !!mountedTo,
+        "| surfaces:",
+        surfaces.length ? surfaces.join(" ; ") : "(none)",
+        "| totalVideos:",
+        totalVideos,
       );
     };
 
@@ -156,7 +169,10 @@ export default defineContentScript({
     };
     const observer = new MutationObserver(schedule);
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    const backstop = setInterval(ensureMount, 1000); // catches the resize→sized transition
+    const backstop = setInterval(() => {
+      ensureMount();
+      heartbeat();
+    }, 1000); // catches the resize→sized transition + emits the heartbeat
     ensureMount();
     ctx.onInvalidated(() => {
       observer.disconnect();

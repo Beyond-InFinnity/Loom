@@ -1,0 +1,44 @@
+# TEMPORARY — DELETE once extension 0.4.0 has been live on AMO + Chrome
+# for a week or so (CORPUS_WIRING.md §7.2).
+#
+# Extension builds ≤0.3.1 store corpus_media.title = "Netflix" (the literal
+# document.title of a watch page).  The forward fix (readMediaTitle) ships
+# with 0.4.0; until then this heals new junk/show-level rows daily by
+# resolving each movieId against Netflix's public title pages to
+# "Show — S1E5 Episode Name" (see scripts/backfill_netflix_titles.py).
+#
+# Reuses the export workflow's CORPUS_DATABASE_URL secret (Railway
+# DATABASE_PUBLIC_URL).  No-ops green when the secret is unset.
+
+name: backfill-netflix-titles
+
+on:
+  schedule:
+    - cron: "23 5 * * *" # daily @ 05:23 UTC (off the :00 rush)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (resolve + report, write nothing)"
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install --quiet "psycopg[binary]"
+
+      - name: Backfill Netflix titles
+        env:
+          DATABASE_URL: ${{ secrets.CORPUS_DATABASE_URL }}
+        run: >-
+          python scripts/backfill_netflix_titles.py
+          ${{ inputs.dry_run && '--dry-run' || '' }}

@@ -23,10 +23,12 @@ import {
   buildCapturePayload,
   captureTracks,
   cleanTitle,
+  resolveCaptureTitle,
   resolveMediaId,
   sentKey,
   _resetSentForTests,
 } from "./capture";
+import { readNetflixVideoTitle } from "../captions/platform/netflix";
 import {
   getCorpusAsked,
   getCorpusConsent,
@@ -249,5 +251,156 @@ describe("captureTracks", () => {
 
   it("sentKey is platform+media+track scoped", () => {
     expect(sentKey(ctx, track())).toBe("netflix::81234567::ja-manual-std");
+  });
+
+  it("readTitle result lands in the payload (Netflix title fix)", async () => {
+    await captureTracks(
+      { ...ctx, title: "Netflix", readTitle: () => "The Apothecary Diaries — E5 Portents" },
+      [{ track: track(), events: [ev(0, 900, "a")] }],
+    );
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const body = (postMock.mock.calls[0][1] as { body: { title: string | null } }).body;
+    expect(body.title).toBe("The Apothecary Diaries — E5 Portents");
+  });
+
+  it("junk document.title with no reader → null title (row stays healable)", async () => {
+    await captureTracks({ ...ctx, title: "Netflix" }, [
+      { track: track(), events: [ev(0, 900, "a")] },
+    ]);
+    const body = (postMock.mock.calls[0][1] as { body: { title: string | null } }).body;
+    expect(body.title).toBeNull();
+  });
+});
+
+// ---- Title resolution (CORPUS_WIRING.md §7.2 forward fix) ---------------
+
+describe("cleanTitle junk guard", () => {
+  it("a title that is JUST the platform name is null, case-insensitively", () => {
+    expect(cleanTitle("Netflix")).toBeNull();
+    expect(cleanTitle("netflix")).toBeNull();
+    expect(cleanTitle("YouTube")).toBeNull();
+    expect(cleanTitle("WeTV")).toBeNull();
+    expect(cleanTitle("iQIYI")).toBeNull();
+  });
+
+  it("titles merely CONTAINING a platform name survive", () => {
+    expect(cleanTitle("Inside Netflix Documentary")).toBe(
+      "Inside Netflix Documentary",
+    );
+  });
+});
+
+describe("resolveCaptureTitle", () => {
+  it("no reader → cleaned document.title fallback", async () => {
+    expect(await resolveCaptureTitle({ title: "Frieren - Netflix" })).toBe(
+      "Frieren",
+    );
+  });
+
+  it("reader value wins over document.title", async () => {
+    expect(
+      await resolveCaptureTitle({
+        title: "Netflix",
+        readTitle: () => "Frieren: Beyond Journey's End — E1",
+      }),
+    ).toBe("Frieren: Beyond Journey's End — E1");
+  });
+
+  it("polls a transiently-null reader until it yields", async () => {
+    let calls = 0;
+    const readTitle = () => (++calls < 3 ? null : "Human Vapor");
+    expect(await resolveCaptureTitle({ title: "Netflix", readTitle }, 5, 1)).toBe(
+      "Human Vapor",
+    );
+    expect(calls).toBe(3);
+  });
+
+  it("reader that never yields → fallback (junk title → null)", async () => {
+    expect(
+      await resolveCaptureTitle({ title: "Netflix", readTitle: () => null }, 2, 1),
+    ).toBeNull();
+  });
+
+  it("reader yielding junk is treated as not-found, then fallback", async () => {
+    expect(
+      await resolveCaptureTitle(
+        { title: "Real Title - Netflix", readTitle: () => "Netflix" },
+        2,
+        1,
+      ),
+    ).toBe("Real Title");
+  });
+
+  it("a throwing reader falls back immediately, without retries", async () => {
+    let calls = 0;
+    const readTitle = () => {
+      calls++;
+      throw new Error("boom");
+    };
+    expect(
+      await resolveCaptureTitle({ title: "Frieren - Netflix", readTitle }, 5, 1),
+    ).toBe("Frieren");
+    expect(calls).toBe(1);
+  });
+});
+
+describe("readNetflixVideoTitle", () => {
+  type Stub = {
+    textContent: string | null;
+    querySelector: (sel: string) => Stub | null;
+    querySelectorAll: (sel: string) => Stub[];
+  };
+  const leaf = (t: string): Stub => ({
+    textContent: t,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  });
+  const root = (
+    inner: { h4?: string; spans?: string[]; text?: string } | null,
+  ): Pick<Stub, "querySelector"> => {
+    if (inner === null) return { querySelector: () => null };
+    const h4 = inner.h4 != null ? leaf(inner.h4) : null;
+    const spans = (inner.spans ?? []).map(leaf);
+    const container: Stub = {
+      textContent:
+        inner.text ??
+        [inner.h4, ...(inner.spans ?? [])].filter(Boolean).join(" "),
+      querySelector: (sel) => (sel === "h4" ? h4 : null),
+      querySelectorAll: () => spans,
+    };
+    return {
+      querySelector: (sel) =>
+        sel === '[data-uia="video-title"]' ? container : null,
+    };
+  };
+
+  it("episodic: h4 show + span episode markers compose", () => {
+    expect(
+      readNetflixVideoTitle(
+        root({ h4: "The Apothecary Diaries", spans: ["E5", "Portents"] }),
+      ),
+    ).toBe("The Apothecary Diaries — E5 Portents");
+  });
+
+  it("film: h4 only → just the show name", () => {
+    expect(readNetflixVideoTitle(root({ h4: "Human Vapor" }))).toBe(
+      "Human Vapor",
+    );
+  });
+
+  it("no h4 → falls back to the container's text", () => {
+    expect(readNetflixVideoTitle(root({ text: "A Chinese Odyssey" }))).toBe(
+      "A Chinese Odyssey",
+    );
+  });
+
+  it("element absent (controls chrome unmounted) → null", () => {
+    expect(readNetflixVideoTitle(root(null))).toBeNull();
+  });
+
+  it("empty/whitespace content → null", () => {
+    expect(
+      readNetflixVideoTitle(root({ text: "  ", spans: [" "] })),
+    ).toBeNull();
   });
 });

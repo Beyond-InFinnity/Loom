@@ -390,3 +390,41 @@ R2.
    `document.title`.  Won't retroactively fix stored rows, but movieId→title
    is externally recoverable.  YouTube is unaffected (its `document.title`
    IS the video name).
+   **BACKFILLED 2026-07-06 to EPISODE-LEVEL via a standing retrofit:**
+   `scripts/backfill_netflix_titles.py` + the **TEMPORARY** daily GH Action
+   `backfill-netflix-titles.yml` (reuses the `CORPUS_DATABASE_URL` secret;
+   **DELETE the workflow once 0.4.0 has been live on AMO + Chrome for ~a
+   week**).  All 25 then-existing rows now read `Show — S1E5 Episode Name`.
+   Method (logged-out public pages): `netflix.com/title/<movieId>`
+   redirects episode IDs to the SHOW page, whose HTML embeds (a) the show
+   name in `og:title` (the tag carries a `data-rh` attribute before
+   `property` — don't anchor on `<meta property=`), and (b) Netflix's
+   GraphQL cache with `Episode:{\"videoId\":N}` nodes carrying `title` +
+   `number` plus `Season` nodes whose ordered `episodes.edges` give the
+   season label.  The cache windows only ~10 episodes/season; ids outside
+   it are EXTRAPOLATED from the nearest embedded anchor (season id blocks
+   are contiguous — verified Frieren 81726716=E1 → 81726741=E26 and
+   Apothecary 81712072=E1 → 81712086=E15; capped ±40) → number-only
+   labels ("S1E11").  The script only touches rows whose title is NULL /
+   'Netflix' / lacks the " — " marker, so 0.4.0-captured titles are never
+   overwritten.  Fetches retry (Netflix's edge sporadically truncates the
+   ~1.1 MB page).  Already-exported R2 Parquet keeps its junk titles
+   (immutable files); the corpus tables are the healed source of truth.
+   **FORWARD FIX IMPLEMENTED 2026-07-06 (ships with 0.4.0; 0.3.1 keeps
+   capturing junk-free nulls only after release).**  Three parts:
+   (1) `cleanTitle` now nulls a title that is JUST a platform name
+   (`JUNK_TITLE` guard) — critical because the server keeps the FIRST
+   non-null title (`COALESCE(existing, new)`), so junk blocks healing but
+   null keeps the media row healable by any later good capture;
+   (2) new `CaptionPlatform.readMediaTitle?()` seam —  Netflix implements
+   it via `readNetflixVideoTitle()` (platform/netflix.ts), reading the
+   player chrome's `[data-uia="video-title"]` (`<h4>Show</h4>` +
+   episode `<span>`s → "Show — E5 Name"); (3) `captureTracks` resolves the
+   title via `resolveCaptureTitle()` (capture.ts), polling the reader up
+   to 20×500 ms because Netflix unmounts that element when controls idle
+   out, falling back to cleaned `document.title`.  Sent-set slots are
+   claimed BEFORE the poll so re-entrant calls can't double-send.  +15
+   vitest (252 total).  NOTE (`feedback_extension_caption_verification`):
+   the `[data-uia="video-title"]` inner structure is from recon notes, not
+   yet live-verified — first dev-build Netflix session should check the
+   `[Loom Corpus] capture` devlog shows a real title.

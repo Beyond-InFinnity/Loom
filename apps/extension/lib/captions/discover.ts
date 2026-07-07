@@ -600,6 +600,10 @@ async function resolveCaptions(): Promise<void> {
         videoId: session.videoId,
         title: document.title,
         pathname: location.pathname,
+        // Netflix: document.title is literally "Netflix" (junk → null'd by
+        // cleanTitle), so the real name comes from the player chrome via
+        // the platform's DOM reader, polled inside captureTracks.
+        readTitle: capturePlatform.readMediaTitle?.bind(capturePlatform),
       },
       captureEntries,
     );

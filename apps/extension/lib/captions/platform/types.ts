@@ -96,4 +96,15 @@ export interface CaptionPlatform {
       the content script's shadow root). */
   hideNativeCaptions(): void;
   restoreNativeCaptions(): void;
+
+  // ---- Corpus capture seam (CORPUS_WIRING.md §7.2) -------------------
+
+  /** Best-effort human title of the CURRENTLY PLAYING media, read from
+      the page DOM.  Only needed on platforms whose document.title is NOT
+      the video name (Netflix's tab title is the literal string
+      "Netflix"); platforms where document.title works (YouTube) omit it.
+      May return null transiently (e.g. Netflix's [data-uia="video-title"]
+      exists only while the controls chrome is mounted) — the corpus
+      capture path polls it briefly before falling back. */
+  readMediaTitle?(): string | null;
 }

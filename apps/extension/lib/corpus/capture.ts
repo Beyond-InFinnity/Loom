@@ -35,6 +35,13 @@ export interface CaptureContext {
   title?: string | null;
   /** location.pathname, for the media-id fallback. */
   pathname: string;
+  /** Platform-specific DOM reader for the real media title
+      (CaptionPlatform.readMediaTitle) — used where document.title is NOT
+      the video name (Netflix's tab title is literally "Netflix").  May
+      return null transiently (Netflix mounts [data-uia="video-title"]
+      only while the controls chrome is up), so captureTracks polls it
+      briefly before falling back to `title`. */
+  readTitle?: () => string | null;
 }
 
 export interface CaptureLineBody {
@@ -57,14 +64,55 @@ export interface CapturePayload {
   lines: CaptureLineBody[];
 }
 
+/** A cleaned title that is JUST the platform name carries zero
+    information (Netflix's document.title is literally "Netflix") — and
+    it's actively harmful: the server keeps the FIRST non-null title per
+    media (`COALESCE(existing, new)`), so storing junk blocks a later good
+    capture from ever healing the row.  Junk → null keeps it healable. */
+const JUNK_TITLE = /^(YouTube|Netflix|iQIYI|iQ\.com|WeTV)$/i;
+
 /** Strip the platform suffix noise from document.title.  Best-effort —
-    a wrong title is harmless (display metadata only, never identity). */
+    a wrong title is harmless (display metadata only, never identity),
+    but a KNOWN-junk title is worse than null (see JUNK_TITLE). */
 export function cleanTitle(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const cleaned = raw
     .replace(/\s*[-–|]\s*(YouTube|Netflix|iQIYI|iQ\.com|WeTV)\s*$/i, "")
     .trim();
-  return cleaned.length > 0 ? cleaned.slice(0, 512) : null;
+  if (cleaned.length === 0 || JUNK_TITLE.test(cleaned)) return null;
+  return cleaned.slice(0, 512);
+}
+
+export const TITLE_POLL_ATTEMPTS = 20;
+export const TITLE_POLL_INTERVAL_MS = 500;
+
+/** Resolve the best available title: poll the platform's DOM reader (it
+    can be transiently null — Netflix's title element exists only while
+    the controls chrome is mounted), fall back to the cleaned
+    document.title.  Never throws; never returns platform-name junk.
+    Capture is fire-and-forget, so the up-to-10s poll delays nothing
+    user-visible. */
+export async function resolveCaptureTitle(
+  ctx: Pick<CaptureContext, "title" | "readTitle">,
+  attempts: number = TITLE_POLL_ATTEMPTS,
+  intervalMs: number = TITLE_POLL_INTERVAL_MS,
+): Promise<string | null> {
+  if (ctx.readTitle) {
+    for (let i = 0; i < attempts; i++) {
+      let read: string | null = null;
+      try {
+        read = ctx.readTitle();
+      } catch {
+        break; // broken reader → fall back, don't keep polling it
+      }
+      const title = cleanTitle(read);
+      if (title !== null) return title;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+    }
+  }
+  return cleanTitle(ctx.title);
 }
 
 export function resolveMediaId(
@@ -134,12 +182,21 @@ export async function captureTracks(
   try {
     if (entries.length === 0) return;
     if (!(await isCaptureEnabled())) return;
-    for (const { track, events } of entries) {
-      if (!events || events.length === 0) continue;
-      const key = sentKey(ctx, track);
+    // Claim sent-set slots BEFORE the (possibly multi-second) title poll,
+    // so a re-entrant call during the poll can't double-send.
+    const pending: CaptureEntry[] = [];
+    for (const entry of entries) {
+      if (!entry.events || entry.events.length === 0) continue;
+      const key = sentKey(ctx, entry.track);
       if (sent.has(key)) continue;
       sent.add(key);
-      const body = buildCapturePayload(ctx, track, events);
+      pending.push(entry);
+    }
+    if (pending.length === 0) return;
+    // One title resolution shared by every track of this media.
+    const title = await resolveCaptureTitle(ctx);
+    for (const { track, events } of pending) {
+      const body = buildCapturePayload({ ...ctx, title }, track, events);
       if (body.lines.length === 0) continue;
       void getApiClient()
         .POST("/corpus/capture", { body })

@@ -13,6 +13,7 @@ from .routes import (
     align,
     annotate,
     corpus,
+    define,
     files,
     generate,
     health,
@@ -62,6 +63,10 @@ app.include_router(mux.router)
 # @loom/api-client types include it (generate.sh dumps THIS app's schema);
 # in the sidecar it no-ops (NullCorpusStore) unless a DSN is configured.
 app.include_router(corpus.router)
+# POST /define/batch — per-word dictionary lookup (VOCAB_LOOKUP.md).  Mounted
+# here too so the generated @loom/api-client types include it; no-ops
+# (NullDictionaryStore) unless a DSN with an ingested dictionary is configured.
+app.include_router(define.router)
 
 # Flush any corpus payloads spooled while offline (store-and-forward —
 # loom_api/corpus_forward.py).  Daemon thread; instant no-op when the

@@ -9,6 +9,7 @@ import logging
 import os
 
 from .corpus_store import CorpusStore, NullCorpusStore
+from .dictionary import DictionaryStore, NullDictionaryStore
 from .jobs import JobManager
 from .result_cache import NullResultCache, ResultCache
 from .storage import LocalFileStorage, Storage
@@ -17,6 +18,7 @@ _storage: Storage | None = None
 _jobs: JobManager | None = None
 _result_cache: ResultCache | None = None
 _corpus_store: CorpusStore | None = None
+_dictionary_store: DictionaryStore | None = None
 
 
 def get_storage() -> Storage:
@@ -80,6 +82,46 @@ def set_corpus_store(store: CorpusStore | None) -> None:
     """Test seam.  ``None`` resets to lazy env-driven construction."""
     global _corpus_store
     _corpus_store = store
+
+
+def get_dictionary_store() -> DictionaryStore:
+    """Bilingual dictionary lookup for /define (per-word vocab; VOCAB_LOOKUP.md).
+
+    Same wiring philosophy as get_result_cache()/get_corpus_store(): enabled iff
+    a Postgres DSN is present (``LOOM_DICTIONARY_URL`` wins, else ``DATABASE_URL``
+    — the one Railway Postgres also holds the ingested ``dictionary_entry``),
+    ``LOOM_DICTIONARY=off`` is the kill switch, every failure degrades to
+    NullDictionaryStore (→ /define returns all not-found). Called from the
+    handler body (not Depends) for direct-call testability; tests swap impls
+    via set_dictionary_store().
+    """
+    global _dictionary_store
+    if _dictionary_store is None:
+        _dictionary_store = _build_dictionary_store()
+    return _dictionary_store
+
+
+def set_dictionary_store(store: DictionaryStore | None) -> None:
+    """Test seam.  ``None`` resets to lazy env-driven construction."""
+    global _dictionary_store
+    _dictionary_store = store
+
+
+def _build_dictionary_store() -> DictionaryStore:
+    if os.environ.get("LOOM_DICTIONARY", "").strip().lower() in {"off", "0", "false"}:
+        return NullDictionaryStore()
+    dsn = os.environ.get("LOOM_DICTIONARY_URL") or os.environ.get("DATABASE_URL")
+    if not dsn:
+        return NullDictionaryStore()
+    try:
+        from .dictionary import PostgresDictionaryStore
+
+        return PostgresDictionaryStore(dsn)
+    except Exception:
+        logging.getLogger("loom.dictionary").warning(
+            "dictionary: Postgres init failed; /define disabled", exc_info=True
+        )
+        return NullDictionaryStore()
 
 
 def _build_corpus_store() -> CorpusStore:

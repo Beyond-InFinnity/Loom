@@ -108,37 +108,45 @@ def _cedict_version(path: str) -> str:
     return "cc-cedict@unknown"
 
 
-def parse_cedict(path: str) -> Iterator[DictEntry]:
-    """Yield normalized entries from a CC-CEDICT text file.
+def parse_cedict_line(line: str, version: str = "cc-cedict") -> list[DictEntry]:
+    """Parse ONE CC-CEDICT line → normalized entries (pure; unit-testable).
 
     Emits one row per script form (Traditional + Simplified); when the two are
-    identical (common for single chars) only one row is emitted.  ``/`` splits
-    distinct senses; ``;`` inside a sense is kept verbatim (synonyms).
+    identical (common for single chars) only one row.  ``/`` splits distinct
+    senses; ``;`` inside a sense is kept verbatim (synonyms).  Comments, blanks,
+    and non-matching lines → ``[]``.
     """
+    if line.startswith("#") or not line.strip():
+        return []
+    m = _CEDICT_RE.match(line.rstrip("\n"))
+    if not m:
+        return []
+    trad, simp, pinyin, sense_blob = m.groups()
+    glosses = [g for g in sense_blob.split("/") if g]
+    if not glosses:
+        return []
+    senses = [Sense(gloss=[g]) for g in glosses]
+    forms = [trad] if trad == simp else [trad, simp]
+    return [
+        DictEntry(
+            lang="zh",
+            headword=hw,
+            reading=pinyin,
+            senses=senses,
+            common=False,  # CC-CEDICT carries no common flag
+            source="cc-cedict",
+            source_version=version,
+        )
+        for hw in forms
+    ]
+
+
+def parse_cedict(path: str) -> Iterator[DictEntry]:
+    """Yield normalized entries from a CC-CEDICT text file."""
     version = _cedict_version(path)
     with open(path, encoding="utf-8") as fh:
         for line in fh:
-            if line.startswith("#") or not line.strip():
-                continue
-            m = _CEDICT_RE.match(line.rstrip("\n"))
-            if not m:
-                continue
-            trad, simp, pinyin, sense_blob = m.groups()
-            glosses = [g for g in sense_blob.split("/") if g]
-            if not glosses:
-                continue
-            senses = [Sense(gloss=[g]) for g in glosses]
-            forms = [trad] if trad == simp else [trad, simp]
-            for hw in forms:
-                yield DictEntry(
-                    lang="zh",
-                    headword=hw,
-                    reading=pinyin,
-                    senses=senses,
-                    common=False,  # CC-CEDICT carries no common flag
-                    source="cc-cedict",
-                    source_version=version,
-                )
+            yield from parse_cedict_line(line, version)
 
 
 # --------------------------------------------------------------------------- #
@@ -150,66 +158,63 @@ def _load_jmdict(path: str) -> dict:
         return json.load(fh)
 
 
-def parse_jmdict(path: str) -> Iterator[DictEntry]:
-    """Yield normalized entries from a JMdict-simplified JSON file.
+def parse_jmdict_word(w: dict, tags: dict, version: str = "jmdict") -> list[DictEntry]:
+    """Parse ONE JMdict-simplified word entry → normalized rows (pure).
 
-    POS/misc/field tag codes are expanded to human text via the top-level
-    ``tags`` map.  One row per kanji surface form (reading = primary kana);
-    kana-only words emit one row per kana form.  All senses attach to every
-    form of the word (JMdict ``appliesTo*`` is ``*`` in the overwhelming
-    majority of entries; per-form sense restriction is a documented refinement).
+    POS/misc/field tag codes are expanded to human text via the ``tags`` map.
+    One row per kanji surface form (reading = primary kana); kana-only words
+    emit one row per kana form.  All senses attach to every form of the word
+    (JMdict ``appliesTo*`` is ``*`` in the overwhelming majority of entries;
+    per-form sense restriction is a documented refinement).
     """
-    data = _load_jmdict(path)
-    tags: dict[str, str] = data.get("tags", {})
-    version = "jmdict@" + str(data.get("version", "unknown"))
-
     def expand(codes: list[str]) -> list[str]:
         return [tags.get(c, c) for c in codes]
 
-    for w in data["words"]:
-        kana_forms = w.get("kana", [])
-        kanji_forms = w.get("kanji", [])
-        primary_reading = kana_forms[0]["text"] if kana_forms else None
+    kana_forms = w.get("kana", [])
+    kanji_forms = w.get("kanji", [])
+    primary_reading = kana_forms[0]["text"] if kana_forms else None
 
-        senses: list[Sense] = []
-        for s in w.get("sense", []):
-            glosses = [g["text"] for g in s.get("gloss", []) if g.get("text")]
-            if not glosses:
-                continue
-            senses.append(
-                Sense(
-                    gloss=glosses,
-                    pos=expand(s.get("partOfSpeech", [])),
-                    misc=expand(s.get("misc", [])),
-                    field_=expand(s.get("field", [])),
-                )
-            )
-        if not senses:
+    senses: list[Sense] = []
+    for s in w.get("sense", []):
+        glosses = [g["text"] for g in s.get("gloss", []) if g.get("text")]
+        if not glosses:
             continue
+        senses.append(
+            Sense(
+                gloss=glosses,
+                pos=expand(s.get("partOfSpeech", [])),
+                misc=expand(s.get("misc", [])),
+                field_=expand(s.get("field", [])),
+            )
+        )
+    if not senses:
+        return []
 
-        if kanji_forms:
-            for k in kanji_forms:
-                yield DictEntry(
-                    lang="ja",
-                    headword=k["text"],
-                    reading=primary_reading,
-                    senses=senses,
-                    common=bool(k.get("common")),
-                    source="jmdict",
-                    source_version=version,
-                )
-        else:
-            # kana-only word: the kana IS the headword
-            for r in kana_forms:
-                yield DictEntry(
-                    lang="ja",
-                    headword=r["text"],
-                    reading=r["text"],
-                    senses=senses,
-                    common=bool(r.get("common")),
-                    source="jmdict",
-                    source_version=version,
-                )
+    if kanji_forms:
+        return [
+            DictEntry(
+                lang="ja", headword=k["text"], reading=primary_reading, senses=senses,
+                common=bool(k.get("common")), source="jmdict", source_version=version,
+            )
+            for k in kanji_forms
+        ]
+    # kana-only word: the kana IS the headword
+    return [
+        DictEntry(
+            lang="ja", headword=r["text"], reading=r["text"], senses=senses,
+            common=bool(r.get("common")), source="jmdict", source_version=version,
+        )
+        for r in kana_forms
+    ]
+
+
+def parse_jmdict(path: str) -> Iterator[DictEntry]:
+    """Yield normalized entries from a JMdict-simplified JSON file."""
+    data = _load_jmdict(path)
+    tags: dict[str, str] = data.get("tags", {})
+    version = "jmdict@" + str(data.get("version", "unknown"))
+    for w in data["words"]:
+        yield from parse_jmdict_word(w, tags, version)
 
 
 # --------------------------------------------------------------------------- #

@@ -33,8 +33,8 @@ from slowapi.util import get_remote_address
 
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
-from .deps import get_corpus_store, get_result_cache
-from .routes import annotate, corpus, health, language, romanize, styles
+from .deps import get_corpus_store, get_dictionary_store, get_result_cache
+from .routes import annotate, corpus, define, health, language, romanize, styles
 
 app = FastAPI(
     title="Loom Web API",
@@ -170,6 +170,7 @@ app.add_middleware(BypassAwareSlowAPI)
 # With no DATABASE_URL these return Null impls and cost nothing.
 get_result_cache()
 get_corpus_store()
+get_dictionary_store()
 
 app.include_router(health.router)
 app.include_router(language.router)
@@ -182,3 +183,5 @@ app.include_router(annotate.router)
 app.include_router(styles.router)
 # POST /corpus/capture — opt-in media-identity subtitle capture (Layer 2).
 app.include_router(corpus.router)
+# POST /define/batch — per-word dictionary lookup (VOCAB_LOOKUP.md).
+app.include_router(define.router)

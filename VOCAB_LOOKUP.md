@@ -184,22 +184,32 @@ row under one headword), 喜歡/喜欢 (trad+simp fan-out), 吃 (multiple rows �
 
 ## 6. API surface
 
-New endpoint (shape TBD during build):
+**`POST /define/batch` — BUILT 2026-07-08** (`loom_api/routes/define.py`,
+`loom_api/dictionary.py`, `loom_api/deps.py`; mounted on web + main). Actual shape:
 
 ```
-POST /define/batch      # or /define — (word|lemma, lang, pos?) → senses
-  request:  { items: [{ word, lemma?, lang, pos? }] }
-  response: { results: [{ word, lemma, lang, senses: [{ gloss[], pos?, common? }], reading? }] }
+request:  { lang: "ja"|"zh", words: [str] }          # words = lemmas/surface forms
+response: { lang, results: [ { word, found,
+                               reading?, sources: [str],
+                               senses: [ { gloss:[str], pos:[str], misc:[str] } ] } ] }
 ```
 
-- Looks up `dictionary_entry WHERE lang=? AND (headword=? OR reading=?)` (see §5.4 rule 1),
-  **merging** all matching rows into one result (§5.4 rule 2 — sense lists concatenated,
-  `common` first).
-- Reads through / writes back the **existing result cache** as `kind="definition"`, keyed on the
-  word/lemma (not the full line). Fail-open like every other cache path.
-- Add the streaming platforms' page origins to CORS as needed (already handled generically via
-  `loom_api/cors.py` + `LOOM_CORS_ORIGINS`).
-- Rate-limited under the existing slowapi limiter; owner-bypass applies.
+- `results` is **1:1 with `words`** — same order, duplicates kept, each with its own `found` flag,
+  so the client zips them straight back onto the clicked tokens. This endpoint does NOT
+  tokenize/lemmatize — it defines exactly the strings given (Phase 0 / the client owns the lemma).
+- Store (`DictionaryStore`: Null / InMemory / Postgres, mirroring `corpus_store.py`) queries
+  `dictionary_entry WHERE lang=? AND (headword = ANY(?) OR reading = ANY(?))` — ONE query for the
+  whole word list (§5.4 rule 1) — then merges rows per word (§5.4 rule 2: `common` first, glosses
+  deduped across sources).
+- **No result-cache layer** (revised from the earlier plan): a dictionary lookup is a single
+  indexed query, not expensive compute like MeCab/jieba, and the batch collapses a paused line into
+  one query — so caching would trade latency for latency. Trivial to add later if profiling shows a
+  need. **Fail-open** like the cache/corpus stores: no DSN / down DB → every word `found=false`.
+- CORS: streaming origins already handled generically (`loom_api/cors.py` + `LOOM_CORS_ORIGINS`).
+  Rate-limited under the existing slowapi limiter; owner-bypass applies.
+- Env: `LOOM_DICTIONARY_URL` (else `DATABASE_URL`); `LOOM_DICTIONARY=off` kills it.
+- Tests: `tests/test_dictionary.py` (store merge/scoping + route order/echo/nfc/failsoft),
+  `tests/test_ingest_dictionaries.py` (pure CC-CEDICT/JMdict parsers). 21 new, green.
 
 ## 7. Extension UX
 
@@ -214,11 +224,16 @@ POST /define/batch      # or /define — (word|lemma, lang, pos?) → senses
 
 ## 8. Phasing
 
-- **Phase 0 — backend tokens:** emit word tokens; expose JA lemma/POS; jieba grouping for ZH.
+- **Phase 0 — backend tokens:** 🔲 emit word tokens; expose JA lemma/POS; jieba grouping for ZH.
   Bump annotate `engine_version`.
-- **Phase 1 — backend dictionaries:** load JMdict + CC-CEDICT; `/define` + cache (`kind=definition`).
-- **Phase 2 — extension UX:** consume tokens; pause-gated hover-glow; click → card (JA + ZH).
-- **Phase 3 — Korean:** add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
+- **Phase 1 — backend dictionaries:** 🟡 IN PROGRESS.
+  ✅ parser (`scripts/ingest_dictionaries.py`, validated 502k rows); ✅ `/define/batch` + store +
+  tests (`loom_api/dictionary.py` / `routes/define.py`, 21 tests green). 🔲 **run the real Postgres
+  ingest** (full `jmdict-eng` + CC-CEDICT into `dictionary_entry`) against a DB, then live-verify
+  `/define` end-to-end (per the caption-verification posture, the SQL's real acceptance test is the
+  first live run).
+- **Phase 2 — extension UX:** 🔲 consume tokens; pause-gated hover-glow; click → card (JA + ZH).
+- **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
   then reuse the Phase 2 UX.
 
 ## 9. Open decisions

@@ -47,6 +47,12 @@ justify a first-pass build scoped to that content, like Netflix was.
 Priority languages: **ja** (anime — the audience prize), **hi** (huge
 Prime India-origin catalog; Loom has IAST end-to-end), ko, zh.
 
+> **Preliminary signal (Connor, 2026-07-07): Prime has foreign-language
+> subs.** Still to pin down in the sweep: specifically SAME-language
+> (ja subs on ja audio — not just many translated languages, which is
+> the shape that failed Crunchyroll), and text-on-the-wire in the
+> deep-check.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Vinland Saga (Amazon-exclusive seasons) | ja | | |
@@ -81,6 +87,11 @@ Priority languages: **ja** (Ghibli catalog is the marquee question), then
 whatever foreign-origin content survives the menu sweep. HIGHEST gate
 risk of the three — expect possible failure; that's a valid outcome.
 
+> **Preliminary signal (Connor, 2026-07-07): HBO Max serves Chinese subs
+> on Chinese media** — that IS the same-language passing shape. Add the
+> specific zh titles to rows 11–15 and deep-check one of them alongside
+> a Ghibli title.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Spirited Away | ja | | Ghibli |
@@ -109,6 +120,24 @@ Priority languages: **ko**, **ja**, plus **he/fa** (rare — Loom supports
 both and almost nothing else exercises them). Gate expected to PASS —
 the survey doubles as SDH-vs-clean cataloging and recon.
 
+> **No-subscription head start:** Apple's title pages publicly list
+> audio + subtitle languages (Languages section) — the whole Pass-1
+> menu sweep can be done from browse/store pages before the TV+ sub
+> arrives. Only the devtools deep-check needs a playable stream.
+>
+> **Store channel vs TV+ channel (2026-07 note):** the Toho Godzilla
+> films on tv.apple.com (Godzilla '54, Minus One, Minus One/Minus Color)
+> appear to be iTunes-store RENT/BUY listings, not TV+ inclusions
+> (Apple×Toho relationship anchor is Monarch S2, TV+, Feb 2026;
+> Godzilla Minus Zero is theatrical-only Nov 2026, no streamer
+> announced). These are DIFFERENT playback channels: iSubRip pulls subs
+> from the store channel's UNAUTHENTICATED preview hlsUrl, so a
+> store-channel Godzilla page is the cheapest possible deep-check
+> (subtitle m3u8 visible without renting, via the trailer/preview).
+> If Loom later supports rented/purchased playback too, that's a bonus
+> surface — but the gate we're deciding on is TV+ subscription
+> streaming; survey both, record channel per title.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Pachinko | ko+ja | | research says ko SDH + ja SDH confirmed |
@@ -116,8 +145,8 @@ the survey doubles as SDH-vs-clean cataloging and recon.
 | 3 | KBO (or any current ko original) | ko | | |
 | 4 | Drops of God | ja+fr | | |
 | 5 | Sunny | ja+en | | Kyoto-set, ja dialogue |
-| 6 | Monarch: Legacy of Monsters | en+ja | | ja portions |
-| 7 | Midnight Diner (if licensed) or any ja film | ja | | licensed vs original check |
+| 6 | Monarch: Legacy of Monsters (S2 Feb 2026) | en+ja | | ja portions; the Toho-relationship title |
+| 7 | Godzilla Minus One / Minus Color / Godzilla '54 | ja | | likely STORE rentals not TV+ — record channel; preview manifest = free deep-check |
 | 8 | Tehran | fa+he | | fa/he — unique Loom coverage |
 | 9 | Losing Alice | he | | |
 | 10 | Acapulco | es+en | | non-phonetic control |

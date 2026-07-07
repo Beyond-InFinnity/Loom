@@ -8,6 +8,7 @@ import {
   type OrthographyTable,
 } from "@loom/orthography-tables";
 import { usePlayerScale } from "@/lib/overlay/player-scale";
+import type { CueLayout } from "@/lib/captions/types";
 
 // CaptionOverlay — dual-subs surface inside #movie_player's shadow root.
 //
@@ -117,6 +118,7 @@ export function CaptionOverlay() {
     status,
     target,
     native,
+    targets,
     selectedTarget,
     selectedNative,
     topColor,
@@ -332,10 +334,47 @@ export function CaptionOverlay() {
     };
   }
 
+  // Positioned EXTRA cues (substep 3): every concurrently-active target cue
+  // that ISN'T the primary AND carries source layout (a vertical side cue,
+  // a positioned description) is drawn at its own zone + orientation, so we
+  // preserve the placement/verticality the source chose instead of dropping
+  // it.  Ambient-light by design: foreign text + furigana only (from the
+  // shared annotate map) — no romanization line, no native pairing.  Cues
+  // without layout (YouTube / Netflix today) never enter this list, so
+  // those platforms render exactly as before.
+  const extraCues =
+    topLineEnabled && targets.length > 1
+      ? targets.filter((e) => e !== target && e.layout)
+      : [];
+
   return (
     <>
       {renderZone("top", slots, scale)}
       {renderZone("bottom", slots, scale)}
+      {extraCues.map((e) => (
+        <PositionalCue
+          key={`${e.start}-${e.end}-${e.layout?.regionId ?? ""}`}
+          layout={e.layout!}
+          segments={buildRichSegments({
+            spans: targetAnnotateMap?.get(e.text.trim()) ?? null,
+            rawText: e.text,
+            variantTable: targetVariantTable,
+          })}
+          scale={scale}
+          color={topColor}
+          alpha={topAlpha}
+          fontSizePx={topFontSizePx}
+          fontFamily={topFontFamily}
+          annotationRatio={annotationFontRatio}
+          annotationColor={hexToRgba(annotationColor, topAnnoAlpha)}
+          annotationFontFamily={annotationFontFamily}
+          outlineColor={topOutlineColor}
+          outlineAlpha={topOutlineAlpha}
+          glowRadius={topGlowRadius}
+          glowColor={topGlowColor}
+          glowAlpha={topGlowAlpha}
+        />
+      ))}
     </>
   );
 }
@@ -543,6 +582,128 @@ function resolveVariantTable(
   return variants[0]?.table ?? null;
 }
 
+/** A concurrently-active cue drawn at its OWN source position + writing
+    orientation (vertical Japanese with right-side furigana; a positioned
+    horizontal description at mid/top).  Ambient-light: foreign text +
+    furigana (via AnnotatedText) with the layer outline for legibility, no
+    romanization line, no native pairing.  Absolutely positioned within the
+    overlay root (which fills the player), so the coarse zone maps straight
+    to the frame. */
+function PositionalCue({
+  layout,
+  segments,
+  scale,
+  color,
+  alpha,
+  fontSizePx,
+  fontFamily,
+  annotationRatio,
+  annotationColor,
+  annotationFontFamily,
+  outlineColor,
+  outlineAlpha,
+  glowRadius,
+  glowColor,
+  glowAlpha,
+}: {
+  layout: CueLayout;
+  segments: RichSegment[];
+  scale: number;
+  color: string;
+  alpha: number;
+  fontSizePx: number;
+  fontFamily: string;
+  annotationRatio: number;
+  annotationColor: string;
+  annotationFontFamily: string | null;
+  outlineColor: string;
+  outlineAlpha: number;
+  glowRadius: number;
+  glowColor: string;
+  glowAlpha: number;
+}) {
+  const vertical = layout.writingMode !== "horizontal";
+  const shadow = buildTextShadow(
+    { alpha, outlineColor, outlineAlpha, glowRadius, glowColor, glowAlpha },
+    scale,
+  );
+  const style: React.CSSProperties = {
+    ...zoneAnchor(layout),
+    fontFamily: resolveFontFamily(fontFamily),
+    fontSize: `${fontSizePx * scale}px`,
+    fontWeight: 500,
+    color: hexToRgba(color, alpha),
+    lineHeight: 1.25,
+    textShadow: shadow,
+    pointerEvents: "none",
+    unicodeBidi: "isolate",
+    // Vertical column caps at the frame height; horizontal cue caps at a
+    // fraction of the width so a positioned line doesn't span edge-to-edge.
+    ...(vertical
+      ? { writingMode: layout.writingMode as "vertical-rl" | "vertical-lr", maxHeight: "84%" }
+      : { maxWidth: "44%", textAlign: layout.textAlign === "start" ? "start" : layout.textAlign === "end" ? "end" : "center", whiteSpace: "pre-wrap" }),
+  };
+  return (
+    <div style={style}>
+      <AnnotatedText
+        segments={segments}
+        baseFontPxScaled={fontSizePx * scale}
+        annotationRatio={annotationRatio}
+        color={annotationColor}
+        fontFamily={normalizeFontFamily(annotationFontFamily)}
+        variantColor={annotationColor}
+        variantFontFamily={null}
+        highlightEnabled={false}
+        cleanHighlightColor={annotationColor}
+        collapseHighlightColor={annotationColor}
+      />
+    </div>
+  );
+}
+
+/** Map a cue's coarse zone (block × inline) to absolute-position CSS within
+    the overlay root.  Uses the precise `origin` fraction when the source
+    region carried one, else snaps to the zone's edge/center.  A single
+    compositor promotion (translateZ) is folded into the centering
+    transform. */
+function zoneAnchor(layout: CueLayout): React.CSSProperties {
+  const s: React.CSSProperties = {
+    position: "absolute",
+    transform: "translateZ(0)",
+  };
+  const tx: string[] = [];
+
+  // Precise placement when the source region defined tts:origin.
+  if (layout.origin) {
+    s.left = `${clampPct(layout.origin.x * 100)}%`;
+    s.top = `${clampPct(layout.origin.y * 100)}%`;
+    tx.push("translateZ(0)");
+    s.transform = tx.join(" ");
+    return s;
+  }
+
+  // Coarse zone placement.
+  if (layout.inline === "left") s.left = `${ZONE_INSET_PCT / 2}%`;
+  else if (layout.inline === "right") s.right = `${ZONE_INSET_PCT / 2}%`;
+  else {
+    s.left = "50%";
+    tx.push("translateX(-50%)");
+  }
+  if (layout.block === "top") s.top = `${ZONE_INSET_PCT}%`;
+  else if (layout.block === "bottom") s.bottom = `${ZONE_INSET_PCT}%`;
+  else {
+    s.top = "50%";
+    tx.push("translateY(-50%)");
+  }
+  tx.push("translateZ(0)");
+  s.transform = tx.join(" ");
+  return s;
+}
+
+function clampPct(n: number): number {
+  return Math.max(0, Math.min(100, n));
+}
+
 function zoneStyle(
   zone: "top" | "bottom",
   scale: number,
@@ -599,7 +760,18 @@ function layerStyle(layer: Layer, scale: number): React.CSSProperties {
   };
 }
 
-function buildTextShadow(layer: Layer, scale: number): string {
+/** The subset of a layer's style buildTextShadow needs — so positioned
+    extra cues (which aren't full Layers) can reuse the same outline ring. */
+interface ShadowSpec {
+  alpha: number;
+  outlineColor: string;
+  outlineAlpha: number;
+  glowRadius: number;
+  glowColor: string;
+  glowAlpha: number;
+}
+
+function buildTextShadow(layer: ShadowSpec, scale: number): string {
   const d = OUTLINE_PX * scale;
   const s = SHADOW_OFFSET_PX * scale;
   // Master line opacity fades the outline + shadow + glow ALONG WITH the

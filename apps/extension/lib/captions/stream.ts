@@ -42,6 +42,8 @@ export class CaptionStream {
   #nativeEvents: CaptionEvent[] = [];
   #currentTarget: CaptionEvent | null = null;
   #currentNative: CaptionEvent | null = null;
+  #currentTargets: CaptionEvent[] = [];
+  #currentNatives: CaptionEvent[] = [];
   #abort: AbortController | null = null;
   #video: HTMLVideoElement | null = null;
   #callbacks: CaptionStreamCallbacks;
@@ -154,9 +156,16 @@ export class CaptionStream {
     }
     this.#targetEvents = [];
     this.#nativeEvents = [];
-    if (this.#currentTarget !== null || this.#currentNative !== null) {
+    if (
+      this.#currentTarget !== null ||
+      this.#currentNative !== null ||
+      this.#currentTargets.length > 0 ||
+      this.#currentNatives.length > 0
+    ) {
       this.#currentTarget = null;
       this.#currentNative = null;
+      this.#currentTargets = [];
+      this.#currentNatives = [];
       this.#emitChange();
     }
   }
@@ -170,6 +179,8 @@ export class CaptionStream {
     const detail: StreamChangeDetail = {
       target: this.#currentTarget,
       native: this.#currentNative,
+      targets: this.#currentTargets,
+      natives: this.#currentNatives,
     };
     this.#callbacks.onActiveChange?.(detail);
   }
@@ -182,16 +193,24 @@ export class CaptionStream {
 
   #tick(currentTimeSeconds: number): void {
     const t = currentTimeSeconds * 1000;
-    const nextTarget = findActiveAt(this.#targetEvents, t);
-    const nextNative = findActiveAt(this.#nativeEvents, t);
+    // ALL concurrently-active cues per side (a scene can show a bottom
+    // dialogue line + a positioned/vertical side cue at once).
+    const nextTargets = findActiveAll(this.#targetEvents, t);
+    const nextNatives = findActiveAll(this.#nativeEvents, t);
+    const nextTarget = pickPrimary(nextTargets);
+    const nextNative = nextNatives[0] ?? null;
     if (
       nextTarget === this.#currentTarget &&
-      nextNative === this.#currentNative
+      nextNative === this.#currentNative &&
+      sameEvents(nextTargets, this.#currentTargets) &&
+      sameEvents(nextNatives, this.#currentNatives)
     ) {
       return;
     }
     this.#currentTarget = nextTarget;
     this.#currentNative = nextNative;
+    this.#currentTargets = nextTargets;
+    this.#currentNatives = nextNatives;
     this.#emitChange();
   }
 
@@ -235,9 +254,35 @@ export class CaptionStream {
   }
 }
 
-function findActiveAt(events: CaptionEvent[], t: number): CaptionEvent | null {
+/** Every event overlapping the playhead, in track order. */
+function findActiveAll(events: CaptionEvent[], t: number): CaptionEvent[] {
+  const out: CaptionEvent[] = [];
   for (const e of events) {
-    if (e.start <= t && t < e.end) return e;
+    if (e.start <= t && t < e.end) out.push(e);
   }
-  return null;
+  return out;
+}
+
+/** The PRIMARY cue for the main dual-subs slot.  Prefers a horizontal cue
+    (the main dialogue reads horizontally in the primary slot); a cue with
+    NO layout counts as horizontal — so YouTube / Netflix (no positional
+    data) resolve to the first active cue, identical to the pre-multi-cue
+    behavior.  Vertical / positioned cues become "extras" the overlay draws
+    in place. */
+function pickPrimary(cues: CaptionEvent[]): CaptionEvent | null {
+  if (cues.length === 0) return null;
+  const horizontal = cues.find(
+    (c) => !c.layout || c.layout.writingMode === "horizontal",
+  );
+  return horizontal ?? cues[0];
+}
+
+/** Reference-equality list compare (events are stable objects from the
+    parsed track, so identity is a valid change signal). */
+function sameEvents(a: CaptionEvent[], b: CaptionEvent[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

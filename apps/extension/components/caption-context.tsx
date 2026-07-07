@@ -224,9 +224,16 @@ interface CaptionContextValue {
       visibility decisions. */
   status: DiscoveryStatus;
   /** Currently active target / native events at the playhead.  null
-      between events or when not tracking. */
+      between events or when not tracking.  These are the PRIMARY cue for
+      each side (the main dual-subs slot). */
   target: CaptionEvent | null;
   native: CaptionEvent | null;
+  /** ALL concurrently-active target / native cues (a scene can show a
+      bottom dialogue line AND a positioned/vertical side cue at once).
+      The overlay renders `target`/`native` in the main slot and the
+      remaining cues at their source positions.  Empty between events. */
+  targets: CaptionEvent[];
+  natives: CaptionEvent[];
 
   /** Underlying CaptionStream — exposed for components that need
       direct read access (rare).  Tests live downstream. */
@@ -443,6 +450,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<DiscoveryStatus>({ kind: "idle" });
   const [target, setTarget] = useState<CaptionEvent | null>(null);
   const [native, setNative] = useState<CaptionEvent | null>(null);
+  const [targets, setTargets] = useState<CaptionEvent[]>([]);
+  const [natives, setNatives] = useState<CaptionEvent[]>([]);
   const [tracks, setTracks] = useState<CaptionTrack[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<CaptionTrack | null>(
     null,
@@ -590,6 +599,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
         onActiveChange: (d) => {
           setTarget(d.target);
           setNative(d.native);
+          setTargets(d.targets);
+          setNatives(d.natives);
           // No annotation-fetch trigger here (5d-perf v3): the
           // /annotate/batch one-shot at track-resolve time pre-
           // populates the entire map, so playhead boundaries don't
@@ -1275,6 +1286,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       status,
       target,
       native,
+      targets,
+      natives,
       stream,
       tracks,
       selectedTarget,
@@ -1402,6 +1415,8 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       status,
       target,
       native,
+      targets,
+      natives,
       stream,
       tracks,
       selectedTarget,

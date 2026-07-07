@@ -106,8 +106,16 @@ export type StreamStatus =
   | { kind: "error"; message: string };
 
 /** Payload of the CaptionStream "change" event — the currently-active
-    target + native captions.  Either may be null between events. */
+    captions at the playhead.
+    - `target`/`native` are the PRIMARY cue for each side (the main-slot
+      dual-subs pair): back-compat, unchanged for callers that want one.
+    - `targets`/`natives` are ALL concurrently-active cues (a scene can show
+      a bottom dialogue line AND a positioned/vertical side cue at once).
+      The overlay renders the primary in its slot and the extras at their
+      source positions.  Empty arrays between events. */
 export interface StreamChangeDetail {
   target: CaptionEvent | null;
   native: CaptionEvent | null;
+  targets: CaptionEvent[];
+  natives: CaptionEvent[];
 }

@@ -24,6 +24,28 @@ import {
 const ANCHOR_SELECTOR = PRIME_PLAYER_ROOT;
 const HOST_STYLE_ID = "loom-host-positioning";
 
+/** Resolve the REAL player surface to anchor to.  Prime silently mounts a
+    0x0 (hidden) video-surface on the detail page before the real player
+    swaps in, and can keep a small background-preview surface around — so a
+    bare querySelector races onto the wrong one (observed: mount on a 0x0
+    surface → invisible pill, dead playhead).  Pick the LARGEST sized
+    surface that actually holds a <video>: that's the playing player.  null
+    until one exists, so mounting waits for the real player. */
+function resolvePrimeAnchor(): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestArea = 0;
+  for (const el of document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR)) {
+    const r = el.getBoundingClientRect();
+    const area = r.width * r.height;
+    // ≥ 200x200 rules out the 0x0 preview + tiny thumbnails.
+    if (area >= 40000 && el.querySelector("video") && area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
 export default defineContentScript({
   // All of primevideo.com — the player is embedded on the detail page and
   // Prime is an SPA (navigating title→title is history.pushState, no
@@ -40,41 +62,84 @@ export default defineContentScript({
     const ui = await createShadowRootUi(ctx, {
       name: "loom-overlay-root",
       position: "inline",
-      anchor: ANCHOR_SELECTOR,
+      // Function anchor: mount into the LARGEST sized surface with a video
+      // (the real player), never the 0x0 preview.  ui.mount() re-invokes
+      // this, so the reconciler below can (re)mount onto whichever surface
+      // is real at that instant.
+      anchor: () => resolvePrimeAnchor(),
       inheritStyles: true,
       onMount: (uiContainer) => {
-        const anchor = document.querySelector<HTMLElement>(ANCHOR_SELECTOR);
+        const anchor = resolvePrimeAnchor();
         if (anchor) ensureAnchorPositioned(anchor);
         uiContainer.style.position = "absolute";
         uiContainer.style.inset = "0";
         const root = ReactDOM.createRoot(uiContainer);
         root.render(<LoomApp />);
-        // Log which surface we anchored to + whether it holds a real,
-        // sized, playable <video> — so a preview-vs-player mis-anchor race
-        // (Prime silently mounts a muted preview surface on the detail page
-        // before the real player swaps in) is visible in the console.
         const rect = anchor?.getBoundingClientRect();
-        const v = anchor?.querySelector("video");
-        const count = document.querySelectorAll(ANCHOR_SELECTOR).length;
         logDev(
-          "[Loom] Prime overlay MOUNTED —",
-          "surfaces on page:",
-          count,
-          "| anchor size:",
+          "[Loom] Prime overlay MOUNTED — anchor size:",
           rect ? `${Math.round(rect.width)}x${Math.round(rect.height)}` : "?",
-          "| has video:",
-          !!v,
-          "| video duration:",
-          v ? String((v as HTMLVideoElement).duration) : "n/a",
         );
         return root;
       },
       onRemove: (root) => {
         root?.unmount();
-        logDev("[Loom] Prime overlay UNMOUNTED (surface removed / rebuilt)");
+        logDev("[Loom] Prime overlay UNMOUNTED (surface removed / not yet sized)");
       },
     });
-    ui.autoMount();
+
+    // STATE-BASED mount reconciliation (replaces ui.autoMount) — same pattern
+    // as WeTV, but gated on a SIZED surface.  Prime's 0x0→full-size player
+    // transition happens via layout (NOT a DOM mutation), so autoMount's
+    // mutation-only observer never re-fires — the overlay stays stuck on the
+    // 0x0 preview (invisible pill, dead playhead; "only shows after refresh").
+    // Reconciling to the resolved anchor on mutations + a 1s backstop (which
+    // catches the pure-resize transition) fixes it.  Idempotent; always
+    // remove() a stale mount before re-mounting (no duplicate React root).
+    let mountedTo: HTMLElement | null = null;
+    const ensureMount = () => {
+      const anchor = resolvePrimeAnchor();
+      if (!anchor) {
+        if (mountedTo) {
+          ui.remove();
+          mountedTo = null;
+        }
+        return;
+      }
+      const ok =
+        mountedTo === anchor &&
+        ui.shadowHost?.isConnected &&
+        anchor.contains(ui.shadowHost);
+      if (ok) return;
+      if (mountedTo) {
+        try {
+          ui.remove();
+        } catch {
+          /* tolerate a half-torn-down state */
+        }
+        mountedTo = null;
+      }
+      ui.mount();
+      mountedTo = anchor;
+    };
+
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        ensureMount();
+      });
+    };
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    const backstop = setInterval(ensureMount, 1000); // catches the resize→sized transition
+    ensureMount();
+    ctx.onInvalidated(() => {
+      observer.disconnect();
+      clearInterval(backstop);
+      if (raf) cancelAnimationFrame(raf);
+    });
   },
 });
 

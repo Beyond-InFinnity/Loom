@@ -266,51 +266,59 @@ function findSubtitleEntries(json: unknown): Array<Record<string, unknown>> {
   return preferred.length > 0 ? preferred : other;
 }
 
-/** Best-effort audio language from the GetVod JSON (for auto-pick's
-    default Top layer).  Shape-searched with several patterns; undefined
-    when not found → the consumer falls back to tier ordering. */
+/** The spoken/original audio language from the GetVod JSON, for auto-pick's
+    default Top layer.  Confirmed source (recon 2026-07-07):
+      playbackUrls…intraTitlePlaylist[0].defaultAudioTrackId = "ja-jp_dialog_0"
+    i.e. a "<lang>_<subtype>_<n>" id whose lang prefix is the DEFAULT audio.
+    The sibling `audioTracks[]` array is NOT ordered original-first (de-de
+    led on Evangelion with ja-jp 9th), so `defaultAudioTrackId` is the only
+    reliable signal.  Falls back to a default/first audioTracks entry's id
+    prefix, then undefined → consumer keeps tier ordering. */
 function findAudioLang(json: unknown): string | undefined {
-  let found: string | undefined;
-  const walk = (obj: unknown, depth: number): void => {
-    if (found || !obj || typeof obj !== "object" || depth > 8) return;
-    const r = obj as Record<string, unknown>;
-    for (const [k, v] of Object.entries(r)) {
-      if (found) return;
-      // (1) a single audio-language field: audioLanguage / audioLocale /
-      //     defaultAudioLanguage / spokenLanguage / originalLanguage.
-      if (
-        typeof v === "string" &&
-        v.length > 0 &&
-        (/(audio|spoken|original|default).*(lang|locale)/i.test(k) ||
-          /(lang|locale).*(audio|spoken|original)/i.test(k))
-      ) {
-        found = v;
-        return;
+  const langOfTrackId = (id: string): string | undefined => {
+    // "ja-jp_dialog_0" → "ja-jp"; guard against unexpected shapes.
+    const prefix = id.split("_")[0]?.trim();
+    return prefix && /^[a-z]{2,3}(-[a-z0-9]+)?$/i.test(prefix) ? prefix : undefined;
+  };
+
+  // (1) Preferred: defaultAudioTrackId anywhere in the tree.
+  let fromDefault: string | undefined;
+  const walkDefault = (obj: unknown, depth: number): void => {
+    if (fromDefault || !obj || typeof obj !== "object" || depth > 8) return;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (fromDefault) return;
+      if (/defaultAudioTrackId/i.test(k) && typeof v === "string" && v) {
+        fromDefault = langOfTrackId(v);
+        if (fromDefault) return;
       }
-      // (2) an array of audio-track objects (has language + an audio-ish
-      //     marker: codec / bitrate / channels), whose first / default
-      //     entry gives the spoken language.
-      if (Array.isArray(v) && /audio/i.test(k)) {
-        const track = v.find(
-          (t) =>
-            t &&
-            typeof t === "object" &&
-            Object.keys(t as object).some((kk) => /lang|locale/i.test(kk)),
-        ) as Record<string, unknown> | undefined;
-        if (track) {
-          for (const [kk, vv] of Object.entries(track)) {
-            if (/lang|locale/i.test(kk) && typeof vv === "string" && vv) {
-              found = vv;
-              return;
-            }
-          }
-        }
-      }
-      walk(v, depth + 1);
+      walkDefault(v, depth + 1);
     }
   };
-  walk(json, 0);
-  return found;
+  walkDefault(json, 0);
+  if (fromDefault) return fromDefault;
+
+  // (2) Fallback: an audioTracks array — a `default`-flagged entry if one
+  //     exists, else the first — parsed off its audioTrackId prefix.
+  let fromArray: string | undefined;
+  const walkArray = (obj: unknown, depth: number): void => {
+    if (fromArray || !obj || typeof obj !== "object" || depth > 8) return;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (fromArray) return;
+      if (Array.isArray(v) && /audio/i.test(k) && v.length > 0) {
+        const entries = v as Array<Record<string, unknown>>;
+        const chosen =
+          entries.find((t) => t && (t as { isDefault?: unknown }).isDefault) ??
+          entries[0];
+        const idKey = Object.keys(chosen).find((kk) => /trackId|id/i.test(kk));
+        const idVal = idKey ? chosen[idKey] : undefined;
+        if (typeof idVal === "string") fromArray = langOfTrackId(idVal);
+        if (fromArray) return;
+      }
+      walkArray(v, depth + 1);
+    }
+  };
+  walkArray(json, 0);
+  return fromArray;
 }
 
 /** Diagnostic (dev): compact list of paths whose key mentions "audio",

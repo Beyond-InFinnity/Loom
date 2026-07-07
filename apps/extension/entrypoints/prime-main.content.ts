@@ -310,9 +310,15 @@ function readTitleIdFromUrl(): string | null {
   return params.get("gti") || params.get("asin") || null;
 }
 
+// Real GetVod subtitle-entry shape (confirmed live 2026-07-07):
+//   { displayName:"Dansk", format:"TTMLv2", languageCode:"da-dk",
+//     subtype:"Dialog", trackGroupId:"…", type:"Subtitle", url:"…ttml2" }
+// The downstream parseBcp47 resolves region-suffixed codes (ja-jp→ja,
+// zh-cn→Hans) by shape, so codes pass through unchanged.
+
 /** One subtitle entry → the shared CaptionTrack wire shape.  Reads the
-    URL + language + display name from whatever fields carry them
-    (defensive), and flags SDH/CC by the type/subtype/displayName. */
+    known fields (with defensive fallbacks), drops forced narratives, and
+    flags SDH/CC by subtype. */
 function serializeTrack(
   entry: Record<string, unknown>,
   index: number,
@@ -325,15 +331,24 @@ function serializeTrack(
     return undefined;
   };
   const url = strField(/url/i);
-  const lang = strField(/lang|locale/i);
+  const lang = strField(/languageCode/i) || strField(/lang|locale/i);
   if (!url || !lang) return null;
+  const subtype = (strField(/subtype/i) || "").toLowerCase();
+  const type = (strField(/^type$/i) || "").toLowerCase();
+  // Forced narratives (foreign-signage-only) aren't learner dialogue —
+  // skip so they don't clutter the picker or get auto-picked.
+  if (/forced/.test(subtype) || /forced/.test(type)) return null;
   const name = strField(/displayName|name|label/i) || lang;
-  const type = (strField(/type|subtype/i) || "").toLowerCase();
   const isCc =
-    /sdh|caption|cc|hard.?of.?hearing/i.test(type) ||
-    /sdh|\bcc\b|caption/i.test(name);
+    /sdh|caption|hard.?of.?hearing/.test(subtype) ||
+    /caption/.test(type) ||
+    /sdh|\bcc\b/i.test(name);
   return {
-    id: strField(/id/i) || `pv-${index}-${lang}`,
+    // Per-track-unique id: trackGroupId is SHARED across a language's
+    // Dialog/SDH variants (would collide → dual-highlight + duplicate React
+    // keys + events-cache clobber, exactly the Netflix id lesson), so
+    // compose from lang+subtype+index instead.
+    id: `pv-${index}-${normalizeLang(lang)}-${subtype || type || "sub"}`,
     languageCode: normalizeLang(lang),
     name,
     baseUrl: url,

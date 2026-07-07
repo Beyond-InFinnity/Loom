@@ -84,6 +84,28 @@ Prime India-origin catalog; Loom has IAST end-to-end), ko, zh.
 - Still owed for full gate: menu-sweep breadth (rows 1–15) — but the
   acquisition question is SETTLED.
 
+### ✅ MAIN-HOOK CONFIRMED LIVE 2026-07-07 (dev build on Firefox/Chrome data)
+
+The `prime-main` fetch/XHR hook parsed a real `GetVodPlaybackResources`
+response and posted **30 subtitle tracks**. Confirmed JSON shape:
+- The response has NO top-level `subtitleUrls`; the subtitle array lives
+  under the resource result (`timedTextUrls`). Prime makes SEVERAL GetVod
+  calls — the resource-less ones return `timedTextUrls:{error:…}` (our
+  shape-search correctly no-ops on those; only the resource-bearing call
+  posts). Top-level keys: `sessionization, auditPings,
+  widevineServiceCertificate, playbackData, timedTextUrls, trickplayUrls,
+  transitionTimecodes, vodPlaylistedPlaybackUrls, vodXrayMetadata,
+  __metadata`.
+- Per-entry shape (confirmed):
+  `{displayName:"Dansk", format:"TTMLv2", languageCode:"da-dk",
+    subtype:"Dialog", trackGroupId:"…", type:"Subtitle",
+    url:"https://cf-timedtext.aux.pv-cdn.net/….ttml2"}`.
+- `languageCode` is `lang-region` lowercased (`da-dk`) → `parseBcp47`
+  resolves it by shape (ja-jp→ja, zh-cn→Hans), pass-through unchanged.
+- `trackGroupId` is SHARED across a language's Dialog/SDH variants → NOT
+  usable as track identity (id composed from lang+subtype+index instead).
+- Forced-narrative tracks filtered by `subtype`/`type`.
+
 | # | Title | Audio | Same-lang sub? | Notes |
 |---|-------|-------|----------------|-------|
 | 1 | Vinland Saga (Amazon-exclusive seasons) | ja | | |

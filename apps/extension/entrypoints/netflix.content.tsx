@@ -6,6 +6,7 @@ import {
   NETFLIX_PLAYER_ROOT,
   ensureAnchorPositioned,
 } from "@/lib/overlay/netflix-player-anchor";
+import { installCaptionPauseProbe } from "@/lib/overlay/caption-probe";
 
 // ISOLATED-world content script for Netflix watch pages (5h-3).
 //
@@ -52,6 +53,12 @@ export default defineContentScript({
 
   async main(ctx) {
     injectHostPositioningStyle();
+    // Passive caption-position probe (dev only) — pause / Ctrl+Shift+L to
+    // log where Netflix renders each cue (top vs bottom), keyed by
+    // currentTime.  Independent of activation.  See caption-probe.ts.
+    installCaptionPauseProbe(ctx, () =>
+      document.querySelector<HTMLElement>(NETFLIX_PLAYER_ROOT),
+    );
 
     // WXT autoMount owns the overlay lifecycle.  It watches ANCHOR_SELECTOR
     // and mounts when the Netflix player appears, unmounts when it's removed,

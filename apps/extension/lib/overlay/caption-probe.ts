@@ -32,11 +32,16 @@
 // dead-code-eliminates it from production bundles.
 
 import { IS_DEV } from "../env";
-import { resolvePrimePlayerSurface } from "./prime-player-anchor";
 
 interface Invalidatable {
   onInvalidated(cb: () => void): void;
 }
+
+/** Resolves the player container to measure caption positions against
+    (positions are reported as a % of this box).  Prime: the largest sized
+    video-surface; Netflix: `div[data-uia="player"]`.  May return null
+    before the player mounts. */
+type ResolveSurface = () => HTMLElement | null;
 
 /** The CONFIRMED Prime caption text element (live 2026-07-07):
     `span.atvwebplayersdk-captions-text`.  Matching this gives ONE entry per
@@ -44,7 +49,7 @@ interface Invalidatable {
     in per-character spans.  The `-text`/`-window` variants + generic
     caption/subtitle keep it robust if Prime renames or on other platforms. */
 const CAPTION_UNIT_SELECTOR =
-  '[class*="captions-text" i],[class*="caption-text" i],[class*="subtitle-text" i],[class*="captions-window" i]';
+  '[class*="captions-text" i],[class*="caption-text" i],[class*="subtitle-text" i],[class*="captions-window" i],[class*="timedtext" i]';
 
 /** Class substrings marking player CHROME — used only by the heuristic
     FALLBACK scan (when no real caption element is found), so band text from
@@ -58,24 +63,27 @@ const CONTROL_TOKENS = [
 
 const CAPTION_RE = /caption|subtitle|timedtext|dialog/i;
 
-export function installCaptionPauseProbe(ctx: Invalidatable): void {
+export function installCaptionPauseProbe(
+  ctx: Invalidatable,
+  resolveSurface: ResolveSurface,
+): void {
   if (!IS_DEV) return;
 
   const onPause = (e: Event): void => {
     const v = e.target;
-    if (v instanceof HTMLVideoElement) snapshot(v, "pause");
+    if (v instanceof HTMLVideoElement) snapshot(v, "pause", resolveSurface);
   };
   // `pause` does NOT bubble, but it still traverses the CAPTURE phase from
   // document down to the target — so one capturing listener catches pause on
-  // whichever <video> Prime is currently playing, no per-element rebinding.
+  // whichever <video> is currently playing, no per-element rebinding.
   document.addEventListener("pause", onPause, true);
 
   const onKey = (e: KeyboardEvent): void => {
     // Ctrl+Shift+L — snapshot WITHOUT pausing (some players reposition
     // captions when the control chrome appears on pause).
     if (e.ctrlKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
-      const v = resolveProbeVideo();
-      if (v) snapshot(v, "hotkey");
+      const v = resolveProbeVideo(resolveSurface);
+      if (v) snapshot(v, "hotkey", resolveSurface);
     }
   };
   document.addEventListener("keydown", onKey, true);
@@ -90,8 +98,8 @@ export function installCaptionPauseProbe(ctx: Invalidatable): void {
   });
 }
 
-function resolveProbeVideo(): HTMLVideoElement | null {
-  const surface = resolvePrimePlayerSurface();
+function resolveProbeVideo(resolveSurface: ResolveSurface): HTMLVideoElement | null {
+  const surface = resolveSurface();
   const inSurface = surface?.querySelector<HTMLVideoElement>("video");
   if (inSurface) return inSurface;
   for (const v of document.querySelectorAll<HTMLVideoElement>("video")) {
@@ -102,8 +110,12 @@ function resolveProbeVideo(): HTMLVideoElement | null {
 
 // ---- Snapshot -------------------------------------------------------------
 
-function snapshot(video: HTMLVideoElement, trigger: string): void {
-  const surface = resolvePrimePlayerSurface();
+function snapshot(
+  video: HTMLVideoElement,
+  trigger: string,
+  resolveSurface: ResolveSurface,
+): void {
+  const surface = resolveSurface();
   const player =
     surface?.getBoundingClientRect() ??
     new DOMRect(0, 0, window.innerWidth, window.innerHeight);

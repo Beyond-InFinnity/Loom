@@ -7,7 +7,7 @@ import {
   ensureAnchorPositioned,
   resolvePrimePlayerSurface,
 } from "@/lib/overlay/prime-player-anchor";
-import { installCaptionPauseProbe } from "@/lib/overlay/prime-caption-probe";
+import { installCaptionPauseProbe } from "@/lib/overlay/caption-probe";
 
 // ISOLATED-world content script for Amazon Prime Video pages.
 //
@@ -51,8 +51,8 @@ export default defineContentScript({
     // Passive caption-position probe (dev only) — logs where captions
     // actually render on pause / Ctrl+Shift+L, independent of activation.
     // Builds the render↔data correspondence for multi-cue / vertical /
-    // positioned subtitle handling.  See prime-caption-probe.ts.
-    installCaptionPauseProbe(ctx);
+    // positioned subtitle handling.  See caption-probe.ts.
+    installCaptionPauseProbe(ctx, resolvePrimePlayerSurface);
 
     console.info("[Loom PRIME ISO] creating shadow UI…");
     const ui = await createShadowRootUi(ctx, {

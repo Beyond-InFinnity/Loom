@@ -1,6 +1,6 @@
 import ReactDOM from "react-dom/client";
 
-import { logDev } from "@/lib/env";
+import { ISO_SOURCE, logDev } from "@/lib/env";
 import { LoomApp } from "@/components/loom-app";
 import {
   PRIME_PLAYER_ROOT,
@@ -24,6 +24,21 @@ import {
 
 const ANCHOR_SELECTOR = PRIME_PLAYER_ROOT;
 const HOST_STYLE_ID = "loom-host-positioning";
+
+/** Prime title id for the current URL, else null.  Prime plays inline on
+    the detail page (/…/detail/<ID>) and also exposes gti/asin query
+    params; either identifies "which title" for SPA-nav change detection. */
+function titleIdOf(url: string | URL): string | null {
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/detail\/([A-Z0-9]+)/i);
+    if (m) return m[1];
+    const p = new URLSearchParams(u.search);
+    return p.get("gti") || p.get("asin") || null;
+  } catch {
+    return null;
+  }
+}
 
 // The overlay anchors to the SAME surface the playhead binds to
 // (resolvePrimePlayerSurface, shared in prime-player-anchor.ts) — so they
@@ -124,13 +139,12 @@ export default defineContentScript({
     };
 
     // Throttled diagnostic for the no-eligible-surface case.
-    let lastDiag = -Infinity;
+    let diagTick = 0;
     const diagnoseNoAnchor = () => {
-      // Use a monotonic-ish gate via a counter on the backstop instead of a
-      // clock (Date.now is fine in content scripts, but keep it cheap): log
-      // at most every ~3s worth of ticks.
-      lastDiag += 1;
-      if (lastDiag % 3 !== 0) return;
+      // Cheap counter gate: log roughly every 3rd empty check (~3s via the
+      // backstop) so a "won't mount" load reports without spamming.
+      diagTick += 1;
+      if (diagTick % 3 !== 1) return;
       const surfaces = Array.from(
         document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR),
       ).map((el) => {
@@ -158,6 +172,40 @@ export default defineContentScript({
     observer.observe(document.documentElement, { childList: true, subtree: true });
     const backstop = setInterval(ensureMount, 1000); // catches the resize→sized transition
     ensureMount();
+
+    // SPA navigation (title → title, e.g. Evangelion 1.11 → 2.22) is a
+    // history.pushState with NO reload — the content script is NOT
+    // re-injected, so nothing resets for the new title (observed: pill +
+    // subs + native-suppression all absent on the 2nd title).  On a title
+    // change: (1) force the reconciler to re-resolve (the old surface is
+    // being torn down; drop our ref so we cleanly remount on the new one),
+    // and (2) nudge MAIN to re-emit the new title's tracklist so discover
+    // re-resolves.  Matches the Netflix / WeTV locationchange wiring.
+    let currentTitleId = titleIdOf(location.href);
+    ctx.addEventListener(window, "wxt:locationchange", ({ newUrl }) => {
+      const newId = titleIdOf(newUrl);
+      if (newId === currentTitleId) return;
+      logDev("[Loom] Prime SPA nav:", currentTitleId, "→", newId, "— resetting overlay");
+      currentTitleId = newId;
+      // Drop the stale mount so ensureMount rebuilds on the new player.
+      if (mountedTo) {
+        try {
+          ui.remove();
+        } catch {
+          /* tolerate a half-torn-down state */
+        }
+        mountedTo = null;
+      }
+      diagTick = 0;
+      window.postMessage(
+        { source: ISO_SOURCE, type: "request-tracklist" },
+        location.origin,
+      );
+      // The new player mounts asynchronously; the observer + backstop will
+      // catch it, but kick an immediate check too.
+      ensureMount();
+    });
+
     ctx.onInvalidated(() => {
       observer.disconnect();
       clearInterval(backstop);

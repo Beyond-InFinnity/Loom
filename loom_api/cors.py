@@ -45,6 +45,10 @@ ALLOW_ORIGIN_REGEX = (
     # subdomain group on both.  (Page origins captured from live HARs, 2026-06.)
     r"|https://([a-z0-9-]+\.)?iq\.com"
     r"|https://([a-z0-9-]+\.)?wetv\.vip"
+    # Prime Video plays on www.primevideo.com (detail page hosts the inline
+    # player); page origin rides the annotate/romanize fetch on Chrome MV3.
+    # (Captured from a live HAR, 2026-07-07.)
+    r"|https://([a-z0-9-]+\.)?primevideo\.com"
 )
 
 _COMPILED_REGEX = re.compile(ALLOW_ORIGIN_REGEX)

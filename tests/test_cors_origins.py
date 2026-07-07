@@ -37,6 +37,8 @@ from loom_api.cors import (
         "https://iq.com",  # apex (optional-subdomain regex)
         "https://wetv.vip",  # WeTV — page origin is the bare apex (no www)
         "https://www.wetv.vip",
+        "https://www.primevideo.com",  # Prime Video (detail-page inline player)
+        "https://primevideo.com",  # apex (optional-subdomain regex)
     ],
 )
 def test_supported_streaming_origins_allowed(origin):

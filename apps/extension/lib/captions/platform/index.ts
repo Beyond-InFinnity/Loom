@@ -10,6 +10,7 @@ import { youtubePlatform } from "./youtube";
 import { netflixPlatform } from "./netflix";
 import { iqiyiPlatform } from "./iqiyi";
 import { wetvPlatform } from "./wetv";
+import { primePlatform } from "./prime";
 
 let resolved: CaptionPlatform | null | undefined = undefined;
 
@@ -24,6 +25,8 @@ export function getPlatform(): CaptionPlatform | null {
     resolved = iqiyiPlatform;
   } else if (host === "wetv.vip" || host.endsWith(".wetv.vip")) {
     resolved = wetvPlatform;
+  } else if (host === "primevideo.com" || host.endsWith(".primevideo.com")) {
+    resolved = primePlatform;
   } else {
     resolved = null;
   }

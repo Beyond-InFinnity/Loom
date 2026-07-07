@@ -50,7 +50,7 @@ export default defineConfig({
     return {
       name: dev ? "Loom (Dev)" : "Loom",
       description:
-        "Dual subtitles with romanization for foreign-language video on YouTube, Netflix, iQIYI, and WeTV.",
+        "Dual subtitles with romanization for foreign-language video on YouTube, Netflix, Prime Video, iQIYI, and WeTV.",
       // `storage` for the owner key + display prefs. `webRequest` (observe
       // mode) to learn the YouTube-issued timedtext URL. `scripting` was
       // dropped — the MAIN-world hooks (YouTube tracklist read + Netflix
@@ -81,6 +81,14 @@ export default defineConfig({
         "*://*.wetvinfo.com/*",
         "*://*.video.qq.com/*",
         "*://*.myqcloud.com/*",
+        // Prime Video: the detail/watch page (MAIN GetVod hook + ISO
+        // overlay) lives on *.primevideo.com; the whole-file TTML2 subtitle
+        // documents are served from the timedtext CDN (cf-timedtext.aux.
+        // pv-cdn.net, an *.pv-cdn.net origin) — granted so the ISO world's
+        // cross-origin GET of the .ttml2 file isn't CORS-blocked. (The CDN
+        // already sends ACAO:*, so this is belt-and-braces for MV3.)
+        "*://*.primevideo.com/*",
+        "*://*.pv-cdn.net/*",
         // Follows the resolved API base (LOOM_API_BASE override or mode
         // default) so a dev build pointed at prod gets the prod origin
         // granted for the cross-origin /annotate + /romanize fetches.

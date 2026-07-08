@@ -23,6 +23,8 @@ interface DefineSense {
 interface DefinePart {
   word: string;
   reading?: string | null;
+  romaji?: string | null;
+  romaji_alt?: string | null;
   senses?: DefineSense[];
 }
 
@@ -30,17 +32,24 @@ interface DefinitionData {
   word: string;
   found: boolean;
   reading?: string | null;
+  /** Hepburn (macrons), Japanese only — Tōkyō. */
+  romaji?: string | null;
+  /** Hepburn (doubled vowels), Japanese only — Toukyou; absent when equal to
+      `romaji` (no long vowel). */
+  romaji_alt?: string | null;
   senses?: DefineSense[];
   sources?: string[];
   /** Decomposition breakdown when the word itself isn't a headword
-      (e.g. 一顶 → 一 + 顶).  Present only when `found` is false. */
+      (e.g. 一顶 → 一 + 顶, 玉葉様 → 様).  Present only when `found` is false. */
   parts?: DefinePart[];
 }
 
 type FetchState =
   | { kind: "loading" }
+  // "notfound" still carries the response so the header can show the
+  // reading + Hepburn even with no dictionary entry.
   | { kind: "ok"; data: DefinitionData }
-  | { kind: "notfound" }
+  | { kind: "notfound"; data?: DefinitionData }
   | { kind: "error" };
 
 interface DefinitionCardProps {
@@ -114,9 +123,16 @@ export function DefinitionCard({
       try {
         // Look up the lemma first, then fall back to the surface form: MeCab's
         // lemma is wrong/truncated for some compounds (黒曜石 → lemma 黒曜), and
-        // a glued honorific (玉葉様) only decomposes off the surface.
+        // a glued honorific (玉葉様) only decomposes off the surface.  `readings`
+        // carries the contextual kana so the server's Hepburn matches the shown
+        // furigana (は→わ, inflected 見た).
         const { data, error } = await getApiClient().POST("/define/batch", {
-          body: { lang: defineLang, words: [lemma], alt_keys: [[word]] },
+          body: {
+            lang: defineLang,
+            words: [lemma],
+            alt_keys: [[word]],
+            readings: [reading ?? ""],
+          },
         });
         if (cancelled) return;
         if (
@@ -134,7 +150,9 @@ export function DefinitionCard({
         const hasContent =
           result.found || (result.parts?.length ?? 0) > 0;
         setState(
-          hasContent ? { kind: "ok", data: result } : { kind: "notfound" },
+          hasContent
+            ? { kind: "ok", data: result }
+            : { kind: "notfound", data: result },
         );
       } catch {
         if (!cancelled) setState({ kind: "error" });
@@ -174,9 +192,7 @@ export function DefinitionCard({
     >
       <div style={headerStyle}>
         <span style={wordStyle}>{word}</span>
-        {headerReading(reading, state) ? (
-          <span style={readingStyle}>{headerReading(reading, state)}</span>
-        ) : null}
+        <HeaderReading {...readingBits(reading, state)} />
       </div>
       <Body state={state} />
       {state.kind === "ok" &&
@@ -188,15 +204,51 @@ export function DefinitionCard({
   );
 }
 
-/** Header reading: prefer the contextual surface reading (topic は → わ) when
-    we have one, else the dictionary reading once loaded. */
-function headerReading(
+/** Furigana + Hepburn for the header.  Furigana = the contextual surface
+    reading (topic は → わ) if we have one, else the dictionary reading.  Romaji
+    is server-computed (so it can't drift from the caption romaji line) and is
+    present for Japanese only. */
+function readingBits(
   contextual: string | null | undefined,
   state: FetchState,
-): string | null {
-  if (contextual) return contextual;
-  if (state.kind === "ok" && state.data.reading) return state.data.reading;
-  return null;
+): { furigana: string | null; romaji: string | null; romajiAlt: string | null } {
+  const data =
+    state.kind === "ok" || state.kind === "notfound" ? state.data : undefined;
+  return {
+    furigana: contextual || data?.reading || null,
+    romaji: data?.romaji ?? null,
+    romajiAlt: data?.romaji_alt ?? null,
+  };
+}
+
+/** Renders `furigana • Hepburn (Hepburn-doubled)` — the bullet separates the
+    kana reading from the romaji; the parenthetical doubled form is shown only
+    when it differs (i.e. the reading has a long vowel: Tōkyō (Toukyou), but
+    just Mita). */
+function HeaderReading({
+  furigana,
+  romaji,
+  romajiAlt,
+}: {
+  furigana: string | null;
+  romaji: string | null;
+  romajiAlt: string | null;
+}) {
+  if (!furigana && !romaji) return null;
+  return (
+    <span style={readingStyle}>
+      {furigana}
+      {romaji ? (
+        <>
+          {furigana ? <span style={bulletStyle}> • </span> : null}
+          <span style={romajiStyle}>
+            {romaji}
+            {romajiAlt && romajiAlt !== romaji ? ` (${romajiAlt})` : ""}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
 }
 
 function Body({ state }: { state: FetchState }) {
@@ -238,6 +290,14 @@ function Body({ state }: { state: FetchState }) {
                 <span style={partWordStyle}>{p.word}</span>
                 {p.reading ? (
                   <span style={readingStyle}>{p.reading}</span>
+                ) : null}
+                {p.romaji ? (
+                  <span style={romajiStyle}>
+                    {p.romaji}
+                    {p.romaji_alt && p.romaji_alt !== p.romaji
+                      ? ` (${p.romaji_alt})`
+                      : ""}
+                  </span>
                 ) : null}
               </span>
               <span style={partGlossStyle}>
@@ -313,6 +373,17 @@ const wordStyle: React.CSSProperties = {
 const readingStyle: React.CSSProperties = {
   fontSize: 13,
   color: "#9fd0ff",
+};
+
+// Romaji sits a touch dimmer/warmer than the blue furigana so the eye reads
+// kana → romaji as one unit split by the bullet.
+const romajiStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "#d5deea",
+};
+
+const bulletStyle: React.CSSProperties = {
+  color: "#6f7d90",
 };
 
 const senseListStyle: React.CSSProperties = {

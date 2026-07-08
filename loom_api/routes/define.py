@@ -21,6 +21,8 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from loom_core.romanize import hepburn_from_kana
+
 from ..deps import get_dictionary_store
 
 router = APIRouter(tags=["define"])
@@ -47,6 +49,16 @@ class DefineRequest(BaseModel):
             "(黒曜) doesn't.  Tried in order after the primary key."
         ),
     )
+    readings: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional per-word contextual kana readings, aligned to `words` — "
+            "the reading the card DISPLAYS (e.g. は→わ, the inflected 見た).  "
+            "For Japanese, the returned `romaji`/`romaji_alt` are computed from "
+            "this (falling back to the dictionary reading) so the Hepburn "
+            "matches the shown furigana."
+        ),
+    )
 
 
 class DefineSense(BaseModel):
@@ -56,12 +68,13 @@ class DefineSense(BaseModel):
 
 
 class DefinePart(BaseModel):
-    """One component of a decomposed word (Chinese only) — when the word
-    itself isn't a headword (jieba grouped number+measure-word etc.), this is
-    a sub-word that IS in the dictionary."""
+    """One component of a decomposed word — a Chinese sub-word (jieba grouped
+    number+measure-word etc.) or a Japanese honorific peeled off a name."""
 
     word: str
     reading: Optional[str] = None
+    romaji: Optional[str] = Field(None, description="Hepburn (macrons), Japanese only.")
+    romaji_alt: Optional[str] = Field(None, description="Hepburn (doubled vowels), Japanese only.")
     senses: List[DefineSense] = Field(default_factory=list)
 
 
@@ -69,13 +82,19 @@ class DefineResult(BaseModel):
     word: str = Field(..., description="The requested word, echoed back.")
     found: bool = Field(..., description="True iff the word itself has a direct dictionary entry.")
     reading: Optional[str] = Field(None, description="Reading/pronunciation (kana / numbered pinyin).")
+    romaji: Optional[str] = Field(
+        None, description="Hepburn romanization with macrons (Tōkyō), Japanese only.")
+    romaji_alt: Optional[str] = Field(
+        None, description="Hepburn with doubled long vowels (Toukyou), Japanese only; "
+                          "omitted/equal to `romaji` when there's no long vowel.")
     senses: List[DefineSense] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list, description="e.g. ['jmdict'] / ['cc-cedict'].")
     parts: List[DefinePart] = Field(
         default_factory=list,
         description=(
             "Decomposition breakdown when `found` is false but the word splits "
-            "into known sub-words (e.g. 一顶 → 一 + 顶).  Empty on a direct hit."
+            "into known sub-words (e.g. 一顶 → 一 + 顶, or 玉葉様 → 様).  Empty on "
+            "a direct hit."
         ),
     )
 
@@ -90,6 +109,27 @@ def _senses(defn_senses) -> List[DefineSense]:
         DefineSense(gloss=list(s.gloss), pos=list(s.pos), misc=list(s.misc))
         for s in defn_senses
     ]
+
+
+def _romaji_pair(lang: str, kana: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(romaji_macron, romaji_doubled) for a Japanese kana reading; (None, None)
+    for other languages or blank input.  The doubled form is returned as None
+    when it equals the macron form (no long vowel) so the client won't render a
+    redundant parenthetical."""
+    if lang != "ja" or not kana:
+        return (None, None)
+    macron, doubled = hepburn_from_kana(kana)
+    if not macron:
+        return (None, None)
+    return (macron, doubled if doubled != macron else None)
+
+
+def _part_model(lang: str, p) -> "DefinePart":
+    romaji, romaji_alt = _romaji_pair(lang, p.reading)
+    return DefinePart(
+        word=p.word, reading=p.reading,
+        romaji=romaji, romaji_alt=romaji_alt, senses=_senses(p.senses),
+    )
 
 
 def key(w: str) -> str:
@@ -121,27 +161,35 @@ def define_batch(req: DefineRequest) -> DefineResponse:
     found = get_dictionary_store().lookup(lang, union) if union else {}
 
     results: List[DefineResult] = []
-    for w, cands in zip(req.words, cand_lists):
+    for i, (w, cands) in enumerate(zip(req.words, cand_lists)):
         # Prefer a direct hit (has senses); fall back to a decomposition-only
         # entry (parts but no senses); try the primary key before its alts.
         direct = next((found[c] for c in cands if found.get(c) and found[c].senses), None)
         chosen = direct or next(
             (found[c] for c in cands if found.get(c) and found[c].parts), None
         )
+        # Romaji tracks the DISPLAYED reading: the client's contextual reading
+        # (は→わ, inflected 見た) if it sent one, else the dictionary reading.
+        ctx_reading = req.readings[i] if req.readings and i < len(req.readings) else None
+        disp_reading = ctx_reading or (chosen.reading if chosen else None)
+        romaji, romaji_alt = _romaji_pair(lang, disp_reading)
+
         if chosen is None:
-            results.append(DefineResult(word=w, found=False))
+            # Even a miss shows the reading + its Hepburn in the header.
+            results.append(
+                DefineResult(word=w, found=False, romaji=romaji, romaji_alt=romaji_alt)
+            )
         else:
             results.append(
                 DefineResult(
                     word=w,
                     found=bool(chosen.senses),  # direct hit vs decomposition-only
                     reading=chosen.reading,
+                    romaji=romaji,
+                    romaji_alt=romaji_alt,
                     senses=_senses(chosen.senses),
                     sources=list(chosen.sources),
-                    parts=[
-                        DefinePart(word=p.word, reading=p.reading, senses=_senses(p.senses))
-                        for p in chosen.parts
-                    ],
+                    parts=[_part_model(lang, p) for p in chosen.parts],
                 )
             )
     return DefineResponse(lang=lang, results=results)

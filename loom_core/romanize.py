@@ -584,6 +584,26 @@ def _polish_romaji(text: str, *, capitalize: bool = True) -> str:
     return out
 
 
+def hepburn_from_kana(kana: str) -> tuple[str, str]:
+    """Romanize a kana READING string to Hepburn, both long-vowel styles.
+
+    Returns ``(macron, doubled)`` — e.g. とうきょう → ("Tōkyō", "Toukyou"),
+    しゅうまつ → ("Shūmatsu", "Shuumatsu").  When the reading has no long vowel
+    the two are identical (みた → ("Mita", "Mita")); the caller can collapse the
+    redundant second form.  Katakana readings are handled (フリーレン →
+    ("Furīren", "Furiiren")).  Blank input → ``("", "")``.
+
+    Reuses the same tested kana→romaji table + polish as the romaji caption
+    line, so the vocab card's Hepburn can't drift from the overlay's.
+    """
+    if not kana or not kana.strip():
+        return ("", "")
+    return (
+        _polish_romaji(_kana_to_romaji(kana, "macrons")),
+        _polish_romaji(_kana_to_romaji(kana, "doubled")),
+    )
+
+
 def _make_pinyin_romanizer(variant: str = None):
     """Return a Chinese pinyin romanizer with word-segmented output.
 

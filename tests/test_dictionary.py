@@ -199,6 +199,58 @@ def test_route_alt_keys_optional_and_backcompat(mem_store, define_handler):
 
 
 # --------------------------------------------------------------------------- #
+# Japanese Hepburn romaji on /define
+# --------------------------------------------------------------------------- #
+
+def test_route_ja_romaji_macron_and_doubled(mem_store, define_handler):
+    handler, Req = define_handler
+    mem_store.add("ja", "東京", "とうきょう", [{"gloss": ["Tokyo"]}], source="jmdict")
+    r = handler(Req(lang="ja", words=["東京"])).results[0]
+    assert r.romaji == "Tōkyō"
+    assert r.romaji_alt == "Toukyou"
+
+
+def test_route_ja_romaji_alt_collapses_without_long_vowel(mem_store, define_handler):
+    handler, Req = define_handler
+    mem_store.add("ja", "犬", "いぬ", [{"gloss": ["dog"]}], source="jmdict")
+    r = handler(Req(lang="ja", words=["犬"])).results[0]
+    assert r.romaji == "Inu"
+    assert r.romaji_alt is None          # no long vowel → no redundant form
+
+
+def test_route_ja_romaji_tracks_contextual_reading(mem_store, define_handler):
+    # The card shows the inflected furigana (見た); romaji must match it, not
+    # the dictionary form's reading (みる).
+    handler, Req = define_handler
+    mem_store.add("ja", "見る", "みる", [{"gloss": ["to see"]}], source="jmdict")
+    r = handler(Req(lang="ja", words=["見る"], readings=["みた"])).results[0]
+    assert r.romaji == "Mita"
+
+
+def test_route_ja_romaji_present_even_on_miss(mem_store, define_handler):
+    # A word with no entry still gets its reading romanized for the header.
+    handler, Req = define_handler
+    r = handler(Req(lang="ja", words=["東京"], readings=["とうきょう"])).results[0]
+    assert r.found is False
+    assert r.romaji == "Tōkyō"
+
+
+def test_route_zh_has_no_romaji(mem_store, define_handler):
+    handler, Req = define_handler
+    mem_store.add("zh", "你好", "ni3 hao3", [{"gloss": ["hello"]}], source="cc-cedict")
+    r = handler(Req(lang="zh", words=["你好"])).results[0]
+    assert r.romaji is None and r.romaji_alt is None
+
+
+def test_hepburn_from_kana_unit():
+    from loom_core.romanize import hepburn_from_kana
+    assert hepburn_from_kana("とうきょう") == ("Tōkyō", "Toukyou")
+    assert hepburn_from_kana("しゅうまつ") == ("Shūmatsu", "Shuumatsu")
+    assert hepburn_from_kana("みた") == ("Mita", "Mita")     # no long vowel
+    assert hepburn_from_kana("") == ("", "")
+
+
+# --------------------------------------------------------------------------- #
 # Route: POST /define/batch
 # --------------------------------------------------------------------------- #
 

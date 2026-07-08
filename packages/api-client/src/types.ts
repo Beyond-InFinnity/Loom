@@ -997,15 +997,24 @@ export interface components {
         };
         /**
          * DefinePart
-         * @description One component of a decomposed word (Chinese only) — when the word
-         *     itself isn't a headword (jieba grouped number+measure-word etc.), this is
-         *     a sub-word that IS in the dictionary.
+         * @description One component of a decomposed word — a Chinese sub-word (jieba grouped
+         *     number+measure-word etc.) or a Japanese honorific peeled off a name.
          */
         DefinePart: {
             /** Word */
             word: string;
             /** Reading */
             reading?: string | null;
+            /**
+             * Romaji
+             * @description Hepburn (macrons), Japanese only.
+             */
+            romaji?: string | null;
+            /**
+             * Romaji Alt
+             * @description Hepburn (doubled vowels), Japanese only.
+             */
+            romaji_alt?: string | null;
             /** Senses */
             senses?: components["schemas"]["DefineSense"][];
         };
@@ -1026,6 +1035,11 @@ export interface components {
              * @description Optional per-word fallback keys, aligned to `words` by index — e.g. the token's surface form so 黒曜石 resolves when MeCab's lemma (黒曜) doesn't.  Tried in order after the primary key.
              */
             alt_keys?: string[][] | null;
+            /**
+             * Readings
+             * @description Optional per-word contextual kana readings, aligned to `words` — the reading the card DISPLAYS (e.g. は→わ, the inflected 見た).  For Japanese, the returned `romaji`/`romaji_alt` are computed from this (falling back to the dictionary reading) so the Hepburn matches the shown furigana.
+             */
+            readings?: string[] | null;
         };
         /** DefineResponse */
         DefineResponse: {
@@ -1051,6 +1065,16 @@ export interface components {
              * @description Reading/pronunciation (kana / numbered pinyin).
              */
             reading?: string | null;
+            /**
+             * Romaji
+             * @description Hepburn romanization with macrons (Tōkyō), Japanese only.
+             */
+            romaji?: string | null;
+            /**
+             * Romaji Alt
+             * @description Hepburn with doubled long vowels (Toukyou), Japanese only; omitted/equal to `romaji` when there's no long vowel.
+             */
+            romaji_alt?: string | null;
             /** Senses */
             senses?: components["schemas"]["DefineSense"][];
             /**
@@ -1060,7 +1084,7 @@ export interface components {
             sources?: string[];
             /**
              * Parts
-             * @description Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. 一顶 → 一 + 顶).  Empty on a direct hit.
+             * @description Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. 一顶 → 一 + 顶, or 玉葉様 → 様).  Empty on a direct hit.
              */
             parts?: components["schemas"]["DefinePart"][];
         };

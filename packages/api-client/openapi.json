@@ -1877,6 +1877,30 @@
             ],
             "title": "Reading"
           },
+          "romaji": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Romaji",
+            "description": "Hepburn (macrons), Japanese only."
+          },
+          "romaji_alt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Romaji Alt",
+            "description": "Hepburn (doubled vowels), Japanese only."
+          },
           "senses": {
             "items": {
               "$ref": "#/components/schemas/DefineSense"
@@ -1890,7 +1914,7 @@
           "word"
         ],
         "title": "DefinePart",
-        "description": "One component of a decomposed word (Chinese only) \u2014 when the word\nitself isn't a headword (jieba grouped number+measure-word etc.), this is\na sub-word that IS in the dictionary."
+        "description": "One component of a decomposed word \u2014 a Chinese sub-word (jieba grouped\nnumber+measure-word etc.) or a Japanese honorific peeled off a name."
       },
       "DefineRequest": {
         "properties": {
@@ -1926,6 +1950,21 @@
             ],
             "title": "Alt Keys",
             "description": "Optional per-word fallback keys, aligned to `words` by index \u2014 e.g. the token's surface form so \u9ed2\u66dc\u77f3 resolves when MeCab's lemma (\u9ed2\u66dc) doesn't.  Tried in order after the primary key."
+          },
+          "readings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readings",
+            "description": "Optional per-word contextual kana readings, aligned to `words` \u2014 the reading the card DISPLAYS (e.g. \u306f\u2192\u308f, the inflected \u898b\u305f).  For Japanese, the returned `romaji`/`romaji_alt` are computed from this (falling back to the dictionary reading) so the Hepburn matches the shown furigana."
           }
         },
         "type": "object",
@@ -1980,6 +2019,30 @@
             "title": "Reading",
             "description": "Reading/pronunciation (kana / numbered pinyin)."
           },
+          "romaji": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Romaji",
+            "description": "Hepburn romanization with macrons (T\u014dky\u014d), Japanese only."
+          },
+          "romaji_alt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Romaji Alt",
+            "description": "Hepburn with doubled long vowels (Toukyou), Japanese only; omitted/equal to `romaji` when there's no long vowel."
+          },
           "senses": {
             "items": {
               "$ref": "#/components/schemas/DefineSense"
@@ -2001,7 +2064,7 @@
             },
             "type": "array",
             "title": "Parts",
-            "description": "Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. \u4e00\u9876 \u2192 \u4e00 + \u9876).  Empty on a direct hit."
+            "description": "Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. \u4e00\u9876 \u2192 \u4e00 + \u9876, or \u7389\u8449\u69d8 \u2192 \u69d8).  Empty on a direct hit."
           }
         },
         "type": "object",

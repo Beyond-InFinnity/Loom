@@ -12,7 +12,7 @@ export const metadata = {
 // extension's actual data flow (subtitle text + optional owner key only); keep
 // this page in lockstep if the extension ever sends anything new.
 
-const LAST_UPDATED = "2 July 2026";
+const LAST_UPDATED = "8 July 2026";
 const CONTACT_EMAIL = "privacy@nerv-analytic.ai";
 
 function Section({
@@ -76,6 +76,14 @@ export default function Privacy() {
                 can’t run in the browser — that is the sole reason any text
                 leaves your device.
               </p>
+              <p>
+                For Japanese and Chinese, Loom also offers a per-word dictionary
+                lookup: while the video is paused, clicking a word sends just
+                that word (and its dictionary form) to the same API to fetch its
+                definition. This is the same kind of subtitle-derived text
+                already described above, sent only on a click — never in the
+                background.
+              </p>
             </Section>
 
             <Section title="What we don’t send">
@@ -134,6 +142,63 @@ export default function Privacy() {
                 caption data” checkbox next to the Generate button, which
                 you can untick per run. Turning contribution off stops all
                 future contribution immediately.
+              </p>
+            </Section>
+
+            <Section title="Dictionary data & licenses">
+              <p>
+                The per-word definitions Loom shows come from two open community
+                dictionaries, used under the Creative Commons
+                Attribution-ShareAlike 4.0 license (CC BY-SA 4.0):
+              </p>
+              <ul className="ml-5 list-disc space-y-2">
+                <li>
+                  <strong className="text-foreground/80">Japanese —</strong>{" "}
+                  JMdict, © the{" "}
+                  <a
+                    href="https://www.edrdg.org/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Electronic Dictionary Research and Development Group (EDRDG)
+                  </a>
+                  , used under{" "}
+                  <a
+                    href="https://creativecommons.org/licenses/by-sa/4.0/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    CC BY-SA 4.0
+                  </a>
+                  .
+                </li>
+                <li>
+                  <strong className="text-foreground/80">Chinese —</strong>{" "}
+                  <a
+                    href="https://www.mdbg.net/chinese/dictionary?page=cc-cedict"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    CC-CEDICT
+                  </a>
+                  , used under{" "}
+                  <a
+                    href="https://creativecommons.org/licenses/by-sa/4.0/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    CC BY-SA 4.0
+                  </a>
+                  .
+                </li>
+              </ul>
+              <p>
+                Each definition card also names its source dictionary. Loom’s use
+                of this data does not imply either project endorses Loom.
               </p>
             </Section>
 

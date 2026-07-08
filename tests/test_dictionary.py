@@ -251,6 +251,34 @@ def test_hepburn_from_kana_unit():
 
 
 # --------------------------------------------------------------------------- #
+# CC-CEDICT numbered Pinyin -> tone marks
+# --------------------------------------------------------------------------- #
+
+def test_cedict_pinyin_to_diacritics_unit():
+    from loom_api.dictionary import cedict_pinyin_to_diacritics as c
+    assert c("ni3 hao3") == "nǐ hǎo"
+    assert c("lu:4") == "lǜ"           # ü written as u:
+    assert c("lv4") == "lǜ"            # ü written as v
+    assert c("nu:3") == "nǚ"
+    assert c("ma5") == "ma"            # neutral tone → no mark
+    assert c("Zhong1 guo2") == "Zhōng guó"   # proper-noun capitalization kept
+    assert c("jiu3") == "jiǔ"          # iu → mark the u
+    assert c("gui4") == "guì"          # ui → mark the i
+    assert c("") == "" and c(None) is None
+
+
+def test_zh_reading_served_with_tone_marks(mem_store):
+    # The store must convert CC-CEDICT's numbered Pinyin before it reaches a card.
+    mem_store.add("zh", "你好", "ni3 hao3", [{"gloss": ["hello"]}], source="cc-cedict")
+    assert mem_store.lookup("zh", ["你好"])["你好"].reading == "nǐ hǎo"
+
+
+def test_ja_reading_not_touched_by_pinyin_conversion(mem_store):
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+    assert mem_store.lookup("ja", ["食べる"])["食べる"].reading == "たべる"
+
+
+# --------------------------------------------------------------------------- #
 # Route: POST /define/batch
 # --------------------------------------------------------------------------- #
 

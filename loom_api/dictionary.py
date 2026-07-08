@@ -23,6 +23,7 @@ and corpus stores though — a down DB degrades to "not found", never a 500.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -79,6 +80,57 @@ def _norm(word: str) -> str:
     return unicodedata.normalize("NFC", word).strip()
 
 
+# CC-CEDICT stores Pinyin with trailing tone NUMBERS ("ni3 hao3", "lu:4"); the
+# card must show proper diacritics ("nǐ hǎo", "lǜ").  This converts one entry's
+# reading, leaving anything that isn't a numbered syllable untouched.
+_PINYIN_TONE_ROWS = {
+    "a": "āáǎà", "e": "ēéěè", "i": "īíǐì",
+    "o": "ōóǒò", "u": "ūúǔù", "ü": "ǖǘǚǜ",
+}
+_PINYIN_SYLLABLE_RE = re.compile(r"^([A-Za-züÜ:]+?)([1-5])$")
+
+
+def _syllable_to_diacritic(syl: str) -> str:
+    m = _PINYIN_SYLLABLE_RE.match(syl)
+    if not m:
+        return syl  # punctuation, latin, r5-less token, already-marked, etc.
+    body, tone = m.group(1), int(m.group(2))
+    # CC-CEDICT writes ü as "u:" or "v".
+    body = (
+        body.replace("u:", "ü").replace("U:", "Ü").replace("v", "ü").replace("V", "Ü")
+    )
+    if tone == 5:  # neutral tone — no mark
+        return body
+    low = body.lower()
+    # Standard placement: a or e always take the mark; in "ou" it's the o;
+    # otherwise the last vowel (handles iu→u, ui→i).
+    if "a" in low:
+        idx = low.index("a")
+    elif "e" in low:
+        idx = low.index("e")
+    elif "ou" in low:
+        idx = low.index("o")
+    else:
+        idx = next((i for i in range(len(low) - 1, -1, -1) if low[i] in "aeiouü"), None)
+    if idx is None:
+        return body
+    marks = _PINYIN_TONE_ROWS.get(low[idx])
+    if not marks:
+        return body
+    marked = marks[tone - 1]
+    if body[idx].isupper():
+        marked = marked.upper()
+    return body[:idx] + marked + body[idx + 1 :]
+
+
+def cedict_pinyin_to_diacritics(numbered: Optional[str]) -> Optional[str]:
+    """Convert CC-CEDICT numbered Pinyin ("ni3 hao3") to tone-marked Pinyin
+    ("nǐ hǎo").  Idempotent on already-marked or non-Pinyin input."""
+    if not numbered:
+        return numbered
+    return " ".join(_syllable_to_diacritic(tok) for tok in numbered.split(" "))
+
+
 def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
     """Collapse every row matching ``word`` into one Definition.
 
@@ -114,6 +166,8 @@ def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
             )
     if not senses:
         return None
+    if lang == "zh":
+        reading = cedict_pinyin_to_diacritics(reading)
     return Definition(
         word=word, lang=lang, reading=reading,
         senses=tuple(senses), sources=tuple(sources),

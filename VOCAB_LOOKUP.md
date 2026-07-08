@@ -163,6 +163,9 @@ dictionary_entry (
   either script hits; `reading` = pinyin; `senses[].pos` = [].
 
 Attribution required (CC-BY-SA) — card footer + a `/licenses` (or `/privacy`) entry.
+✅ DONE 2026-07-08 (shipped in 0.4.0): the definition card names its source dictionary, and the
+`/privacy` page carries a "Dictionary data & licenses" section attributing JMdict (EDRDG) +
+CC-CEDICT under CC BY-SA 4.0 with license links.
 
 ### 5.4 Parser — built + validated 2026-07-08
 

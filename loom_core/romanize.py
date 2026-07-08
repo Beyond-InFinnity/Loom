@@ -83,7 +83,9 @@ ENGINE_VERSIONS: dict[str, int] = {
     #   v2: tokens added (Phase 0).
     #   v3: JA tokens merged into words + `reading` field on every token
     #       (Phase 2 §1/§2); ZH token tuple gained the same `reading` slot.
-    "ja": 3,
+    #   v4: JA tokens strip leading/trailing punctuation from the clickable
+    #       surface (は… → は), so the token's word/start/length can change.
+    "ja": 4,
     "zh": 3,
     "yue": 3,
 }
@@ -2995,18 +2997,27 @@ def _japanese_tokens(spans: list, annotation_func) -> list:
         j = i
         while j < n - 1 and j < len(merge_mask) and merge_mask[j]:
             j += 1
-        group = spans[i:j + 1]
-        word = "".join(s[0] for s in group)
-        if _is_lookupable_word(word):
+        # Trim leading/trailing punctuation-only spans so the clickable word is
+        # the word itself, not the word plus its trailing ellipsis/quote (は… →
+        # は, そうか… → か).  A span is "content" if it holds any alnum/CJK char;
+        # a merged 補助記号 like … is not, so it drops out of the surface.
+        lo, hi = i, j
+        while lo <= hi and not _is_lookupable_word(spans[lo][0]):
+            lo += 1
+        while hi >= lo and not _is_lookupable_word(spans[hi][0]):
+            hi -= 1
+        if lo <= hi:
+            group = spans[lo:hi + 1]
+            word = "".join(s[0] for s in group)
             # Contextual reading: kanji spans carry a kana reading; kana spans
             # read as themselves; particle は → わ.
             reading = "".join(
-                "わ" if (i + off) in particle_ha else (rdg or surf)
+                "わ" if (lo + off) in particle_ha else (rdg or surf)
                 for off, (surf, rdg) in enumerate(group)
             )
-            head_lemma, head_pos = token_meta[i] if i < len(token_meta) else (None, '')
+            head_lemma, head_pos = token_meta[lo] if lo < len(token_meta) else (None, '')
             lemma = _clean_ja_lemma(head_lemma) or word
-            tokens.append((word, lemma, [head_pos] if head_pos else [], reading or None, i, j - i + 1))
+            tokens.append((word, lemma, [head_pos] if head_pos else [], reading or None, lo, hi - lo + 1))
         i = j + 1
     return tokens
 

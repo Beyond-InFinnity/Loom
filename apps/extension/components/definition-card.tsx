@@ -112,8 +112,11 @@ export function DefinitionCard({
     setState({ kind: "loading" });
     (async () => {
       try {
+        // Look up the lemma first, then fall back to the surface form: MeCab's
+        // lemma is wrong/truncated for some compounds (黒曜石 → lemma 黒曜), and
+        // a glued honorific (玉葉様) only decomposes off the surface.
         const { data, error } = await getApiClient().POST("/define/batch", {
-          body: { lang: defineLang, words: [lemma] },
+          body: { lang: defineLang, words: [lemma], alt_keys: [[word]] },
         });
         if (cancelled) return;
         if (

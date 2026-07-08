@@ -140,16 +140,112 @@ def _decompose_zh(word: str, sub_defs: dict[str, Definition]) -> tuple[Definitio
     return tuple(parts)
 
 
+# Japanese honorific/title suffixes — a closed grammatical set, NOT lexical, so
+# their gloss is hardcoded rather than looked up (the bare kana homophones are
+# ambiguous in JMdict: さん→"acid", 様→"sorry state", くん→"native reading").
+# suffix surface (kanji + kana forms) -> (reading, gloss).  When a token like
+# 玉葉様 misses the dictionary as a whole, we peel a trailing honorific so the
+# card still teaches "様 = honorific" instead of showing "no entry".
+_JA_HONORIFICS: dict[str, tuple[str, str]] = {
+    "さん": ("さん", "honorific suffix — Mr./Ms./Mrs. (neutral, polite)"),
+    "様": ("さま", "honorific suffix — formal/respectful (Mr./Ms./Mrs.)"),
+    "さま": ("さま", "honorific suffix — formal/respectful (Mr./Ms./Mrs.)"),
+    "ちゃん": ("ちゃん", "affectionate suffix — for children & close friends"),
+    "君": ("くん", "familiar suffix — typically for boys or juniors"),
+    "くん": ("くん", "familiar suffix — typically for boys or juniors"),
+    "殿": ("どの", "formal honorific suffix — official / archaic"),
+    "氏": ("し", "honorific suffix for surnames — formal / written"),
+    "坊": ("ぼう", "affectionate/diminutive suffix"),
+}
+# Longest suffix first so 様 doesn't shadow a longer future entry.
+_JA_HONORIFIC_ORDER = sorted(_JA_HONORIFICS, key=len, reverse=True)
+
+
+def _split_ja_honorific(word: str) -> Optional[tuple[str, str]]:
+    """If *word* ends in a known honorific with a non-empty stem, return
+    (stem, honorific_surface); else None."""
+    for h in _JA_HONORIFIC_ORDER:
+        if len(word) > len(h) and word.endswith(h):
+            return word[: -len(h)], h
+    return None
+
+
+def _honorific_part(surface: str) -> Definition:
+    """A synthetic one-sense Definition for an honorific suffix."""
+    reading, gloss = _JA_HONORIFICS[surface]
+    return Definition(
+        word=surface, lang="ja", reading=reading,
+        senses=(DefinitionSense(gloss=(gloss,), pos=("suffix",)),),
+        sources=("honorific",),
+    )
+
+
+def _decompose_ja(word: str, stem_defs: dict[str, Definition]) -> tuple[Definition, ...]:
+    """Peel a trailing honorific off *word* (玉葉様 → [玉葉?, 様]).  The stem is
+    shown only if it's itself a dictionary word (``stem_defs``); the honorific
+    always resolves via the hardcoded table.  Empty if no honorific suffix."""
+    sp = _split_ja_honorific(word)
+    if sp is None:
+        return ()
+    stem, h = sp
+    parts: list[Definition] = []
+    stem_def = stem_defs.get(_norm(stem))
+    if stem_def is not None and stem_def.senses:
+        parts.append(stem_def)
+    parts.append(_honorific_part(h))
+    return tuple(parts)
+
+
+def _lookup_ja_decomposition(
+    words: Sequence[str],
+    exact: dict[str, Definition],
+    exact_lookup,
+) -> dict[str, Definition]:
+    """Japanese honorific-peel fallback for missed words (see
+    _lookup_with_decomposition).  Batches every stem into one extra query."""
+    wanted = {_norm(w) for w in words if _norm(w)}
+    missed = [w for w in wanted if w not in exact]
+    stems: set[str] = set()
+    splits: dict[str, str] = {}   # word -> stem (only those with a honorific)
+    for w in missed:
+        sp = _split_ja_honorific(w)
+        if sp is not None:
+            stem, _h = sp
+            splits[w] = stem
+            if stem:
+                stems.add(stem)
+    if not splits:
+        return exact
+    stem_defs = exact_lookup(sorted(stems)) if stems else {}
+    for w in splits:
+        parts = _decompose_ja(w, stem_defs)
+        if parts:
+            exact[w] = Definition(
+                word=w, lang="ja", reading=None, senses=(), sources=(), parts=parts,
+            )
+    return exact
+
+
 def _lookup_with_decomposition(
     lang: str,
     words: Sequence[str],
     exact_lookup,
 ) -> dict[str, Definition]:
-    """Exact lookup, then (Chinese only) a decomposition fallback for words
-    that aren't themselves headwords — jieba groups number+measure-word and
-    other compounds (一顶 / 两个 / 一道) that CC-CEDICT only holds the pieces of.
+    """Exact lookup, then a decomposition fallback for words that aren't
+    themselves headwords:
+
+    - **Chinese** — jieba groups number+measure-word and other compounds
+      (一顶 / 两个 / 一道) that CC-CEDICT only holds the pieces of → greedy
+      longest-match breakdown.
+    - **Japanese** — a name/noun glued to a trailing honorific (玉葉様 / 綾波君)
+      that misses as a whole → peel the honorific (hardcoded gloss) and show
+      the stem if it's a word.  Miss-gated, so lexicalized お...さん words
+      (お母さん / 母さん / 赤ちゃん) that hit directly never decompose.
+
     ``exact_lookup(words) -> {word: Definition}`` is the store's direct-match."""
     exact = exact_lookup(words)
+    if lang == "ja":
+        return _lookup_ja_decomposition(words, exact, exact_lookup)
     if lang != "zh":
         return exact
     wanted = {_norm(w) for w in words if _norm(w)}

@@ -123,9 +123,43 @@ def test_zh_no_decomposition_when_nothing_matches(mem_store):
     assert "虚构词" not in mem_store.lookup("zh", ["虚构词"])
 
 
-def test_ja_has_no_decomposition(mem_store):
+def test_ja_no_decomposition_for_ordinary_miss(mem_store):
+    # A plain missing word (no honorific suffix) still just misses — the JA
+    # fallback only peels honorifics, it doesn't segment arbitrarily.
     mem_store.add("ja", "食", "しょく", [{"gloss": ["food"]}], source="jmdict")
-    assert "食べる" not in mem_store.lookup("ja", ["食べる"])  # zh-only fallback
+    assert "刺さって" not in mem_store.lookup("ja", ["刺さって"])
+
+
+def test_ja_honorific_decomposition_on_miss(mem_store):
+    # 玉葉 (a name) isn't in the dict; 玉葉様 peels the honorific so the card
+    # still teaches 様.  The honorific gloss is hardcoded, not looked up.
+    out = mem_store.lookup("ja", ["玉葉様"])
+    d = out["玉葉様"]
+    assert d.senses == ()                       # no direct entry
+    assert [p.word for p in d.parts] == ["様"]   # honorific peeled
+    assert d.parts[0].reading == "さま"
+    assert d.parts[0].sources == ("honorific",)
+
+
+def test_ja_honorific_shows_stem_when_it_is_a_word(mem_store):
+    mem_store.add("ja", "先生", "せんせい", [{"gloss": ["teacher"]}], source="jmdict")
+    d = mem_store.lookup("ja", ["先生さん"])["先生さん"]  # contrived stem+honorific
+    assert [p.word for p in d.parts] == ["先生", "さん"]
+    assert d.parts[0].senses[0].gloss == ("teacher",)
+
+
+def test_ja_lexicalized_word_hits_directly_never_decomposes(mem_store):
+    # お母さん / 母さん / 赤ちゃん end in an honorific syllable but are real
+    # headwords — a direct hit must win, the honorific peel must NOT fire.
+    mem_store.add("ja", "お母さん", "おかあさん", [{"gloss": ["mother"]}], source="jmdict")
+    d = mem_store.lookup("ja", ["お母さん"])["お母さん"]
+    assert d.senses[0].gloss == ("mother",)
+    assert d.parts == ()
+
+
+def test_ja_bare_honorific_does_not_decompose(mem_store):
+    # A honorific with no stem (さん alone) has nothing to peel.
+    assert mem_store.lookup("ja", ["さん"]) == {}
 
 
 def test_route_returns_decomposition_parts(mem_store, define_handler):
@@ -136,6 +170,32 @@ def test_route_returns_decomposition_parts(mem_store, define_handler):
     assert r.found is False
     assert [p.word for p in r.parts] == ["一", "顶"]
     assert r.parts[0].senses[0].gloss == ["one"]
+
+
+def test_route_multikey_surface_fallback(mem_store, define_handler):
+    # MeCab's lemma (黒曜) misses; the surface (黒曜石) hits — the alt key wins.
+    handler, Req = define_handler
+    mem_store.add("ja", "黒曜石", "こくようせき", [{"gloss": ["obsidian"]}], source="jmdict")
+    r = handler(Req(lang="ja", words=["黒曜"], alt_keys=[["黒曜石"]])).results[0]
+    assert r.found is True
+    assert r.word == "黒曜"                       # primary echoed back
+    assert r.senses[0].gloss == ["obsidian"]
+
+
+def test_route_multikey_prefers_primary_lemma(mem_store, define_handler):
+    # When both the lemma and surface resolve, the primary (lemma) wins.
+    handler, Req = define_handler
+    mem_store.add("ja", "見る", "みる", [{"gloss": ["to see"]}], source="jmdict")
+    mem_store.add("ja", "見た", "みた", [{"gloss": ["WRONG surface entry"]}], source="jmdict")
+    r = handler(Req(lang="ja", words=["見る"], alt_keys=[["見た"]])).results[0]
+    assert r.senses[0].gloss == ["to see"]
+
+
+def test_route_alt_keys_optional_and_backcompat(mem_store, define_handler):
+    # No alt_keys → behaves exactly as the single-key endpoint did.
+    handler, Req = define_handler
+    mem_store.add("ja", "犬", "いぬ", [{"gloss": ["dog"]}], source="jmdict")
+    assert handler(Req(lang="ja", words=["犬"])).results[0].found is True
 
 
 # --------------------------------------------------------------------------- #

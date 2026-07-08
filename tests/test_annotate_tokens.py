@@ -83,6 +83,22 @@ def test_ja_punctuation_gets_no_token():
     assert "。" not in {t[0] for t in toks}
 
 
+def test_ja_trailing_ellipsis_stripped_from_word():
+    # A merged trailing 補助記号 (…) must not end up in the clickable surface.
+    spans, toks = _tokens("ja", "は…")
+    _assert_aligned(spans, toks)
+    words = [t[0] for t in toks]
+    assert words == ["は"], words          # ellipsis dropped, not は…
+
+
+def test_ja_ellipsis_between_words_keeps_both_clean():
+    spans, toks = _tokens("ja", "そうか…")
+    _assert_aligned(spans, toks)
+    words = [t[0] for t in toks]
+    assert "…" not in "".join(words)      # no token carries the ellipsis
+    assert "か" in words
+
+
 # --------------------------------------------------------------------------- #
 # Chinese
 # --------------------------------------------------------------------------- #

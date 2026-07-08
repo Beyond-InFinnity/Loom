@@ -33,7 +33,19 @@ class DefineRequest(BaseModel):
     lang: str = Field(..., max_length=35, description="Base language of the words: 'ja' | 'zh'.")
     words: List[str] = Field(
         ..., max_length=_MAX_WORDS,
-        description="Lemmas/surface forms to define (from the annotate tokens).",
+        description=(
+            "Primary keys to define (from the annotate tokens) — usually the "
+            "lemma.  Each is tried first, then its `alt_keys`; the first that "
+            "hits wins.  Echoed back verbatim as the result `word`."
+        ),
+    )
+    alt_keys: Optional[List[List[str]]] = Field(
+        None,
+        description=(
+            "Optional per-word fallback keys, aligned to `words` by index — "
+            "e.g. the token's surface form so 黒曜石 resolves when MeCab's lemma "
+            "(黒曜) doesn't.  Tried in order after the primary key."
+        ),
     )
 
 
@@ -80,31 +92,55 @@ def _senses(defn_senses) -> List[DefineSense]:
     ]
 
 
+def key(w: str) -> str:
+    return unicodedata.normalize("NFC", w).strip()
+
+
+def _candidates(word: str, alts: Optional[List[str]]) -> List[str]:
+    """Ordered, de-duplicated lookup keys for one requested word: the primary
+    key first, then its alternates (surface form, etc.).  Blank keys dropped."""
+    out: List[str] = []
+    for k in [word, *(alts or [])]:
+        nk = key(k)
+        if nk and nk not in out:
+            out.append(nk)
+    return out
+
+
 @router.post("/define/batch", response_model=DefineResponse)
 def define_batch(req: DefineRequest) -> DefineResponse:
     lang = req.lang.strip().lower()
-    # the store normalizes (NFC+strip) internally and keys results by that form
-    found = get_dictionary_store().lookup(lang, req.words)
 
-    def key(w: str) -> str:
-        return unicodedata.normalize("NFC", w).strip()
+    # Per-word candidate keys (primary + alternates), then ONE batched lookup
+    # over their union so multi-key costs no extra round-trips.
+    cand_lists = [
+        _candidates(w, req.alt_keys[i] if req.alt_keys and i < len(req.alt_keys) else None)
+        for i, w in enumerate(req.words)
+    ]
+    union = sorted({c for cands in cand_lists for c in cands})
+    found = get_dictionary_store().lookup(lang, union) if union else {}
 
     results: List[DefineResult] = []
-    for w in req.words:  # preserve request order + duplicates
-        d = found.get(key(w))
-        if d is None:
+    for w, cands in zip(req.words, cand_lists):
+        # Prefer a direct hit (has senses); fall back to a decomposition-only
+        # entry (parts but no senses); try the primary key before its alts.
+        direct = next((found[c] for c in cands if found.get(c) and found[c].senses), None)
+        chosen = direct or next(
+            (found[c] for c in cands if found.get(c) and found[c].parts), None
+        )
+        if chosen is None:
             results.append(DefineResult(word=w, found=False))
         else:
             results.append(
                 DefineResult(
                     word=w,
-                    found=bool(d.senses),  # direct hit vs decomposition-only
-                    reading=d.reading,
-                    senses=_senses(d.senses),
-                    sources=list(d.sources),
+                    found=bool(chosen.senses),  # direct hit vs decomposition-only
+                    reading=chosen.reading,
+                    senses=_senses(chosen.senses),
+                    sources=list(chosen.sources),
                     parts=[
                         DefinePart(word=p.word, reading=p.reading, senses=_senses(p.senses))
-                        for p in d.parts
+                        for p in chosen.parts
                     ],
                 )
             )

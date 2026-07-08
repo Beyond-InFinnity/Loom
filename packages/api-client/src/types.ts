@@ -1018,9 +1018,14 @@ export interface components {
             lang: string;
             /**
              * Words
-             * @description Lemmas/surface forms to define (from the annotate tokens).
+             * @description Primary keys to define (from the annotate tokens) — usually the lemma.  Each is tried first, then its `alt_keys`; the first that hits wins.  Echoed back verbatim as the result `word`.
              */
             words: string[];
+            /**
+             * Alt Keys
+             * @description Optional per-word fallback keys, aligned to `words` by index — e.g. the token's surface form so 黒曜石 resolves when MeCab's lemma (黒曜) doesn't.  Tried in order after the primary key.
+             */
+            alt_keys?: string[][] | null;
         };
         /** DefineResponse */
         DefineResponse: {

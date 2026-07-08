@@ -278,6 +278,20 @@ def test_ja_reading_not_touched_by_pinyin_conversion(mem_store):
     assert mem_store.lookup("ja", ["食べる"])["食べる"].reading == "たべる"
 
 
+def test_clean_gloss_pinyin_unit():
+    from loom_api.dictionary import clean_gloss_pinyin as g
+    assert g("variant of 逼格[bi1 ge2]") == "variant of 逼格[bī gé]"
+    assert g("CL:個|个[ge4]") == "CL:個|个[gè]"
+    assert g("plain [no pinyin here]") == "plain [no pinyin here]"  # left alone
+
+
+def test_zh_gloss_crossref_pinyin_marked(mem_store):
+    mem_store.add("zh", "B格", "bi1 ge2", [{"gloss": ["variant of 逼格[bi1 ge2]"]}],
+                  source="cc-cedict")
+    d = mem_store.lookup("zh", ["B格"])["B格"]
+    assert d.senses[0].gloss[0] == "variant of 逼格[bī gé]"
+
+
 # --------------------------------------------------------------------------- #
 # Route: POST /define/batch
 # --------------------------------------------------------------------------- #

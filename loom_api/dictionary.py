@@ -131,6 +131,24 @@ def cedict_pinyin_to_diacritics(numbered: Optional[str]) -> Optional[str]:
     return " ".join(_syllable_to_diacritic(tok) for tok in numbered.split(" "))
 
 
+# CC-CEDICT glosses embed cross-references as 漢字[pin1 yin1] / CL:个[ge4]; those
+# bracketed readings carry the same numbered Pinyin and must be marked too.
+_CEDICT_BRACKET_RE = re.compile(r"\[([^\[\]]*)\]")
+_NUMBERED_PINYIN_RE = re.compile(r"^[A-Za-zü: ,]*[1-5][A-Za-zü:1-5 ,]*$")
+
+
+def clean_gloss_pinyin(gloss: str) -> str:
+    """Tone-mark any numbered-Pinyin cross-reference inside a gloss, e.g.
+    'variant of 逼格[bi1 ge2]' -> 'variant of 逼格[bí gé]'.  Non-Pinyin brackets
+    are left untouched."""
+    def repl(m: "re.Match") -> str:
+        inside = m.group(1)
+        if _NUMBERED_PINYIN_RE.match(inside):
+            return "[" + cedict_pinyin_to_diacritics(inside) + "]"
+        return m.group(0)
+    return _CEDICT_BRACKET_RE.sub(repl, gloss)
+
+
 def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
     """Collapse every row matching ``word`` into one Definition.
 
@@ -157,6 +175,8 @@ def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
             if not gloss or gloss in seen_gloss:
                 continue
             seen_gloss.add(gloss)
+            if lang == "zh":
+                gloss = tuple(clean_gloss_pinyin(g) for g in gloss)
             senses.append(
                 DefinitionSense(
                     gloss=gloss,

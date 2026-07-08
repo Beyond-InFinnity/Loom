@@ -27,16 +27,24 @@ interface SelectedWord {
 }
 
 /** Hover-glow for clickable vocab words.  A <style> in the overlay's shadow
-    root (inline styles can't express :hover).  GPU-friendly (background +
-    text-shadow only, NO backdrop-filter). */
+    root (inline styles can't express :hover).
+
+    We glow the GLYPHS, not the box: `filter: drop-shadow()` follows the
+    rendered alpha shape of the word (its outlined glyphs + furigana), so the
+    highlight hugs the text tightly instead of painting a rectangle behind it.
+    Two stacked shadows — a crisp inner ring + a soft bloom.  drop-shadow also
+    STACKS with the glyphs' own inline text-shadow outline rather than
+    clobbering it (a text-shadow override would drop the dark outline on hover
+    and hurt legibility over bright video).  GPU-composited; only ever active
+    while PAUSED, so it never touches the playback-time paint path.  NO
+    backdrop-filter (perf tripwire). */
 const VOCAB_WORD_CSS = `
 .loom-vocab-word {
-  border-radius: 3px;
-  transition: background-color 90ms ease, text-shadow 90ms ease;
+  transition: filter 90ms ease;
 }
 .loom-vocab-word:hover {
-  background-color: rgba(120, 170, 255, 0.28);
-  text-shadow: 0 0 7px rgba(150, 195, 255, 0.95);
+  filter: drop-shadow(0 0 1.5px rgba(160, 205, 255, 0.98))
+          drop-shadow(0 0 4px rgba(120, 175, 255, 0.85));
 }
 `;
 

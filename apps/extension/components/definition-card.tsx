@@ -222,7 +222,10 @@ function Body({ state }: { state: FetchState }) {
                 ) : null}
               </span>
               <span style={partGlossStyle}>
-                {(p.senses?.[0]?.gloss ?? []).join("; ")}
+                {(p.senses ?? [])
+                  .slice(0, 4)
+                  .map((s) => s.gloss.join("; "))
+                  .join("; ")}
               </span>
             </div>
           ))}

@@ -93,6 +93,52 @@ def test_null_store_returns_empty():
 
 
 # --------------------------------------------------------------------------- #
+# Chinese decomposition fallback (jieba over-grouping, e.g. 一顶 / 两个)
+# --------------------------------------------------------------------------- #
+
+def test_zh_decomposition_on_miss(mem_store):
+    mem_store.add("zh", "一", "yī", [{"gloss": ["one"]}], source="cc-cedict")
+    mem_store.add("zh", "顶", "dǐng", [{"gloss": ["measure word for hats"]}], source="cc-cedict")
+    d = mem_store.lookup("zh", ["一顶"])["一顶"]
+    assert d.senses == ()                       # not a direct headword
+    assert [p.word for p in d.parts] == ["一", "顶"]
+    assert d.parts[0].senses[0].gloss == ("one",)
+    assert d.parts[1].reading == "dǐng"
+
+
+def test_zh_direct_hit_has_no_parts(mem_store):
+    mem_store.add("zh", "你好", "ni3 hao3", [{"gloss": ["hello"]}], source="cc-cedict")
+    d = mem_store.lookup("zh", ["你好"])["你好"]
+    assert d.senses and d.parts == ()
+
+
+def test_zh_decomposition_is_longest_match(mem_store):
+    mem_store.add("zh", "一", "yī", [{"gloss": ["one"]}], source="cc-cedict")
+    mem_store.add("zh", "帽子", "màozi", [{"gloss": ["hat"]}], source="cc-cedict")
+    d = mem_store.lookup("zh", ["一帽子"])["一帽子"]
+    assert [p.word for p in d.parts] == ["一", "帽子"]  # 帽子 grouped, not 帽+子
+
+
+def test_zh_no_decomposition_when_nothing_matches(mem_store):
+    assert "虚构词" not in mem_store.lookup("zh", ["虚构词"])
+
+
+def test_ja_has_no_decomposition(mem_store):
+    mem_store.add("ja", "食", "しょく", [{"gloss": ["food"]}], source="jmdict")
+    assert "食べる" not in mem_store.lookup("ja", ["食べる"])  # zh-only fallback
+
+
+def test_route_returns_decomposition_parts(mem_store, define_handler):
+    handler, Req = define_handler
+    mem_store.add("zh", "一", "yī", [{"gloss": ["one"]}], source="cc-cedict")
+    mem_store.add("zh", "顶", "dǐng", [{"gloss": ["MW for hats"]}], source="cc-cedict")
+    r = handler(Req(lang="zh", words=["一顶"])).results[0]
+    assert r.found is False
+    assert [p.word for p in r.parts] == ["一", "顶"]
+    assert r.parts[0].senses[0].gloss == ["one"]
+
+
+# --------------------------------------------------------------------------- #
 # Route: POST /define/batch
 # --------------------------------------------------------------------------- #
 

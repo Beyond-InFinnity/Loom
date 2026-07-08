@@ -20,12 +20,21 @@ interface DefineSense {
   misc?: string[];
 }
 
+interface DefinePart {
+  word: string;
+  reading?: string | null;
+  senses?: DefineSense[];
+}
+
 interface DefinitionData {
   word: string;
   found: boolean;
   reading?: string | null;
   senses?: DefineSense[];
   sources?: string[];
+  /** Decomposition breakdown when the word itself isn't a headword
+      (e.g. 一顶 → 一 + 顶).  Present only when `found` is false. */
+  parts?: DefinePart[];
 }
 
 type FetchState =
@@ -112,8 +121,12 @@ export function DefinitionCard({
           return;
         }
         const result = data.results[0] as DefinitionData;
+        // "ok" covers both a direct hit AND a decomposition breakdown (found
+        // false but parts present, e.g. 一顶 → 一 + 顶).
+        const hasContent =
+          result.found || (result.parts?.length ?? 0) > 0;
         setState(
-          result.found ? { kind: "ok", data: result } : { kind: "notfound" },
+          hasContent ? { kind: "ok", data: result } : { kind: "notfound" },
         );
       } catch {
         if (!cancelled) setState({ kind: "error" });
@@ -178,21 +191,46 @@ function Body({ state }: { state: FetchState }) {
     return <div style={mutedStyle}>No dictionary entry.</div>;
   }
   const senses = (state.data.senses ?? []).slice(0, MAX_SENSES);
-  if (senses.length === 0) {
-    return <div style={mutedStyle}>No dictionary entry.</div>;
+  if (senses.length > 0) {
+    return (
+      <ol style={senseListStyle}>
+        {senses.map((s, i) => (
+          <li key={i} style={senseItemStyle}>
+            {s.pos && s.pos.length > 0 ? (
+              <span style={posStyle}>{s.pos.join(", ")}</span>
+            ) : null}
+            <span>{s.gloss.join("; ")}</span>
+          </li>
+        ))}
+      </ol>
+    );
   }
-  return (
-    <ol style={senseListStyle}>
-      {senses.map((s, i) => (
-        <li key={i} style={senseItemStyle}>
-          {s.pos && s.pos.length > 0 ? (
-            <span style={posStyle}>{s.pos.join(", ")}</span>
-          ) : null}
-          <span>{s.gloss.join("; ")}</span>
-        </li>
-      ))}
-    </ol>
-  );
+  // No direct entry — show the decomposition breakdown if we have one
+  // (jieba grouped e.g. a number + measure word into one clickable token).
+  const parts = state.data.parts ?? [];
+  if (parts.length > 0) {
+    return (
+      <div>
+        <div style={breakdownLabelStyle}>Breakdown</div>
+        <div style={breakdownListStyle}>
+          {parts.map((p, i) => (
+            <div key={i} style={partRowStyle}>
+              <span style={partHeadStyle}>
+                <span style={partWordStyle}>{p.word}</span>
+                {p.reading ? (
+                  <span style={readingStyle}>{p.reading}</span>
+                ) : null}
+              </span>
+              <span style={partGlossStyle}>
+                {(p.senses?.[0]?.gloss ?? []).join("; ")}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return <div style={mutedStyle}>No dictionary entry.</div>;
 }
 
 // ---- positioning + styles --------------------------------------------------
@@ -288,4 +326,41 @@ const sourceStyle: React.CSSProperties = {
   color: "#6f7d90",
   textTransform: "uppercase",
   letterSpacing: "0.04em",
+};
+
+const breakdownLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: "#8ea0b6",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  marginBottom: 5,
+};
+
+const breakdownListStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+};
+
+const partRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 1,
+  lineHeight: 1.3,
+};
+
+const partHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: 6,
+};
+
+const partWordStyle: React.CSSProperties = {
+  fontSize: 17,
+  fontWeight: 600,
+};
+
+const partGlossStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "#d6dde6",
 };

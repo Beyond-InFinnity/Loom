@@ -1848,6 +1848,38 @@
         ],
         "title": "CorpusCaptureResponse"
       },
+      "DefinePart": {
+        "properties": {
+          "word": {
+            "type": "string",
+            "title": "Word"
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading"
+          },
+          "senses": {
+            "items": {
+              "$ref": "#/components/schemas/DefineSense"
+            },
+            "type": "array",
+            "title": "Senses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word"
+        ],
+        "title": "DefinePart",
+        "description": "One component of a decomposed word (Chinese only) \u2014 when the word\nitself isn't a headword (jieba grouped number+measure-word etc.), this is\na sub-word that IS in the dictionary."
+      },
       "DefineRequest": {
         "properties": {
           "lang": {
@@ -1903,7 +1935,8 @@
           },
           "found": {
             "type": "boolean",
-            "title": "Found"
+            "title": "Found",
+            "description": "True iff the word itself has a direct dictionary entry."
           },
           "reading": {
             "anyOf": [
@@ -1931,6 +1964,14 @@
             "type": "array",
             "title": "Sources",
             "description": "e.g. ['jmdict'] / ['cc-cedict']."
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/DefinePart"
+            },
+            "type": "array",
+            "title": "Parts",
+            "description": "Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. \u4e00\u9876 \u2192 \u4e00 + \u9876).  Empty on a direct hit."
           }
         },
         "type": "object",

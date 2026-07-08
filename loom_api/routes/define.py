@@ -43,17 +43,41 @@ class DefineSense(BaseModel):
     misc: List[str] = Field(default_factory=list, description="Misc/usage tags (e.g. 'usually kana').")
 
 
+class DefinePart(BaseModel):
+    """One component of a decomposed word (Chinese only) — when the word
+    itself isn't a headword (jieba grouped number+measure-word etc.), this is
+    a sub-word that IS in the dictionary."""
+
+    word: str
+    reading: Optional[str] = None
+    senses: List[DefineSense] = Field(default_factory=list)
+
+
 class DefineResult(BaseModel):
     word: str = Field(..., description="The requested word, echoed back.")
-    found: bool
+    found: bool = Field(..., description="True iff the word itself has a direct dictionary entry.")
     reading: Optional[str] = Field(None, description="Reading/pronunciation (kana / numbered pinyin).")
     senses: List[DefineSense] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list, description="e.g. ['jmdict'] / ['cc-cedict'].")
+    parts: List[DefinePart] = Field(
+        default_factory=list,
+        description=(
+            "Decomposition breakdown when `found` is false but the word splits "
+            "into known sub-words (e.g. 一顶 → 一 + 顶).  Empty on a direct hit."
+        ),
+    )
 
 
 class DefineResponse(BaseModel):
     lang: str
     results: List[DefineResult]
+
+
+def _senses(defn_senses) -> List[DefineSense]:
+    return [
+        DefineSense(gloss=list(s.gloss), pos=list(s.pos), misc=list(s.misc))
+        for s in defn_senses
+    ]
 
 
 @router.post("/define/batch", response_model=DefineResponse)
@@ -74,10 +98,14 @@ def define_batch(req: DefineRequest) -> DefineResponse:
             results.append(
                 DefineResult(
                     word=w,
-                    found=True,
+                    found=bool(d.senses),  # direct hit vs decomposition-only
                     reading=d.reading,
-                    senses=[DefineSense(gloss=list(s.gloss), pos=list(s.pos), misc=list(s.misc)) for s in d.senses],
+                    senses=_senses(d.senses),
                     sources=list(d.sources),
+                    parts=[
+                        DefinePart(word=p.word, reading=p.reading, senses=_senses(p.senses))
+                        for p in d.parts
+                    ],
                 )
             )
     return DefineResponse(lang=lang, results=results)

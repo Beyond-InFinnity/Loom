@@ -990,6 +990,20 @@ export interface components {
              */
             reason: string;
         };
+        /**
+         * DefinePart
+         * @description One component of a decomposed word (Chinese only) — when the word
+         *     itself isn't a headword (jieba grouped number+measure-word etc.), this is
+         *     a sub-word that IS in the dictionary.
+         */
+        DefinePart: {
+            /** Word */
+            word: string;
+            /** Reading */
+            reading?: string | null;
+            /** Senses */
+            senses?: components["schemas"]["DefineSense"][];
+        };
         /** DefineRequest */
         DefineRequest: {
             /**
@@ -1017,7 +1031,10 @@ export interface components {
              * @description The requested word, echoed back.
              */
             word: string;
-            /** Found */
+            /**
+             * Found
+             * @description True iff the word itself has a direct dictionary entry.
+             */
             found: boolean;
             /**
              * Reading
@@ -1031,6 +1048,11 @@ export interface components {
              * @description e.g. ['jmdict'] / ['cc-cedict'].
              */
             sources?: string[];
+            /**
+             * Parts
+             * @description Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. 一顶 → 一 + 顶).  Empty on a direct hit.
+             */
+            parts?: components["schemas"]["DefinePart"][];
         };
         /** DefineSense */
         DefineSense: {

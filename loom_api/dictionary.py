@@ -55,6 +55,12 @@ class Definition:
     reading: Optional[str]
     senses: tuple[DefinitionSense, ...]
     sources: tuple[str, ...]        # e.g. ("jmdict",) / ("cc-cedict",)
+    # Dictionary-aware decomposition: when the word itself isn't a headword
+    # (jieba over-grouped, e.g. number+measure-word 一顶 / 两个), the greedy
+    # longest-match breakdown into sub-words that ARE headwords.  Empty for a
+    # direct hit.  ``senses`` empty + ``parts`` non-empty = "no direct entry,
+    # here's the breakdown".
+    parts: tuple["Definition", ...] = ()
 
 
 # A stored row as both impls hand it to the merge helper.
@@ -114,6 +120,63 @@ def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
     )
 
 
+def _decompose_zh(word: str, sub_defs: dict[str, Definition]) -> tuple[Definition, ...]:
+    """Greedy longest-match segmentation of `word` against `sub_defs` (a map of
+    its substrings → Definition).  Walks left→right taking the longest prefix
+    that IS a headword; unknown characters are skipped.  Returns the component
+    Definitions (empty if nothing matched)."""
+    chars = list(word)
+    n = len(chars)
+    parts: list[Definition] = []
+    i = 0
+    while i < n:
+        matched_j = None
+        for j in range(n, i, -1):  # longest first
+            if "".join(chars[i:j]) in sub_defs:
+                parts.append(sub_defs["".join(chars[i:j])])
+                matched_j = j
+                break
+        i = matched_j if matched_j is not None else i + 1
+    return tuple(parts)
+
+
+def _lookup_with_decomposition(
+    lang: str,
+    words: Sequence[str],
+    exact_lookup,
+) -> dict[str, Definition]:
+    """Exact lookup, then (Chinese only) a decomposition fallback for words
+    that aren't themselves headwords — jieba groups number+measure-word and
+    other compounds (一顶 / 两个 / 一道) that CC-CEDICT only holds the pieces of.
+    ``exact_lookup(words) -> {word: Definition}`` is the store's direct-match."""
+    exact = exact_lookup(words)
+    if lang != "zh":
+        return exact
+    wanted = {_norm(w) for w in words if _norm(w)}
+    missed = [w for w in wanted if w not in exact and len(w) >= 2]
+    if not missed:
+        return exact
+
+    # Every substring of every missed word (words are short → bounded), minus
+    # the missed words themselves (already known absent), in one batch query.
+    subs: set[str] = set()
+    for w in missed:
+        chars = list(w)
+        for a in range(len(chars)):
+            for b in range(a + 1, len(chars) + 1):
+                subs.add("".join(chars[a:b]))
+    subs.difference_update(missed)
+    sub_defs = exact_lookup(sorted(subs)) if subs else {}
+
+    for w in missed:
+        parts = _decompose_zh(w, sub_defs)
+        if parts:
+            exact[w] = Definition(
+                word=w, lang=lang, reading=None, senses=(), sources=(), parts=parts,
+            )
+    return exact
+
+
 # --------------------------------------------------------------------------- #
 # Store protocol + impls
 # --------------------------------------------------------------------------- #
@@ -149,6 +212,11 @@ class InMemoryDictionaryStore:
         })
 
     def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+        return _lookup_with_decomposition(
+            lang, words, lambda ws: self._exact_lookup(lang, ws)
+        )
+
+    def _exact_lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
         wanted = {_norm(w) for w in words if _norm(w)}
         if not wanted:
             return {}
@@ -213,6 +281,11 @@ class PostgresDictionaryStore:
         self._backoff_until = time.monotonic() + self._BACKOFF_SECONDS
 
     def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+        return _lookup_with_decomposition(
+            lang, words, lambda ws: self._exact_lookup(lang, ws)
+        )
+
+    def _exact_lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
         wanted = sorted({_norm(w) for w in words if _norm(w)})
         if not wanted or self._down():
             return {}

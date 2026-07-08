@@ -201,6 +201,13 @@ response: { lang, results: [ { word, found,
   `dictionary_entry WHERE lang=? AND (headword = ANY(?) OR reading = ANY(?))` — ONE query for the
   whole word list (§5.4 rule 1) — then merges rows per word (§5.4 rule 2: `common` first, glosses
   deduped across sources).
+- **Decomposition fallback (Chinese)** — jieba groups number+measure-word and other compounds
+  (一顶 / 两个 / 一道) that CC-CEDICT only holds the *pieces* of, so an exact lookup misses. On a
+  zh miss (len ≥ 2), the store greedily longest-matches the word against the dictionary itself
+  (`_decompose_zh`, one extra batch query over the missed words' substrings) and returns the
+  components as `Definition.parts` (`found=false`, `senses=[]`). `/define` surfaces them as
+  `DefineResult.parts`; the card renders a "Breakdown" (一 + 顶). Same technique as Pleco/Yomitan;
+  generalizes past measure words to any OOV compound. JA is not decomposed (MeCab already lemmatizes).
 - **No result-cache layer** (revised from the earlier plan): a dictionary lookup is a single
   indexed query, not expensive compute like MeCab/jieba, and the batch collapses a paused line into
   one query — so caching would trade latency for latency. Trivial to add later if profiling shows a

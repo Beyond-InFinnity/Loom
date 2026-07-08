@@ -265,6 +265,23 @@ response: { lang, results: [ { word, found,
   (coalescing adjacent plains would mis-wrap tokens after a punctuation/kana run). tsc + 290 vitest
   green. **Owed: live browser test** — card positioning (windowed + fullscreen), glow/wrap on the
   right glyphs, pause events firing per platform (Netflix MSE / Prime surface), native line inert.
+- **Phase 2.1 — JA word merging + contextual reading:** ✅ DONE 2026-07-08 (`8c52c73`, deployed).
+  Two live-testing bugs on Frieren: (1) MeCab/UniDic over-segments — 食べさせられた split to
+  食べ／させ／られ／た, so clicking an inflected verb hit a fragment that missed JMdict; (2) the topic
+  particle は was read literally "ha", not the spoken わ. Both fixed by reusing the romaji pipeline's
+  merge metadata (`resolve_spans._loom_ja_meta` → `{token_meta, merge_mask, particle_ha}`):
+  `_japanese_tokens` now groups content-word + trailing auxiliaries into ONE token via the same
+  `_should_merge_for_romaji` merge_mask the romaji line uses, lemma from the HEAD morpheme's dict
+  form (→ 食べる); nouns/particles keep their boundaries. Each token carries a CONTEXTUAL reading
+  (は→わ) surfaced in the card header over the dictionary reading. **Token tuple grew to 6:**
+  `(word, lemma, pos, reading, start, length)` — threaded through the route (+cache), `AnnotateToken`
+  schema, regenerated api-client, and the extension click chain (`onWordClick`→`SelectedWord`→card).
+  ZH tokens emit `reading=None` (card falls back to /define pinyin). `ENGINE_VERSIONS` ja/zh/yue→3.
+  Also fixed a latent module-import `NameError` (`_clean_ja_lemma` annotation referenced unimported
+  `Optional`). Decision: **keep MeCab, do NOT swap to Sudachi** — split-mode-C's benefit is
+  replicated by the merge mask, deinflection is tokenizer-independent, and the large tested JA
+  pipeline is the argument against a swap. Tests: +2 py (verb-chain merge, contextual reading via
+  cache round-trip); `test_annotate_tokens` on the 6-tuple; 232 romanize/annotate py + 290 vitest green.
 - **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
   then reuse the Phase 2 UX.
 

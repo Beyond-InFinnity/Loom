@@ -78,13 +78,23 @@ class AnnotateToken(BaseModel):
     word: str = Field(..., description="The clickable word surface form.")
     lemma: Optional[str] = Field(None, description="Dictionary form for /define (JA); null → use word.")
     pos: list[str] = Field(default_factory=list, description="Part-of-speech tags (JA); [] for ZH.")
+    reading: Optional[str] = Field(
+        None,
+        description=(
+            "Contextual kana reading of the surface (JA; topic particle は → わ). "
+            "null → the card falls back to the dictionary reading."
+        ),
+    )
     start: int = Field(..., description="Index into `spans` where this word begins.")
     length: int = Field(..., description="Number of spans this word covers.")
 
 
 def _tokens_to_cache(raw_tokens: list) -> list:
-    """Serialize (word, lemma, pos, start, length) tuples for the cache JSON."""
-    return [[w, lemma, list(pos), start, length] for (w, lemma, pos, start, length) in raw_tokens]
+    """Serialize (word, lemma, pos, reading, start, length) tuples for cache JSON."""
+    return [
+        [w, lemma, list(pos), reading, start, length]
+        for (w, lemma, pos, reading, start, length) in raw_tokens
+    ]
 
 
 def _tokens_from_cache(val) -> list:
@@ -94,8 +104,8 @@ def _tokens_from_cache(val) -> list:
     out = []
     for t in val:
         try:
-            w, lemma, pos, start, length = t
-            out.append((w, lemma, list(pos) if pos else [], int(start), int(length)))
+            w, lemma, pos, reading, start, length = t
+            out.append((w, lemma, list(pos) if pos else [], reading, int(start), int(length)))
         except (ValueError, TypeError):
             continue
     return out
@@ -103,8 +113,8 @@ def _tokens_from_cache(val) -> list:
 
 def _to_tokens(raw_tokens: list) -> list:
     return [
-        AnnotateToken(word=w, lemma=lemma, pos=pos, start=start, length=length)
-        for (w, lemma, pos, start, length) in raw_tokens
+        AnnotateToken(word=w, lemma=lemma, pos=pos, reading=reading, start=start, length=length)
+        for (w, lemma, pos, reading, start, length) in raw_tokens
     ]
 
 

@@ -77,14 +77,15 @@ import re
 _ENGINE_VERSION_DEFAULT = 1
 ENGINE_VERSIONS: dict[str, int] = {
     # primary lang code -> version; unlisted languages use the default.
-    # Bumped to 2 for ja/zh/yue when /annotate gained word-level `tokens`
-    # (VOCAB_LOOKUP.md Phase 0): old cache rows hold spans-only annotate output,
-    # so the key must change or they'd serve token-less results forever. The
-    # version is shared with romanize (same key function) — those langs just
-    # recompute once on next request; harmless.
-    "ja": 2,
-    "zh": 2,
-    "yue": 2,
+    # Bumped when the /annotate `tokens` output format changes so old cache
+    # rows (an earlier token shape) can't be served — the version is part of
+    # the key.  Shared with romanize (same key fn); those langs recompute once.
+    #   v2: tokens added (Phase 0).
+    #   v3: JA tokens merged into words + `reading` field on every token
+    #       (Phase 2 §1/§2); ZH token tuple gained the same `reading` slot.
+    "ja": 3,
+    "zh": 3,
+    "yue": 3,
 }
 
 
@@ -1042,7 +1043,11 @@ def _make_japanese_pipeline():
     # Expose the per-span token metadata from the LAST resolve_spans call as a
     # function attribute — non-breaking for the (resolve_spans, spans_to_romaji)
     # callers, read by build_word_tokens() right after it calls resolve_spans.
-    resolve_spans._loom_token_meta = lambda: _romaji_meta.get('token_meta', [])
+    resolve_spans._loom_ja_meta = lambda: {
+        'token_meta': _romaji_meta.get('token_meta', []),     # per-span (lemma, pos1)
+        'merge_mask': _romaji_meta.get('merge_mask', []),     # merge span i with i+1?
+        'particle_ha': _romaji_meta.get('particle_ha', set()),  # spans where は is pronounced わ
+    }
 
     return resolve_spans, spans_to_romaji
 
@@ -2955,22 +2960,54 @@ def _is_lookupable_word(s: str) -> bool:
     return any(c.isalnum() or _is_cjk(c) for c in s)
 
 
+def _clean_ja_lemma(lemma: "str | None") -> "str | None":
+    """UniDic lemmas sometimes carry a '-<disambiguator>' suffix (私 → 私-代名詞)
+    that would miss a JMdict headword lookup; strip it (real Japanese lemmas
+    contain no ASCII hyphen)."""
+    if not lemma:
+        return None
+    return lemma.split('-', 1)[0] or None
+
+
 def _japanese_tokens(spans: list, annotation_func) -> list:
-    """1 token : 1 span — Japanese annotation spans are already MeCab words.
-    Reads lemma/POS from the func's stashed per-span metadata."""
-    meta_fn = getattr(annotation_func, "_loom_token_meta", None)
-    meta = meta_fn() if callable(meta_fn) else []
+    """Group MeCab morpheme spans into WORD tokens (VOCAB_LOOKUP.md Phase 2 §1).
+
+    UniDic over-segments: 食べさせられた → 食べ／させ／られ／た.  Reusing the romaji
+    verb-chain merge mask (`_should_merge_for_romaji`) collapses a content word +
+    its trailing auxiliaries/inflections into one clickable token whose lemma is
+    the HEAD morpheme's dictionary form (→ 食べる, so /define hits).  Particles
+    and nouns stay their own tokens (the mask keeps those boundaries).
+
+    Also carries the CONTEXTUAL reading (§2): the concatenated kana of the
+    group's morphemes with the topic particle は rendered わ (matching the romaji
+    line), so the card shows how the surface is actually pronounced."""
+    meta_fn = getattr(annotation_func, "_loom_ja_meta", None)
+    meta = meta_fn() if callable(meta_fn) else {}
+    token_meta = meta.get('token_meta', [])
+    merge_mask = meta.get('merge_mask', [])
+    particle_ha = meta.get('particle_ha', set())
+
     tokens = []
-    for i, (surface, _reading) in enumerate(spans):
-        if not _is_lookupable_word(surface):
-            continue
-        lemma, pos = meta[i] if i < len(meta) else (None, '')
-        # UniDic lemmas sometimes carry a '-<disambiguator>' suffix (私 → 私-代名詞)
-        # that would miss a JMdict headword lookup; strip it (real Japanese
-        # lemmas contain no ASCII hyphen). Fall back to the surface form.
-        if lemma:
-            lemma = lemma.split('-', 1)[0] or None
-        tokens.append((surface, lemma or None, [pos] if pos else [], i, 1))
+    n = len(spans)
+    i = 0
+    while i < n:
+        # Extend the group while the merge mask says span j joins span j+1.
+        j = i
+        while j < n - 1 and j < len(merge_mask) and merge_mask[j]:
+            j += 1
+        group = spans[i:j + 1]
+        word = "".join(s[0] for s in group)
+        if _is_lookupable_word(word):
+            # Contextual reading: kanji spans carry a kana reading; kana spans
+            # read as themselves; particle は → わ.
+            reading = "".join(
+                "わ" if (i + off) in particle_ha else (rdg or surf)
+                for off, (surf, rdg) in enumerate(group)
+            )
+            head_lemma, head_pos = token_meta[i] if i < len(token_meta) else (None, '')
+            lemma = _clean_ja_lemma(head_lemma) or word
+            tokens.append((word, lemma, [head_pos] if head_pos else [], reading or None, i, j - i + 1))
+        i = j + 1
     return tokens
 
 
@@ -2990,7 +3027,9 @@ def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
     for w in _jieba_words(clean, traditional=traditional):
         n = len(w)
         if n and _is_lookupable_word(w):
-            tokens.append((w, w, [], offset, n))  # no inflection: lemma == word
+            # lemma == word (no inflection); reading None → card uses /define's
+            # pinyin.  Token tuple shape matches Japanese (…, reading, start, len).
+            tokens.append((w, w, [], None, offset, n))
         offset += n
     return tokens
 

@@ -28,6 +28,9 @@ export interface AnnotateToken {
   lemma?: string | null;
   /** Part-of-speech tags (Japanese); [] for Chinese. */
   pos?: string[];
+  /** Contextual kana reading of the surface (Japanese; topic particle は → わ).
+      null → the card falls back to the dictionary reading. */
+  reading?: string | null;
   /** Index into the event's spans where this word begins. */
   start: number;
   /** Number of spans this word covers. */

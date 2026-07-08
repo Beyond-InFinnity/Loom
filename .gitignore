@@ -72,3 +72,4 @@ apps/desktop/src-tauri/resources/playwright-browsers/
 
 # Claude Code per-project state (settings, scheduled-tasks lock).
 .claude/
+.playwright-mcp/

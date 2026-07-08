@@ -103,9 +103,15 @@ interface AnnotatedTextProps {
    *  When false, renders exactly as before — no wrappers, no handlers,
    *  no pointer-events — so playback is untouched. */
   interactive?: boolean;
-  /** Called with the clicked word, its dictionary lemma (for /define),
-   *  and the word element's bounding rect (for positioning the card). */
-  onWordClick?: (word: string, lemma: string, rect: DOMRect) => void;
+  /** Called with the clicked word, its dictionary lemma (for /define), its
+   *  contextual reading (JA; null → card uses the dictionary reading), and
+   *  the word element's bounding rect (for positioning the card). */
+  onWordClick?: (
+    word: string,
+    lemma: string,
+    reading: string | null,
+    rect: DOMRect,
+  ) => void;
 }
 
 export function AnnotatedText({
@@ -217,7 +223,12 @@ export function AnnotatedText({
         onClick={(e) => {
           stopToPlayer(e);
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          onWordClick?.(tok.word, tok.lemma ?? tok.word, rect);
+          onWordClick?.(
+            tok.word,
+            tok.lemma ?? tok.word,
+            tok.reading ?? null,
+            rect,
+          );
         }}
       >
         {els.slice(run.start, run.start + run.length)}

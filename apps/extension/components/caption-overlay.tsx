@@ -19,6 +19,9 @@ import type { CueLayout } from "@/lib/captions/types";
 interface SelectedWord {
   word: string;
   lemma: string;
+  /** Contextual reading of the surface (JA; topic は → わ).  null → the
+      card falls back to the dictionary reading. */
+  reading: string | null;
   rect: DOMRect;
   langCode: string | null;
 }
@@ -136,7 +139,12 @@ interface Layer {
       leave the layer non-interactive (the native layer never sets them). */
   tokens?: import("@/lib/annotate/types").AnnotateToken[] | null;
   interactive?: boolean;
-  onWordClick?: (word: string, lemma: string, rect: DOMRect) => void;
+  onWordClick?: (
+    word: string,
+    lemma: string,
+    reading: string | null,
+    rect: DOMRect,
+  ) => void;
 }
 
 function resolveFontFamily(family: string): string {
@@ -235,8 +243,8 @@ export function CaptionOverlay() {
   const [selectedWord, setSelectedWord] = useState<SelectedWord | null>(null);
   const targetLangCode = selectedTarget?.languageCode ?? null;
   const handleWordClick = useCallback(
-    (word: string, lemma: string, rect: DOMRect) => {
-      setSelectedWord({ word, lemma, rect, langCode: targetLangCode });
+    (word: string, lemma: string, reading: string | null, rect: DOMRect) => {
+      setSelectedWord({ word, lemma, reading, rect, langCode: targetLangCode });
     },
     [targetLangCode],
   );
@@ -458,6 +466,7 @@ export function CaptionOverlay() {
         <DefinitionCard
           word={selectedWord.word}
           lemma={selectedWord.lemma}
+          reading={selectedWord.reading}
           rect={selectedWord.rect}
           langCode={selectedWord.langCode}
           onDismiss={() => setSelectedWord(null)}

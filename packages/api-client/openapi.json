@@ -1268,6 +1268,18 @@
             "title": "Pos",
             "description": "Part-of-speech tags (JA); [] for ZH."
           },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading",
+            "description": "Contextual kana reading of the surface (JA; topic particle \u306f \u2192 \u308f). null \u2192 the card falls back to the dictionary reading."
+          },
           "start": {
             "type": "integer",
             "title": "Start",

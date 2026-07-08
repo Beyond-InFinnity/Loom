@@ -46,6 +46,10 @@ type FetchState =
 interface DefinitionCardProps {
   word: string;
   lemma: string;
+  /** Contextual reading of the surface (JA; topic は → わ).  When present it's
+      shown in the header in preference to the dictionary reading, so the card
+      reflects how the word is actually read in this line. */
+  reading?: string | null;
   rect: DOMRect;
   langCode: string | null;
   onDismiss: () => void;
@@ -59,6 +63,7 @@ const MAX_SENSES = 4;
 export function DefinitionCard({
   word,
   lemma,
+  reading,
   rect,
   langCode,
   onDismiss,
@@ -166,8 +171,8 @@ export function DefinitionCard({
     >
       <div style={headerStyle}>
         <span style={wordStyle}>{word}</span>
-        {state.kind === "ok" && state.data.reading ? (
-          <span style={readingStyle}>{state.data.reading}</span>
+        {headerReading(reading, state) ? (
+          <span style={readingStyle}>{headerReading(reading, state)}</span>
         ) : null}
       </div>
       <Body state={state} />
@@ -178,6 +183,17 @@ export function DefinitionCard({
       ) : null}
     </div>
   );
+}
+
+/** Header reading: prefer the contextual surface reading (topic は → わ) when
+    we have one, else the dictionary reading once loaded. */
+function headerReading(
+  contextual: string | null | undefined,
+  state: FetchState,
+): string | null {
+  if (contextual) return contextual;
+  if (state.kind === "ok" && state.data.reading) return state.data.reading;
+  return null;
 }
 
 function Body({ state }: { state: FetchState }) {

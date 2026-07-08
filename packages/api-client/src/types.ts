@@ -606,6 +606,11 @@ export interface components {
              */
             pos?: string[];
             /**
+             * Reading
+             * @description Contextual kana reading of the surface (JA; topic particle は → わ). null → the card falls back to the dictionary reading.
+             */
+            reading?: string | null;
+            /**
              * Start
              * @description Index into `spans` where this word begins.
              */

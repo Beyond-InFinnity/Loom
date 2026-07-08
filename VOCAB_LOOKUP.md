@@ -282,8 +282,30 @@ response: { lang, results: [ { word, found,
   replicated by the merge mask, deinflection is tokenizer-independent, and the large tested JA
   pipeline is the argument against a swap. Tests: +2 py (verb-chain merge, contextual reading via
   cache round-trip); `test_annotate_tokens` on the 6-tuple; 232 romanize/annotate py + 290 vitest green.
+- **Phase 2.2 — corpus-driven JA robustness:** ✅ DONE 2026-07-08 (`ccbc98b`, deployed). Measured
+  over ALL 114,247 JA tokens in loom-corpus (Evangelion / Mononoke / Frieren / Apothecary / JJK):
+  95% of tokens already resolved; the 5% miss was dominated by EXPECTED misses (character names 68%,
+  English lyrics, numbers, interjections). Two genuinely-fixable patterns fixed:
+  (1) **Tokenizer punctuation-strip** — a merged trailing 補助記号 (…) was inside the clickable word
+  (は…, あっ…, そうか… — ~2,443 tokens); `_japanese_tokens` now trims leading/trailing punctuation-only
+  spans. Corpus: punctuation-in-surface 2,443 → 52 (98% gone). `ENGINE_VERSIONS` ja→4.
+  (2) **`/define` multi-key + honorific decomposition** — endpoint gained optional `alt_keys` (the
+  extension sends the token SURFACE as a fallback to the lemma); rescues MeCab lemma truncations
+  (黒曜石 lemma=黒曜 misses, surface hits: obsidian). Plus a honorific peel (`dictionary.py`
+  `_decompose_ja`): a name glued to 様/さん/君/ちゃん/殿/氏/坊 that misses as a whole decomposes into
+  [stem?, honorific], the honorific gloss from a **hardcoded closed-set table** (bare kana are
+  ambiguous homophones in JMdict: さん→acid, 様→sorry-state). **Miss-gated**, so lexicalized
+  お母さん/母さん/赤ちゃん/たくさん hit directly and never decompose (verified). Net over corpus:
+  useful-result rate 95.0% → 96.0%. **Deliberately NOT done: a JA deinflection ruleset** — MeCab's
+  lemma already covers inflection at 95%, and the residual misses (刺さって→差さる wrong-kanji lemma,
+  compound-noun gaps like 混ぜ入れる) are mostly NOT deinflectable (they're dictionary-coverage /
+  decomposition territory). Deinflection is best-practice for tokenizer-LESS tools (Yomitan); we run
+  MeCab, so it's redundant. Tests: +5 dictionary, +2 tokenizer; 292 py + 290 vitest green.
 - **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
-  then reuse the Phase 2 UX.
+  then reuse the Phase 2 UX. NOTE (2026-07-08): Phase 3 is a NET-NEW language, NOT a better way to
+  solve the JA issues above — Korean's absence of word segmentation is unrelated to JA punctuation/
+  honorific/deinflection. Decide it on its own merits (K-drama audience; Korean has zero word-level
+  lookup today), not as a fix for Japanese.
 
 ## 9. Open decisions
 

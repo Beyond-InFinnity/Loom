@@ -72,6 +72,12 @@ class _Row:
     senses: Any                     # list[dict]: [{"gloss":[...], "pos":[...], "misc":[...]}]
     common: bool
     source: str
+    gloss_lang: str = "en"          # language the glosses are written in
+
+
+# Universal fallback gloss language: when a word has no gloss in the user's
+# requested language, English is served instead (always ingested).
+DEFAULT_GLOSS_LANG = "en"
 
 
 def _norm(word: str) -> str:
@@ -149,15 +155,32 @@ def clean_gloss_pinyin(gloss: str) -> str:
     return _CEDICT_BRACKET_RE.sub(repl, gloss)
 
 
-def _merge_rows(word: str, lang: str, rows: list[_Row]) -> Optional[Definition]:
+def _select_gloss_lang(rows: list[_Row], want: str) -> list[_Row]:
+    """Keep rows whose glosses are in the requested language; if the word has
+    none, fall back to English (always present); if not even that, keep all.
+    This is what makes gloss language a per-word graceful preference rather than
+    a hard filter — a word missing a French gloss still shows its English one."""
+    want_rows = [r for r in rows if r.gloss_lang == want]
+    if want_rows:
+        return want_rows
+    en_rows = [r for r in rows if r.gloss_lang == DEFAULT_GLOSS_LANG]
+    return en_rows or rows
+
+
+def _merge_rows(
+    word: str, lang: str, rows: list[_Row], gloss_lang: str = DEFAULT_GLOSS_LANG,
+) -> Optional[Definition]:
     """Collapse every row matching ``word`` into one Definition.
 
-    ``common`` rows sort first (ranking, not filtering — §5 "full coverage,
-    common as a signal"); glosses that repeat across rows/sources are dropped
-    so a word carried by both dictionaries doesn't double up.
+    Rows are first narrowed to the requested ``gloss_lang`` (English fallback,
+    see _select_gloss_lang).  ``common`` rows sort first (ranking, not filtering
+    — §5 "full coverage, common as a signal"); glosses that repeat across
+    rows/sources are dropped so a word carried by both dictionaries doesn't
+    double up.
     """
     if not rows:
         return None
+    rows = _select_gloss_lang(rows, gloss_lang)
     ordered = sorted(rows, key=lambda r: (not r.common))  # common first, stable
 
     senses: list[DefinitionSense] = []
@@ -351,56 +374,90 @@ def _lookup_with_decomposition(
 # Store protocol + impls
 # --------------------------------------------------------------------------- #
 
+@dataclass(frozen=True)
+class Capabilities:
+    """What the dictionary can currently answer — served to the client so it
+    can drive definability off the SERVER, not a hardcoded allowlist.  Adding a
+    dictionary changes only this (and the data), never the extension."""
+    source_langs: tuple[str, ...]   # languages with entries (e.g. ("ja", "zh"))
+    gloss_langs: tuple[str, ...]    # languages glosses are written in (e.g. ("en",))
+
+
 class DictionaryStore(Protocol):
     """Read-only lookup seam.  Fail-open: trouble yields fewer/no results,
     never an exception into the request path."""
 
-    def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
-        """Map each input word that has an entry → its merged Definition.
-        Words with no entry are simply absent from the returned dict."""
+    def lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str = DEFAULT_GLOSS_LANG,
+    ) -> dict[str, Definition]:
+        """Map each input word that has an entry → its merged Definition, with
+        glosses in ``gloss_lang`` where available (English fallback).  Words with
+        no entry are simply absent from the returned dict."""
+
+    def capabilities(self) -> Capabilities:
+        """Which source + gloss languages currently have data."""
 
 
 class NullDictionaryStore:
     """No dictionary configured (no DSN, or LOOM_DICTIONARY=off)."""
 
-    def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+    def lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str = DEFAULT_GLOSS_LANG,
+    ) -> dict[str, Definition]:
         return {}
+
+    def capabilities(self) -> Capabilities:
+        return Capabilities(source_langs=(), gloss_langs=())
 
 
 class InMemoryDictionaryStore:
     """List-backed impl for tests.  Mirrors the Postgres query + merge exactly."""
 
     def __init__(self, rows: Sequence[dict] | None = None) -> None:
-        # each dict: {lang, headword, reading, senses, common, source}
+        # each dict: {lang, headword, reading, senses, common, source, gloss_lang}
         self.rows: list[dict] = list(rows or [])
 
     def add(self, lang: str, headword: str, reading: Optional[str], senses: list[dict],
-            *, common: bool = False, source: str = "test") -> None:
+            *, common: bool = False, source: str = "test",
+            gloss_lang: str = DEFAULT_GLOSS_LANG) -> None:
         self.rows.append({
             "lang": lang, "headword": headword, "reading": reading,
             "senses": senses, "common": common, "source": source,
+            "gloss_lang": gloss_lang,
         })
 
-    def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+    def lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str = DEFAULT_GLOSS_LANG,
+    ) -> dict[str, Definition]:
         return _lookup_with_decomposition(
-            lang, words, lambda ws: self._exact_lookup(lang, ws)
+            lang, words, lambda ws: self._exact_lookup(lang, ws, gloss_lang)
         )
 
-    def _exact_lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+    def _exact_lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str,
+    ) -> dict[str, Definition]:
         wanted = {_norm(w) for w in words if _norm(w)}
         if not wanted:
             return {}
         out: dict[str, Definition] = {}
         for w in wanted:
             matches = [
-                _Row(r["headword"], r.get("reading"), r.get("senses"), r.get("common", False), r["source"])
+                _Row(r["headword"], r.get("reading"), r.get("senses"),
+                     r.get("common", False), r["source"],
+                     r.get("gloss_lang", DEFAULT_GLOSS_LANG))
                 for r in self.rows
                 if r["lang"] == lang and (r["headword"] == w or r.get("reading") == w)
             ]
-            merged = _merge_rows(w, lang, matches)
+            merged = _merge_rows(w, lang, matches, gloss_lang)
             if merged is not None:
                 out[w] = merged
         return out
+
+    def capabilities(self) -> Capabilities:
+        return Capabilities(
+            source_langs=tuple(sorted({r["lang"] for r in self.rows})),
+            gloss_langs=tuple(sorted({r.get("gloss_lang", DEFAULT_GLOSS_LANG) for r in self.rows})),
+        )
 
 
 # Kept identical to scripts/ingest_dictionaries.py::_SCHEMA — ingestion owns
@@ -415,8 +472,11 @@ CREATE TABLE IF NOT EXISTS dictionary_entry (
     senses         jsonb NOT NULL,
     common         boolean NOT NULL DEFAULT false,
     source         text NOT NULL,
-    source_version text NOT NULL
+    source_version text NOT NULL,
+    gloss_lang     text NOT NULL DEFAULT 'en'
 );
+-- Additive migration for DBs created before the multilingual gloss axis.
+ALTER TABLE dictionary_entry ADD COLUMN IF NOT EXISTS gloss_lang text NOT NULL DEFAULT 'en';
 CREATE INDEX IF NOT EXISTS dictionary_entry_lang_headword ON dictionary_entry (lang, headword);
 CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading ON dictionary_entry (lang, reading);
 """
@@ -450,22 +510,32 @@ class PostgresDictionaryStore:
         logger.warning("dictionary: %s failed (fail-open, %ss backoff)", op, self._BACKOFF_SECONDS, exc_info=True)
         self._backoff_until = time.monotonic() + self._BACKOFF_SECONDS
 
-    def lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+    def lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str = DEFAULT_GLOSS_LANG,
+    ) -> dict[str, Definition]:
         return _lookup_with_decomposition(
-            lang, words, lambda ws: self._exact_lookup(lang, ws)
+            lang, words, lambda ws: self._exact_lookup(lang, ws, gloss_lang)
         )
 
-    def _exact_lookup(self, lang: str, words: Sequence[str]) -> dict[str, Definition]:
+    def _exact_lookup(
+        self, lang: str, words: Sequence[str], gloss_lang: str,
+    ) -> dict[str, Definition]:
         wanted = sorted({_norm(w) for w in words if _norm(w)})
         if not wanted or self._down():
             return {}
+        # Fetch the requested gloss language AND the English fallback in one
+        # query; _merge_rows narrows per-word (a word missing the requested
+        # gloss still shows English).  When gloss_lang IS English this is just
+        # the one language.
+        want_glosses = [gloss_lang] if gloss_lang == DEFAULT_GLOSS_LANG else [gloss_lang, DEFAULT_GLOSS_LANG]
         try:
             with self._pool.connection(timeout=2.5) as conn:
                 rows = conn.execute(
-                    "SELECT headword, reading, senses, common, source"
+                    "SELECT headword, reading, senses, common, source, gloss_lang"
                     " FROM dictionary_entry"
-                    " WHERE lang = %s AND (headword = ANY(%s) OR reading = ANY(%s))",
-                    (lang, wanted, wanted),
+                    " WHERE lang = %s AND gloss_lang = ANY(%s)"
+                    " AND (headword = ANY(%s) OR reading = ANY(%s))",
+                    (lang, want_glosses, wanted, wanted),
                 ).fetchall()
         except Exception:
             self._trip("lookup")
@@ -475,8 +545,8 @@ class PostgresDictionaryStore:
         # by headword for one word and by reading for another).
         wset = set(wanted)
         buckets: dict[str, list[_Row]] = {w: [] for w in wanted}
-        for headword, reading, senses, common, source in rows:
-            row = _Row(headword, reading, senses, common, source)
+        for headword, reading, senses, common, source, g_lang in rows:
+            row = _Row(headword, reading, senses, common, source, g_lang)
             if headword in wset:
                 buckets[headword].append(row)
             if reading in wset and reading != headword:
@@ -484,7 +554,21 @@ class PostgresDictionaryStore:
 
         out: dict[str, Definition] = {}
         for w, rws in buckets.items():
-            merged = _merge_rows(w, lang, rws)
+            merged = _merge_rows(w, lang, rws, gloss_lang)
             if merged is not None:
                 out[w] = merged
         return out
+
+    def capabilities(self) -> Capabilities:
+        if self._down():
+            return Capabilities(source_langs=(), gloss_langs=())
+        try:
+            with self._pool.connection(timeout=2.5) as conn:
+                langs = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT lang FROM dictionary_entry ORDER BY lang").fetchall()]
+                glosses = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT gloss_lang FROM dictionary_entry ORDER BY gloss_lang").fetchall()]
+        except Exception:
+            self._trip("capabilities")
+            return Capabilities(source_langs=(), gloss_langs=())
+        return Capabilities(source_langs=tuple(langs), gloss_langs=tuple(glosses))

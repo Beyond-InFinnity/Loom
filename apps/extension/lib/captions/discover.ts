@@ -36,6 +36,8 @@ import {
 } from "./lang-support";
 import type { CaptionEvent, CaptionTrack } from "./types";
 import { buildAnnotateMap } from "../annotate/build-map";
+import { getDefineCapabilities } from "../annotate/capabilities";
+import { isDefinable } from "../annotate/define-lang";
 import {
   annotateCacheKey,
   getCachedAnnotateMap,
@@ -685,8 +687,16 @@ async function fetchLayerAnnotations(
   if (!opts.enabled) return;
   if (!opts.events || opts.events.length === 0) return;
 
+  // Fetch when the language needs ruby (annotate-romanize) OR — for the target
+  // layer — when the server says it's definable, so per-word tokens are pulled
+  // for a language even if it has no ruby (e.g. a future space-delimited dict).
+  // Definability is server-driven (capabilities.ts), so a new dictionary needs
+  // no extension release.  For today's ja/zh both conditions coincide → no
+  // behaviour change.
   const cls = classifyLang(opts.lang);
-  if (cls.processing !== "annotate-romanize") return;
+  const caps = await getDefineCapabilities();
+  const wantTokens = opts.layerName === "target" && isDefinable(caps, opts.lang);
+  if (cls.processing !== "annotate-romanize" && !wantTokens) return;
 
   const cacheKey = annotateCacheKey(
     opts.videoId,

@@ -21,9 +21,13 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import hepburn_from_kana
+from loom_core.romanize import hepburn_from_kana, is_token_supported
 
 from ..deps import get_dictionary_store
+
+# Bumped if the capabilities response SHAPE changes; the client refetches per
+# session so a new dictionary needs no bump — this is only for wire-format.
+CAPABILITIES_VERSION = 1
 
 router = APIRouter(tags=["define"])
 
@@ -57,6 +61,14 @@ class DefineRequest(BaseModel):
             "For Japanese, the returned `romaji`/`romaji_alt` are computed from "
             "this (falling back to the dictionary reading) so the Hepburn "
             "matches the shown furigana."
+        ),
+    )
+    gloss_lang: Optional[str] = Field(
+        None, max_length=35,
+        description=(
+            "Language the definitions should be written in (the user's language; "
+            "usually the browser locale).  Falls back to English per-word when a "
+            "word has no gloss in this language.  Defaults to English."
         ),
     )
 
@@ -147,9 +159,33 @@ def _candidates(word: str, alts: Optional[List[str]]) -> List[str]:
     return out
 
 
+class DefineCapabilities(BaseModel):
+    source_langs: List[str] = Field(
+        ..., description="Languages with a dictionary AND a word tokenizer — the "
+        "video-track languages Loom can offer per-word lookup for.")
+    gloss_langs: List[str] = Field(
+        ..., description="Languages definitions can be written in (English always).")
+    version: int = Field(..., description="Wire-format version of this response.")
+
+
+@router.get("/define/capabilities", response_model=DefineCapabilities)
+def define_capabilities() -> DefineCapabilities:
+    """What the dictionary can answer right now.  The extension reads this at
+    runtime to decide which tracks get clickable words and which gloss languages
+    to offer — so a NEW dictionary is a pure server change, no extension update.
+    A source language is included only if it has both data AND a tokenizer."""
+    caps = get_dictionary_store().capabilities()
+    return DefineCapabilities(
+        source_langs=[l for l in caps.source_langs if is_token_supported(l)],
+        gloss_langs=list(caps.gloss_langs) or ["en"],
+        version=CAPABILITIES_VERSION,
+    )
+
+
 @router.post("/define/batch", response_model=DefineResponse)
 def define_batch(req: DefineRequest) -> DefineResponse:
     lang = req.lang.strip().lower()
+    gloss_lang = (req.gloss_lang or "en").strip().lower().split("-")[0].split("_")[0] or "en"
 
     # Per-word candidate keys (primary + alternates), then ONE batched lookup
     # over their union so multi-key costs no extra round-trips.
@@ -158,7 +194,7 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         for i, w in enumerate(req.words)
     ]
     union = sorted({c for cands in cand_lists for c in cands})
-    found = get_dictionary_store().lookup(lang, union) if union else {}
+    found = get_dictionary_store().lookup(lang, union, gloss_lang) if union else {}
 
     results: List[DefineResult] = []
     for i, (w, cands) in enumerate(zip(req.words, cand_lists)):

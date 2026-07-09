@@ -432,6 +432,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/define/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Define Capabilities
+         * @description What the dictionary can answer right now.  The extension reads this at
+         *     runtime to decide which tracks get clickable words and which gloss languages
+         *     to offer — so a NEW dictionary is a pure server change, no extension update.
+         *     A source language is included only if it has both data AND a tokenizer.
+         */
+        get: operations["define_capabilities_define_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/define/batch": {
         parameters: {
             query?: never;
@@ -995,6 +1018,24 @@ export interface components {
              */
             reason: string;
         };
+        /** DefineCapabilities */
+        DefineCapabilities: {
+            /**
+             * Source Langs
+             * @description Languages with a dictionary AND a word tokenizer — the video-track languages Loom can offer per-word lookup for.
+             */
+            source_langs: string[];
+            /**
+             * Gloss Langs
+             * @description Languages definitions can be written in (English always).
+             */
+            gloss_langs: string[];
+            /**
+             * Version
+             * @description Wire-format version of this response.
+             */
+            version: number;
+        };
         /**
          * DefinePart
          * @description One component of a decomposed word — a Chinese sub-word (jieba grouped
@@ -1040,6 +1081,11 @@ export interface components {
              * @description Optional per-word contextual kana readings, aligned to `words` — the reading the card DISPLAYS (e.g. は→わ, the inflected 見た).  For Japanese, the returned `romaji`/`romaji_alt` are computed from this (falling back to the dictionary reading) so the Hepburn matches the shown furigana.
              */
             readings?: string[] | null;
+            /**
+             * Gloss Lang
+             * @description Language the definitions should be written in (the user's language; usually the browser locale).  Falls back to English per-word when a word has no gloss in this language.  Defaults to English.
+             */
+            gloss_lang?: string | null;
         };
         /** DefineResponse */
         DefineResponse: {
@@ -2740,6 +2786,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    define_capabilities_define_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefineCapabilities"];
                 };
             };
         };

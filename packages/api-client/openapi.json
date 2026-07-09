@@ -921,6 +921,28 @@
         }
       }
     },
+    "/define/capabilities": {
+      "get": {
+        "tags": [
+          "define"
+        ],
+        "summary": "Define Capabilities",
+        "description": "What the dictionary can answer right now.  The extension reads this at\nruntime to decide which tracks get clickable words and which gloss languages\nto offer \u2014 so a NEW dictionary is a pure server change, no extension update.\nA source language is included only if it has both data AND a tokenizer.",
+        "operationId": "define_capabilities_define_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefineCapabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/define/batch": {
       "post": {
         "tags": [
@@ -1860,6 +1882,38 @@
         ],
         "title": "CorpusCaptureResponse"
       },
+      "DefineCapabilities": {
+        "properties": {
+          "source_langs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Langs",
+            "description": "Languages with a dictionary AND a word tokenizer \u2014 the video-track languages Loom can offer per-word lookup for."
+          },
+          "gloss_langs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Gloss Langs",
+            "description": "Languages definitions can be written in (English always)."
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "Wire-format version of this response."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_langs",
+          "gloss_langs",
+          "version"
+        ],
+        "title": "DefineCapabilities"
+      },
       "DefinePart": {
         "properties": {
           "word": {
@@ -1965,6 +2019,19 @@
             ],
             "title": "Readings",
             "description": "Optional per-word contextual kana readings, aligned to `words` \u2014 the reading the card DISPLAYS (e.g. \u306f\u2192\u308f, the inflected \u898b\u305f).  For Japanese, the returned `romaji`/`romaji_alt` are computed from this (falling back to the dictionary reading) so the Hepburn matches the shown furigana."
+          },
+          "gloss_lang": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 35
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss Lang",
+            "description": "Language the definitions should be written in (the user's language; usually the browser locale).  Falls back to English per-word when a word has no gloss in this language.  Defaults to English."
           }
         },
         "type": "object",

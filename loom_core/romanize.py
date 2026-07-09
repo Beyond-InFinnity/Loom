@@ -3065,6 +3065,19 @@ def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
     return tokens
 
 
+# Languages build_word_tokens can segment into clickable words.  Used by the
+# /define capabilities endpoint to intersect with the dictionaries that exist —
+# a source language is "definable" only if it has BOTH a dictionary and a
+# tokenizer.  Extend this when a new tokenizer lands (e.g. a Korean analyzer).
+SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue"})
+
+
+def is_token_supported(lang_code: str) -> bool:
+    """True if build_word_tokens can produce word tokens for *lang_code*."""
+    primary = (lang_code or "").lower().split("-")[0].split("_")[0]
+    return primary in SUPPORTED_TOKEN_PRIMARIES
+
+
 def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
     """Word-level tokens over the annotation `spans` (VOCAB_LOOKUP.md Phase 0).
 

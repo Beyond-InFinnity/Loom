@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getApiClient } from "@/lib/api-client";
-import { defineLangFor } from "@/lib/annotate/define-lang";
+import { getDefineCapabilities } from "@/lib/annotate/capabilities";
+import {
+  normalizeDefineSourceLang,
+  resolveGlossLang,
+} from "@/lib/annotate/define-lang";
 import { swallowPlayerEvents } from "@/lib/overlay/stop-player-events";
 
 // DefinitionCard — the per-word vocab-lookup popup (VOCAB_LOOKUP.md Phase 2).
@@ -80,7 +84,12 @@ export function DefinitionCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const defineLang = useMemo(() => defineLangFor(langCode), [langCode]);
+  // The card only mounts for a definable track (tokens were present), so the
+  // source lang is always valid; the server decides if the specific word hits.
+  const sourceLang = useMemo(
+    () => normalizeDefineSourceLang(langCode),
+    [langCode],
+  );
 
   // Position the card relative to its containing block.  The overlay root is
   // transform:translateZ(0) (perf tripwire), so it — not the viewport — is
@@ -113,7 +122,7 @@ export function DefinitionCard({
 
   // Fetch the definition for this lemma.
   useEffect(() => {
-    if (!defineLang) {
+    if (!sourceLang) {
       setState({ kind: "notfound" });
       return;
     }
@@ -121,6 +130,12 @@ export function DefinitionCard({
     setState({ kind: "loading" });
     (async () => {
       try {
+        // Gloss language follows the user (browser locale / override) among
+        // what the server offers, English fallback — so a JA user gets JA
+        // definitions once that data exists, with no extension change.
+        const caps = await getDefineCapabilities();
+        if (cancelled) return;
+        const glossLang = resolveGlossLang(caps);
         // Look up the lemma first, then fall back to the surface form: MeCab's
         // lemma is wrong/truncated for some compounds (黒曜石 → lemma 黒曜), and
         // a glued honorific (玉葉様) only decomposes off the surface.  `readings`
@@ -128,7 +143,8 @@ export function DefinitionCard({
         // furigana (は→わ, inflected 見た).
         const { data, error } = await getApiClient().POST("/define/batch", {
           body: {
-            lang: defineLang,
+            lang: sourceLang,
+            gloss_lang: glossLang,
             words: [lemma],
             alt_keys: [[word]],
             readings: [reading ?? ""],
@@ -161,7 +177,7 @@ export function DefinitionCard({
     return () => {
       cancelled = true;
     };
-  }, [defineLang, lemma]);
+  }, [sourceLang, lemma, word, reading]);
 
   // Dismiss on Escape or a click outside the card.  composedPath() pierces
   // the shadow boundary (the overlay lives in a shadow root), so the

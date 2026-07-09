@@ -1,0 +1,15 @@
+Loom 0.4.0
+
+NEW — Prime Video support. Loom now renders its dual-language learning subtitles on primevideo.com, alongside YouTube, Netflix, iQIYI, and WeTV.
+
+NEW — Per-word pop-up dictionary (Japanese & Chinese). Pause the video and click a word in the top line: a card shows its reading (furigana / Pinyin), its Hepburn romaji for Japanese (eg "Tōkyō"), and its dictionary definition. Loom breaks each sentence into real words — grouping multi-character words, finding a verb's dictionary form, and handling measure words and name honorifics — so a click lands on the whole word, not a stray character. Definitions come from the JMdict and CC-CEDICT open dictionaries (CC BY-SA 4.0), attributed on each card and in the privacy policy.
+
+NEW — Faithful caption placement. Vertical captions, on-screen "signs", and stacked simultaneous lines now render in their original position and orientation instead of being flattened into one row.
+
+NEW — Per-site sizing & positioning. A subtitle-size slider, a top/bottom vertical nudge (to lift text off letterbox bars), and line spacing — each remembered separately per site. Text also scales to the visible video picture, so sizes look consistent across sites.
+
+POLISH — the clickable-word highlight is now a soft glow that hugs the text rather than a box, plus assorted card and default-style refinements.
+
+Privacy: Loom sends only subtitle text out of your browser — for romanization, for a definition when you click a word, and (only if you opt in) for the quality-improvement corpus. No account, no browsing history, no personal identifiers. https://loom.nerv-analytic.ai/privacy
+
+Known limitation: Loom can't draw into the browser's native Picture-in-Picture window (no extension can). Windowed and fullscreen playback work fully.

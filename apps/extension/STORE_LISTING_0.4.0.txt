@@ -1,0 +1,15 @@
+Loom: Dual-language subtitles for YouTube, Netflix, Prime Video, iQIYI, and WeTV — with phonetic annotations, romanization, and a per-word pop-up dictionary.
+
+Loom is a language-learning tool for anyone who watches YouTube, Netflix, Prime Video, iQIYI, or WeTV in a language they're studying. It renders TWO subtitle tracks at once — the original (foreign) language on top, your own language on the bottom — so you can follow the dialogue without switching back and forth.
+
+For non-Latin scripts, Loom adds a romanization line above the foreign text (eg "konnichi wa" above "こんにちは") so you can read along even before you learn the characters. For CJK languages it additionally adds per-character readings: furigana for Japanese, Pinyin or Zhuyin for Chinese, Jyutping for Cantonese, Revised Romanization for Korean. For Traditional Chinese, Loom can also show the Simplified form of each character above it.
+
+NEW — Per-word pop-up dictionary (Japanese & Chinese). Pause the video and click any word in the top line: a card shows its reading (furigana or Pinyin), its Hepburn romaji for Japanese (eg "Tōkyō"), and its dictionary definition. Loom breaks each sentence into real words — grouping multi-character words, finding a verb's dictionary form, and handling measure words and name honorifics — so your click lands on the whole word, not a stray character. Definitions come from the JMdict and CC-CEDICT open dictionaries.
+
+NEW — Prime Video support, alongside Netflix, for Japanese anime and film with Japanese captions. iQIYI and WeTV remain especially good for Chinese learners: most of their dramas offer a selectable Chinese subtitle track, which Loom reads and annotates with Pinyin.
+
+Loom also keeps each caption where the show puts it — vertical text, on-screen signs, and stacked simultaneous lines render in their original position and orientation instead of being flattened into a single row.
+
+Every visual aspect is customizable: per-layer colors, fonts, sizes, outlines, glow, and opacity, plus a per-site subtitle-size and vertical-position adjustment. 28 thematic color presets ship out of the box. Settings persist per device. Loom works on any video that has a selectable text subtitle track in your target language (on YouTube, that means human-made or auto-generated captions).
+
+Loom is a research project from nerv-analytic.ai. It's free, has no ads, and collects no personal data. The only thing it sends out of your browser is subtitle text — used to generate the romanization, and (when you click a word) to look up its definition. You can also choose to contribute subtitle text to help improve Loom's quality; this is off by default and asked for once. See the privacy policy at loom.nerv-analytic.ai/privacy for details.

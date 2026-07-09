@@ -1,0 +1,27 @@
+WHAT CHANGED SINCE 0.3.1 (live on AMO)
+1. Prime Video support — the ONLY new permissions this release.
+2. Per-word dictionary lookup — a new call to the SAME API origin already granted; no new host permission, no new data category.
+3. Faithful caption placement + per-site sizing — local rendering/UI only.
+
+NEW HOST PERMISSIONS (Prime Video)
+- *://*.primevideo.com/* — inject the overlay + read the in-page player's playback-resources JSON on the watch page.
+- *://*.pv-cdn.net/* — read-only fetch of the signed WebVTT/TTML caption file Prime serves from this CDN.
+Both are used only to render the same learning overlay Loom already provides on the other sites. No blocking, redirect, or modification of any site request.
+
+PER-WORD LOOKUP (no new permission)
+While paused, clicking a Japanese/Chinese word sends just that word to https://api.loom.nerv-analytic.ai/define — the same origin already used for romanization. On click only, never in the background. Same "websiteContent" category. Dictionaries live server-side (JMdict/EDRDG + CC-CEDICT, CC BY-SA 4.0); the extension ships no dictionary data. Each card names its source; full attribution is in the privacy policy.
+
+PERMISSIONS (otherwise unchanged from 0.3.1)
+- storage: preferences + per-site sizing/position + on/off + corpus consent (storage.local; not synced).
+- webRequest: OBSERVE MODE, YouTube only, filtered to *://*.youtube.com/api/timedtext*; returns undefined (never blocks/redirects). Reads only the URL for YouTube's per-session caption token.
+Opt-in corpus is unchanged: affirmative consent, default-OFF in production (lib/corpus/consent.ts).
+
+BUILD (from repo root — npm-workspaces monorepo)
+1. npm ci
+2. cd apps/extension
+3. npm run build:firefox:prod  ->  .output/firefox-mv2/
+Node 22.x / npm 10.x; WXT 0.20.26 (Vite). Please use the full-monorepo source (loom-source-0.4.0.zip) — WXT's partial *-sources.zip omits the local @loom/* workspace packages and the root lockfile and is not buildable on its own.
+
+DEV/PROD SPLIT: production is "Loom" (id loom@nerv-analytic.ai). A separate "Loom (Dev)" build is local-testing only; its dev-only owner-key field and default-on corpus are gated behind an IS_DEV constant and dead-code-eliminated from prod.
+
+Source: https://github.com/Beyond-InFinnity/Loom

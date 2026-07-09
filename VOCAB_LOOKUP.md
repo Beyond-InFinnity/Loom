@@ -221,6 +221,36 @@ response: { lang, results: [ { word, found,
 - Tests: `tests/test_dictionary.py` (store merge/scoping + route order/echo/nfc/failsoft),
   `tests/test_ingest_dictionaries.py` (pure CC-CEDICT/JMdict parsers). 21 new, green.
 
+### 6.1 Capability-driven, language-agnostic client — SHIPPED 2026-07-09 (`9989b7a`)
+
+**Governing goal (Connor):** *"when I develop and implement a new dictionary, I don't want to
+ever have to upload a new extension."* The client no longer hardcodes which languages are
+definable. That decision — and which language definitions are written in — is served.
+
+- **`GET /define/capabilities` → `{source_langs, gloss_langs, version}`.** A source language is
+  listed only if it has BOTH a dictionary AND a word tokenizer (`is_token_supported` in
+  `romanize.py`, `SUPPORTED_TOKEN_PRIMARIES={ja,zh,yue}`). `gloss_langs` = languages definitions
+  can be written in (English always present). `version` bumps only on wire-shape change — a new
+  dictionary needs NO bump (client refetches per session).
+- **Gloss-language axis.** `dictionary_entry.gloss_lang` column (schema + `ALTER … ADD COLUMN IF
+  NOT EXISTS`); `/define/batch` takes `gloss_lang` and falls back to English **per word** when a
+  word has no gloss in the requested language (`_select_gloss_lang`). So a JA speaker learning ZH
+  gets ZH→JA definitions the moment that data lands, English elsewhere — no client change.
+- **Client (`apps/extension/lib/annotate/`):** `capabilities.ts` session-caches the GET (build-time
+  fallback `{ja,zh}`/`{en}`, never persisted so a new dictionary appears next page load).
+  `define-lang.ts` is no longer an allowlist — `normalizeDefineSourceLang` only NORMALIZES (all
+  Chinese variants → `zh`, never null); `isDefinable(caps, code)` consults the served set;
+  `resolveGlossLang(caps, override?)` picks override → `browser.i18n.getUILanguage()` → `en`.
+  `discover.ts` gates target-track token fetching on `isDefinable`, and the definition card sends
+  the source lang + resolved `gloss_lang`.
+- **No dead-end glow:** a track whose language isn't in `source_langs` gets empty `targetTokens` →
+  words are not interactive (no hover glow, no click). The media track never "bugs out."
+- **Verified live 2026-07-09:** `/define/capabilities` → `{ja,zh},{en},v1`; `猫` `gloss_lang=fr`
+  falls back to English "cat" with tone-marked `māo`; `東京` → `Tōkyō`/`Toukyou`.
+- **What a new dictionary now costs (no extension release):** ingest rows into `dictionary_entry`
+  (with `gloss_lang`), and — if it's a NEW source language — ensure a tokenizer exists so
+  `is_token_supported` returns true for it. Then it lights up on the next page load everywhere.
+
 ## 7. Extension UX
 
 - **Pause-gated.** Lookup mode activates only while the `<video>` is paused (aligns with the

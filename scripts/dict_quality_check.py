@@ -35,9 +35,12 @@ import pathlib
 import sys
 from collections import Counter
 
-# Import the PRODUCTION tokenizer so the metric reflects real behaviour.
+# Import the PRODUCTION generic tokenizer directly (not the build_word_tokens
+# dispatch) — this harness validates a CANDIDATE space-delimited language BEFORE
+# it's opted into GENERIC_TOKEN_PRIMARIES, so it must run the generic path
+# regardless of the enable gate.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from loom_core.romanize import build_word_tokens  # noqa: E402
+from loom_core.romanize import _generic_tokens  # noqa: E402
 
 
 def _load_set(path: str | None) -> set[str]:
@@ -74,12 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     surface_or_lemma_hit = 0
     misses: Counter[str] = Counter()
 
-    # build_word_tokens dispatches to the generic path for `lang`.  Feed line by
-    # line (mirrors caption events); spans/annotation_func unused on this path.
+    # Feed line by line (mirrors caption events) through the generic tokenizer.
     for line in text.splitlines():
         if not line.strip():
             continue
-        for word, lemma, _pos, _reading, _s, _l in build_word_tokens(line, args.lang, [], None):
+        for word, lemma, _pos, _reading, _s, _l in _generic_tokens(line, args.lang):
             total += 1
             w_cf = word.casefold()
             l_cf = (lemma or word).casefold()

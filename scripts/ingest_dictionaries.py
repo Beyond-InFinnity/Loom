@@ -399,15 +399,25 @@ _WIKT_POS = {
 
 
 def parse_wiktextract(path: str, lang: Optional[str] = None,
-                      version: str = "wiktextract") -> Iterator[DictEntry]:
+                      version: str = "wiktextract", *,
+                      gloss_lang: str = "en",
+                      keep_langs: Optional[set[str]] = None) -> Iterator[DictEntry]:
     """Yield normalized entries from a kaikki Wiktextract JSONL file.
 
-    One row per word entry (English glosses → gloss_lang="en").  ``lang`` filters
-    to a single ``lang_code`` (the per-language kaikki files are already single-
-    language, but the guard is cheap).  Entries with no glossed sense are
-    skipped; inflection ("form of") senses ARE kept — they never displace a real
-    card (the lemma is looked up first) and are a useful fallback when the
-    tokenizer's lemma misses.  First IPA (if any) becomes the reading.
+    Handles BOTH kaikki corpus kinds — they share this exact schema (`word`,
+    `lang_code`, `senses[].glosses`, `sounds[].ipa`), differing only in the gloss
+    LANGUAGE:
+      * the ENGLISH edition (`kaikki.org/dictionary/<Lang>`) — glosses in English,
+        one source language per file → gloss_lang="en" (default);
+      * a NATIVE edition (`kaikki.org/<xx>wiktionary`) — glosses in that edition's
+        language, MANY source langs in one file → pass gloss_lang=<xx> and
+        keep_langs={the source langs you support} to fill that gloss COLUMN.
+
+    ``lang`` filters to a single ``lang_code``; ``keep_langs`` (a set) keeps any
+    entry whose lang_code is in it — used for a native edition to take only the
+    source languages we can tokenize (skipping the long tail).  Entries with no
+    glossed sense are skipped; "form of" inflection senses ARE kept (a lemmatizer-
+    miss fallback).  First IPA becomes the reading.
     """
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -420,7 +430,11 @@ def parse_wiktextract(path: str, lang: Optional[str] = None,
                 continue
             word = e.get("word")
             lc = e.get("lang_code")
-            if not word or not lc or (lang and lc != lang):
+            if not word or not lc:
+                continue
+            if lang and lc != lang:
+                continue
+            if keep_langs is not None and lc not in keep_langs:
                 continue
             pos_code = e.get("pos", "")
             pos = [_WIKT_POS.get(pos_code, pos_code)] if pos_code else []
@@ -443,7 +457,7 @@ def parse_wiktextract(path: str, lang: Optional[str] = None,
             yield DictEntry(
                 lang=lc, headword=word, reading=reading, senses=senses,
                 common=False, source="wiktextract", source_version=version,
-                gloss_lang="en",
+                gloss_lang=gloss_lang,
             )
 
 
@@ -573,8 +587,14 @@ def _iter_all(args: argparse.Namespace) -> Iterator[DictEntry]:
         yield from parse_jmdict(path)          # gloss_lang auto-detected per build
     for path in _expand_paths(args.krdict):
         yield from parse_krdict(path)
+    keep = None
+    if getattr(args, "wiktextract_keep_langs", None):
+        keep = {s.strip() for s in args.wiktextract_keep_langs.split(",") if s.strip()}
+    gl = getattr(args, "wiktextract_gloss_lang", None) or "en"
     for path in _expand_paths(args.wiktextract):
-        yield from parse_wiktextract(path, lang=args.wiktextract_lang)
+        yield from parse_wiktextract(
+            path, lang=args.wiktextract_lang, gloss_lang=gl, keep_langs=keep
+        )
 
 
 def _as_list(v) -> Optional[list[str]]:
@@ -646,6 +666,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     common.add_argument(
         "--wiktextract-lang",
         help="only ingest this lang_code from the Wiktextract file(s), e.g. es",
+    )
+    common.add_argument(
+        "--wiktextract-gloss-lang",
+        help="gloss language of the Wiktextract file — 'en' for the English "
+             "edition (default), or the edition code for a native edition "
+             "(eswiktionary → es), which fills that gloss column",
+    )
+    common.add_argument(
+        "--wiktextract-keep-langs",
+        help="comma-separated lang_codes to keep from a native edition (the "
+             "source langs you support), e.g. es,en,fr,de,it,pt",
     )
 
     pv = sub.add_parser("validate", parents=[common], help="parse + print stats/samples, no DB")

@@ -332,6 +332,26 @@ def test_wiktextract_keeps_form_of_as_fallback(tmp_path):
     assert len(rows) == 1 and rows[0].senses[0].gloss == ["inflection of comer"]
 
 
+def test_wiktextract_native_edition_gloss_lang_and_keep_langs(tmp_path):
+    # A native edition (eswiktionary) shares the schema but glosses in Spanish
+    # and holds MANY source langs; gloss_lang stamps the column, keep_langs takes
+    # only the source langs we support (dropping the long tail).
+    path = _write_jsonl(tmp_path, [
+        {"word": "japonés", "lang_code": "es", "pos": "adj",
+         "senses": [{"glosses": ["Originario de Japón."]}]},                 # es→es (diagonal)
+        {"word": "cat", "lang_code": "en", "pos": "noun",
+         "senses": [{"glosses": ["Animal felino doméstico."]}]},            # en→es (cross)
+        {"word": "foo", "lang_code": "xyz", "pos": "noun",
+         "senses": [{"glosses": ["Palabra rara."]}]},                        # unsupported → dropped
+    ])
+    rows = list(ingest.parse_wiktextract(
+        path, gloss_lang="es", keep_langs={"es", "en"}))
+    by = {(r.lang, r.headword): r for r in rows}
+    assert set(by) == {("es", "japonés"), ("en", "cat")}                     # xyz dropped
+    assert all(r.gloss_lang == "es" for r in rows)                           # es column
+    assert by[("en", "cat")].senses[0].gloss == ["Animal felino doméstico."]
+
+
 def test_krdict_never_reads_media_urls(tmp_path):
     # The sound/Multimedia URLs are not redistributable; they must not leak into
     # any row (reading is the pronunciation string, never a URL).

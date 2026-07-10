@@ -19,6 +19,58 @@ future dumps. Every number below traces to a page fetched during the pass.
 
 ---
 
+## ✅ DECISION 2026-07-11 — off-site the dictionary database (deferred; backend TBD)
+
+**Decision.** The dictionary (`dictionary_entry`) will be moved **off the Railway
+operational Postgres** onto a **separate, read-only store**. We are PAUSING further
+dictionary growth until that store exists — the current Railway volume is full at
+~3.5 GB and the zh native edition (3.36M senses) + all further native-edition
+columns don't fit.
+
+**Motivation.**
+1. **We've already massively increased functionality** — 20 source langs × 16
+   gloss langs / 8.95M rows, with the es + ja native-edition columns live
+   (es→es 98.3%, ja→ja 90.2% monolingual, zh→ja 57.5% gap-fill). This is a strong,
+   coherent stopping point; the remaining work is breadth, not capability.
+2. **Finishing it is now PURELY a backend/API change — no extension release.** The
+   client is capability-driven (`/define/capabilities` → `{source_langs,
+   gloss_langs}` drives the whole UI; the extension stopped hardcoding definable
+   langs, `VOCAB_LOOKUP.md §6.1`). And the server already abstracts the store
+   behind the `DictionaryStore` protocol (`loom_api/dictionary.py`:
+   Postgres / InMemory / Null impls). So swapping to an off-site backend is a
+   **drop-in with zero route changes** and zero client work — a new store impl +
+   a connection string.
+
+**Why off-site (architectural rationale).** The dictionary and the cache/corpus
+have OPPOSITE profiles and shouldn't share one volume:
+
+| | Dictionary | Cache + corpus |
+|---|---|---|
+| Access | **read-only** (batch ingest; never per-request writes) | read-write, transactional |
+| Size | ~10 GB now, **15–25 GB at a full 30×30** | small (~50 MB) |
+| Needs | fast indexed point lookups | ACID, live writes |
+
+Keeping the big static reference dataset out of the operational Postgres holds the
+$5/mo flat target and lets the dictionary scale on storage priced for reference data.
+
+**Backend — leading candidate + the open concern.** **Turso (hosted libSQL/SQLite)**
+is the cleanest drop-in (read-only → SQLite's single-writer model is a non-issue;
+the `DictionaryStore` protocol makes a `TursoDictionaryStore` a pure add). **BUT its
+~8 GB free tier is likely too small for the near-term goal of a 30×30 dictionary**
+(30 source × 30 gloss ≈ **15–25 GB** — 30 native editions at ~1–3M senses each, plus
+the English column + JMdict/KRDict/CEDICT). So: Turso free fits the *current + near*
+ambition; a real 30×30 needs **Turso paid** or an alternative (dedicated cheap
+Postgres — Neon/Supabase scale storage far below Railway; or a prebuilt
+`dict.sqlite` on **R2** downloaded to the container). **Backend choice is DEFERRED**
+pending the 30×30 sizing call; the decision to off-site is firm regardless.
+
+**State when paused.** es + ja columns LIVE; zh + fr/de/ru/… native columns DEFERRED
+to the off-site store; `dictionary_entry` = 8.95M rows / ~3.25 GB (the
+`(source,lang,gloss_lang)` index was dropped to relieve the full disk — `_SCHEMA`
+recreates it on the next ingest). Resumes once the off-site store is chosen.
+
+---
+
 ## Tier 1 — ready now (good data + clean CC/permissive license)
 
 | Source | Coverage | Count | License |

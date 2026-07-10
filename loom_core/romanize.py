@@ -114,6 +114,7 @@ ENGINE_VERSIONS: dict[str, int] = {
     "hi": 2,
     "tr": 2,
     "id": 2,
+    "en": 2,
 }
 
 
@@ -3353,6 +3354,9 @@ GENERIC_TOKEN_PRIMARIES = frozenset(
         # deferred: kaikki ships it as the macrolanguage `no`, which simplemma
         # doesn't lemmatize — needs a no→nb lemmatizer mapping + a harness pass.)
         "ru", "pl", "ro", "da", "cs", "uk", "hi", "tr", "id",
+        # English as a SOURCE language (2026-07-10) — the largest learner audience;
+        # monolingual en→en glosses (kaikki English Wiktextract).  simplemma "en".
+        "en",
     }
 )
 

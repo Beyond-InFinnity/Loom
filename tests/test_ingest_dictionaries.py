@@ -48,6 +48,27 @@ def test_cedict_skips_comments_blanks_garbage():
     assert ingest.parse_cedict_line("not a valid entry\n") == []
 
 
+def test_cedict_default_source_and_gloss_lang():
+    r = ingest.parse_cedict_line("吃 吃 [chi1] /to eat/\n")[0]
+    assert r.source == "cc-cedict" and r.gloss_lang == "en"
+
+
+def test_cfdict_reuses_cedict_format_with_french_gloss():
+    # CFDICT (zh→fr) is CEDICT-format; same parser, source + gloss_lang differ.
+    r = ingest.parse_cedict_line(
+        "貓 猫 [mao1] /chat/\n", source="cfdict", gloss_lang="fr"
+    )[0]
+    assert (r.lang, r.source, r.gloss_lang) == ("zh", "cfdict", "fr")
+    assert r.senses[0].gloss == ["chat"]
+
+
+def test_handedict_reuses_cedict_format_with_german_gloss():
+    r = ingest.parse_cedict_line(
+        "貓 猫 [mao1] /Katze/\n", source="handedict", gloss_lang="de"
+    )[0]
+    assert (r.source, r.gloss_lang) == ("handedict", "de")
+
+
 # --------------------------------------------------------------------------- #
 # JMdict-simplified
 # --------------------------------------------------------------------------- #
@@ -106,6 +127,26 @@ def test_jmdict_entry_json_shape_drops_empty_tag_lists():
 def test_jmdict_entry_with_no_glosses_yields_nothing():
     word = {"id": "5", "kanji": [{"text": "空"}], "kana": [{"text": "から"}], "sense": [{"gloss": []}]}
     assert ingest.parse_jmdict_word(word, {}) == []
+
+
+def test_jmdict_word_default_gloss_lang_and_override():
+    word = {"id": "6", "kanji": [{"text": "犬"}], "kana": [{"text": "いぬ"}],
+            "sense": [{"partOfSpeech": ["n"], "gloss": [{"lang": "ger", "text": "Hund"}]}]}
+    assert ingest.parse_jmdict_word(word, {"n": "n"})[0].gloss_lang == "en"   # default
+    assert ingest.parse_jmdict_word(word, {"n": "n"}, gloss_lang="de")[0].gloss_lang == "de"
+
+
+def test_jmdict_auto_detects_gloss_lang_from_file_metadata(tmp_path):
+    import json
+    build = {
+        "version": "3.6.2", "languages": ["ger"], "tags": {"n": "noun"},
+        "words": [{"id": "1", "kanji": [{"text": "犬"}], "kana": [{"text": "いぬ"}],
+                   "sense": [{"partOfSpeech": ["n"], "gloss": [{"lang": "ger", "text": "Hund"}]}]}],
+    }
+    p = tmp_path / "jmdict-ger-3.6.2.json"
+    p.write_text(json.dumps(build), encoding="utf-8")
+    rows = list(ingest.parse_jmdict(str(p)))       # ger→de auto-detected, no flag
+    assert rows[0].gloss_lang == "de" and rows[0].senses[0].gloss == ["Hund"]
 
 
 def test_jmdict_default_gloss_lang_is_en():

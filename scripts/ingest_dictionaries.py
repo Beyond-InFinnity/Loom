@@ -113,8 +113,19 @@ def _cedict_version(path: str) -> str:
     return "cc-cedict@unknown"
 
 
-def parse_cedict_line(line: str, version: str = "cc-cedict") -> list[DictEntry]:
-    """Parse ONE CC-CEDICT line → normalized entries (pure; unit-testable).
+def parse_cedict_line(
+    line: str,
+    version: str = "cc-cedict",
+    *,
+    source: str = "cc-cedict",
+    gloss_lang: str = "en",
+) -> list[DictEntry]:
+    """Parse ONE CC-CEDICT-format line → normalized entries (pure; unit-testable).
+
+    The CEDICT line format (``Trad Simp [pin1 yin1] /gloss/gloss/``) is shared by
+    the sister bilingual dictionaries CFDICT (zh→fr) and HanDeDict (zh→de); the
+    only difference is the gloss LANGUAGE.  So ``source`` / ``gloss_lang`` let the
+    same parser ingest all three — CC-CEDICT (en), CFDICT (fr), HanDeDict (de).
 
     Emits one row per script form (Traditional + Simplified); when the two are
     identical (common for single chars) only one row.  ``/`` splits distinct
@@ -138,20 +149,26 @@ def parse_cedict_line(line: str, version: str = "cc-cedict") -> list[DictEntry]:
             headword=hw,
             reading=pinyin,
             senses=senses,
-            common=False,  # CC-CEDICT carries no common flag
-            source="cc-cedict",
+            common=False,  # CEDICT-family carries no common flag
+            source=source,
             source_version=version,
+            gloss_lang=gloss_lang,
         )
         for hw in forms
     ]
 
 
-def parse_cedict(path: str) -> Iterator[DictEntry]:
-    """Yield normalized entries from a CC-CEDICT text file."""
-    version = _cedict_version(path)
+def parse_cedict(
+    path: str, *, source: str = "cc-cedict", gloss_lang: str = "en"
+) -> Iterator[DictEntry]:
+    """Yield normalized entries from a CC-CEDICT-format text file (CC-CEDICT /
+    CFDICT / HanDeDict — set ``source`` + ``gloss_lang`` for the latter two)."""
+    version = source if source != "cc-cedict" else _cedict_version(path)
     with open(path, encoding="utf-8") as fh:
         for line in fh:
-            yield from parse_cedict_line(line, version)
+            yield from parse_cedict_line(
+                line, version, source=source, gloss_lang=gloss_lang
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -163,7 +180,17 @@ def _load_jmdict(path: str) -> dict:
         return json.load(fh)
 
 
-def parse_jmdict_word(w: dict, tags: dict, version: str = "jmdict") -> list[DictEntry]:
+# JMdict-simplified ships one build per gloss language, each tagged with an
+# ISO 639-2/T code in the file's top-level `languages`.  Map to our BCP-47.
+_JMDICT_LANG = {
+    "eng": "en", "dut": "nl", "fre": "fr", "ger": "de", "hun": "hu",
+    "rus": "ru", "slv": "sl", "spa": "es", "swe": "sv",
+}
+
+
+def parse_jmdict_word(
+    w: dict, tags: dict, version: str = "jmdict", gloss_lang: str = "en"
+) -> list[DictEntry]:
     """Parse ONE JMdict-simplified word entry → normalized rows (pure).
 
     POS/misc/field tag codes are expanded to human text via the ``tags`` map.
@@ -200,6 +227,7 @@ def parse_jmdict_word(w: dict, tags: dict, version: str = "jmdict") -> list[Dict
             DictEntry(
                 lang="ja", headword=k["text"], reading=primary_reading, senses=senses,
                 common=bool(k.get("common")), source="jmdict", source_version=version,
+                gloss_lang=gloss_lang,
             )
             for k in kanji_forms
         ]
@@ -208,18 +236,27 @@ def parse_jmdict_word(w: dict, tags: dict, version: str = "jmdict") -> list[Dict
         DictEntry(
             lang="ja", headword=r["text"], reading=r["text"], senses=senses,
             common=bool(r.get("common")), source="jmdict", source_version=version,
+            gloss_lang=gloss_lang,
         )
         for r in kana_forms
     ]
 
 
-def parse_jmdict(path: str) -> Iterator[DictEntry]:
-    """Yield normalized entries from a JMdict-simplified JSON file."""
+def parse_jmdict(path: str, gloss_lang: Optional[str] = None) -> Iterator[DictEntry]:
+    """Yield normalized entries from a JMdict-simplified JSON file.
+
+    ``gloss_lang`` is auto-detected from the file's ``languages`` metadata (each
+    per-language build declares its single ISO 639-2 code), so ingesting the
+    German build stamps gloss_lang=de with no extra flag; pass it explicitly to
+    override.  Defaults to en if the metadata is missing/ambiguous."""
     data = _load_jmdict(path)
     tags: dict[str, str] = data.get("tags", {})
     version = "jmdict@" + str(data.get("version", "unknown"))
+    if gloss_lang is None:
+        langs = data.get("languages") or data.get("dictLanguages") or []
+        gloss_lang = _JMDICT_LANG.get(langs[0], langs[0]) if len(langs) == 1 else "en"
     for w in data["words"]:
-        yield from parse_jmdict_word(w, tags, version)
+        yield from parse_jmdict_word(w, tags, version, gloss_lang=gloss_lang)
 
 
 # --------------------------------------------------------------------------- #
@@ -437,10 +474,13 @@ CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading
 def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 5000) -> int:
     """Create the table (if needed) and bulk-insert entries.  Returns row count.
 
-    Replaces rows for each (source, lang) wholesale: deletes that pair's existing
-    rows first so re-ingest is idempotent.  Keyed on (source, lang) — not source
-    alone — so a multi-language source (Wiktextract: one "source" across es/fr/de
-    …) can re-ingest ONE language without wiping the others.  Requires psycopg v3.
+    Replaces rows for each (source, lang, gloss_lang) wholesale: deletes that
+    triple's existing rows first so re-ingest is idempotent.  Keyed on the FULL
+    triple — not (source, lang) — so a source that ships one gloss language per
+    file (JMdict-simplified: jmdict/ja/en, jmdict/ja/de, … as separate builds)
+    can re-ingest ONE gloss build without wiping the others; multi-gloss sources
+    loaded in a single call (KRDict: 11 gloss langs in one file) still fully
+    replace because each of their triples is cleared once.  Requires psycopg v3.
     """
     import psycopg  # lazy — only needed for actual load
 
@@ -448,7 +488,7 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             cur.execute(_SCHEMA)
-        sources_cleared: set[tuple[str, str]] = set()
+        sources_cleared: set[tuple[str, str, str]] = set()
         buf: list[DictEntry] = []
 
         def flush(rows: list[DictEntry]) -> None:
@@ -472,11 +512,12 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
             written += len(rows)
 
         for e in entries:
-            key = (e.source, e.lang)
+            key = (e.source, e.lang, e.gloss_lang)
             if key not in sources_cleared:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "DELETE FROM dictionary_entry WHERE source = %s AND lang = %s",
+                        "DELETE FROM dictionary_entry "
+                        "WHERE source = %s AND lang = %s AND gloss_lang = %s",
                         key,
                     )
                 sources_cleared.add(key)
@@ -509,21 +550,25 @@ def _expand_paths(paths: Optional[list[str]]) -> list[str]:
     return out
 
 
-def _iter_all(
-    cedict: Optional[str],
-    jmdict: Optional[str],
-    krdict: Optional[list[str]] = None,
-    wiktextract: Optional[list[str]] = None,
-    wiktextract_lang: Optional[str] = None,
-) -> Iterator[DictEntry]:
-    if cedict:
-        yield from parse_cedict(cedict)
-    if jmdict:
-        yield from parse_jmdict(jmdict)
-    for path in _expand_paths(krdict):
+def _iter_all(args: argparse.Namespace) -> Iterator[DictEntry]:
+    if args.cedict:
+        yield from parse_cedict(args.cedict)
+    if getattr(args, "cfdict", None):
+        yield from parse_cedict(args.cfdict, source="cfdict", gloss_lang="fr")
+    if getattr(args, "handedict", None):
+        yield from parse_cedict(args.handedict, source="handedict", gloss_lang="de")
+    for path in _expand_paths(_as_list(args.jmdict)):
+        yield from parse_jmdict(path)          # gloss_lang auto-detected per build
+    for path in _expand_paths(args.krdict):
         yield from parse_krdict(path)
-    for path in _expand_paths(wiktextract):
-        yield from parse_wiktextract(path, lang=wiktextract_lang)
+    for path in _expand_paths(args.wiktextract):
+        yield from parse_wiktextract(path, lang=args.wiktextract_lang)
+
+
+def _as_list(v) -> Optional[list[str]]:
+    if v is None:
+        return None
+    return v if isinstance(v, list) else [v]
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -535,8 +580,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     counts: dict[str, int] = {}
     gloss_counts: dict[str, int] = {}
     total = 0
-    for e in _iter_all(args.cedict, args.jmdict, args.krdict,
-                       args.wiktextract, args.wiktextract_lang):
+    for e in _iter_all(args):
         total += 1
         counts[e.lang] = counts.get(e.lang, 0) + 1
         gloss_counts[e.gloss_lang] = gloss_counts.get(e.gloss_lang, 0) + 1
@@ -561,11 +605,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     if not dsn:
         print("ingest requires --dsn or DATABASE_URL", file=sys.stderr)
         return 2
-    n = load_to_postgres(
-        _iter_all(args.cedict, args.jmdict, args.krdict,
-                  args.wiktextract, args.wiktextract_lang),
-        dsn,
-    )
+    n = load_to_postgres(_iter_all(args), dsn)
     print(f"loaded {n} rows into dictionary_entry")
     return 0
 
@@ -575,8 +615,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--cedict", help="path to cedict_*.txt (CC-CEDICT)")
-    common.add_argument("--jmdict", help="path to jmdict-eng-*.json (JMdict-simplified)")
+    common.add_argument("--cedict", help="path to cedict_*.txt (CC-CEDICT, zh→en)")
+    common.add_argument("--cfdict", help="path to CFDICT.u8 (CEDICT-format, zh→fr)")
+    common.add_argument("--handedict", help="path to handedict.u8 (CEDICT-format, zh→de)")
+    common.add_argument(
+        "--jmdict", action="append",
+        help="JMdict-simplified JSON build (repeatable; gloss lang auto-detected "
+             "per build — pass the eng/ger/rus/… builds to fill the ja row)",
+    )
     common.add_argument(
         "--krdict", action="append",
         help="KRDict LMF XML file, directory of chunks, or glob (repeatable)",

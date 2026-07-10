@@ -725,19 +725,21 @@ interface FetchLayerAnnotationsOpts {
 async function fetchLayerAnnotations(
   opts: FetchLayerAnnotationsOpts,
 ): Promise<void> {
-  if (!opts.enabled) return;
   if (!opts.events || opts.events.length === 0) return;
 
-  // Fetch when the language needs ruby (annotate-romanize) OR — for the target
-  // layer — when the server says it's definable, so per-word tokens are pulled
-  // for a language even if it has no ruby (e.g. a future space-delimited dict).
-  // Definability is server-driven (capabilities.ts), so a new dictionary needs
-  // no extension release.  For today's ja/zh both conditions coincide → no
-  // behaviour change.
+  // Fetch when the user wants RUBY (per-character annotation enabled AND the
+  // language actually has ruby) OR — for the target layer — when the language
+  // is DEFINABLE, so per-word vocab tokens are pulled EVEN WITH the annotation
+  // toggle OFF.  The dictionary lookup is independent of the per-character
+  // annotation toggle: disabling annotation hides the ruby readings (the
+  // overlay strips them at render time) but must NOT switch off clickable-word
+  // lookup.  Definability is server-driven (capabilities.ts) so a new
+  // dictionary needs no extension release.
   const cls = classifyLang(opts.lang);
   const caps = await getDefineCapabilities();
   const wantTokens = opts.layerName === "target" && isDefinable(caps, opts.lang);
-  if (cls.processing !== "annotate-romanize" && !wantTokens) return;
+  const wantRuby = opts.enabled && cls.processing === "annotate-romanize";
+  if (!wantRuby && !wantTokens) return;
 
   const cacheKey = annotateCacheKey(
     opts.videoId,

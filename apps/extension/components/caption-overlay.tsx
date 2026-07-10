@@ -6,6 +6,7 @@ import { AnnotatedText } from "./annotated-text";
 import { DefinitionCard } from "./definition-card";
 import { buildRichSegments } from "@/lib/orthography/build-segments";
 import type { RichSegment } from "@/lib/orthography/types";
+import type { AnnotateSpan } from "@/lib/annotate/types";
 import {
   resolveOrthographyVariants,
   type OrthographyTable,
@@ -155,6 +156,18 @@ interface Layer {
   ) => void;
 }
 
+/** Return spans with every reading nulled when `strip` is true (per-character
+ *  annotation toggle OFF) — so no ruby renders but the span structure (one
+ *  segment per span) is preserved for per-word vocab grouping.  Pass-through
+ *  when not stripping or spans are null. */
+function stripReadingsIf(
+  strip: boolean,
+  spans: AnnotateSpan[] | null,
+): AnnotateSpan[] | null {
+  if (!strip || spans === null) return spans;
+  return spans.map((s) => ({ ...s, reading: null }));
+}
+
 function resolveFontFamily(family: string): string {
   return family === FONT_FAMILY_AUTO || family.length === 0
     ? DEFAULT_FONT_STACK
@@ -184,6 +197,7 @@ export function CaptionOverlay() {
     annotationFontRatio,
     targetPosition,
     nativePosition,
+    targetAnnotateEnabled,
     targetAnnotateMap,
     nativeAnnotateMap,
     targetTokenMap,
@@ -288,9 +302,16 @@ export function CaptionOverlay() {
   // annotation map is null (loading / disabled / not annotatable) OR
   // doesn't have an entry for this exact text, spans stays null and
   // buildRichSegments falls through to the table-walk or plain path.
-  const targetSpans = topText
-    ? (targetAnnotateMap?.get(topText.trim()) ?? null)
-    : null;
+  // Spans are fetched whenever the target lang is definable — even with the
+  // per-character annotation toggle OFF — so per-word vocab lookup works
+  // independently of ruby.  When the toggle is off, strip the readings so no
+  // ruby renders while the span STRUCTURE (one segment per span) is preserved
+  // for word grouping.  Alt-orthography (variantTable) is a separate toggle and
+  // is unaffected — it renders from the variant table, not the reading.
+  const targetSpans = stripReadingsIf(
+    !targetAnnotateEnabled,
+    topText ? (targetAnnotateMap?.get(topText.trim()) ?? null) : null,
+  );
   const nativeSpans = bottomText
     ? (nativeAnnotateMap?.get(bottomText.trim()) ?? null)
     : null;
@@ -451,7 +472,10 @@ export function CaptionOverlay() {
           key={`${e.start}-${e.end}-${e.layout?.regionId ?? ""}`}
           layout={e.layout!}
           segments={buildRichSegments({
-            spans: targetAnnotateMap?.get(e.text.trim()) ?? null,
+            spans: stripReadingsIf(
+              !targetAnnotateEnabled,
+              targetAnnotateMap?.get(e.text.trim()) ?? null,
+            ),
             rawText: e.text,
             variantTable: targetVariantTable,
           })}

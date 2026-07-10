@@ -281,7 +281,7 @@ Production rate limits (slowapi 100/min, 2000/day per IP; 5000-char per-request 
 | Per-line master show/hide enable | — | — | — | — | ✅ Top/Bottom (5i C-8); Top off hides its annotation+romanization+alt-orth |
 | Per-language phonetic-system picker (capability-driven) | ✅ | ✅ | ✅ | — | ✅ Chinese/Thai/Arabic/Persian/Urdu via `phoneticSystemsFor` (5i-3); zh-Hant defaults Pinyin (0.2.1) |
 | Language-aware defaults (romanize line on JP-only among CJK+K; on for Cyrillic/Thai/Indic/Hebrew/Arabic) | — | — | — | — | ✅ `defaultRomanizeLineEnabledFor`/`defaultPhoneticSystemFor` (0.2.1) |
-| Collapsible settings-panel sections | — | — | — | — | ✅ state lifted to `SettingsPanel`, survives close/reopen (0.2.1) |
+| Collapsible settings-panel sections | — | — | — | — | ✅ **default-collapsed + persisted global (storage.local) + per-section collapsed summary line** (2026-07-11); state lifted to `SettingsPanel`, survives close/reopen (0.2.1) |
 | Auto-fading status pill (3s idle) | — | — | — | — | ✅ opacity-only, edge-triggered (0.2.1) |
 | Per-layer outline color + alpha | ✅ | ✅ | ✅ | ⏳ | ✅ 5f; 8-dir ring + opacity-coupled, diverges from web PGS (0.2.1) |
 | Per-layer glow (radius + color + alpha) | ✅ | ✅ | ✅ | ⏳ | ✅ 5f |

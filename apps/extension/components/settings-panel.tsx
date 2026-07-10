@@ -231,6 +231,71 @@ const BUILD_INFO: string = (() => {
 // has the page.
 const SUPPORT_URL = "https://loom.nerv-analytic.ai/donate";
 
+// ---- Collapsible-section persistence --------------------------------
+// Open/closed state for the top-level sections.  GLOBAL, not per-platform — a
+// layout preference should read the same everywhere; the per-platform bits are
+// the section VALUES (size, position), never their collapse state.  Persisted
+// to storage.local so it survives reloads and carries across platforms.  New
+// installs (and any unknown id) default to COLLAPSED.
+const COLLAPSE_STORAGE_KEY = "loom_collapsed_sections";
+const COLLAPSIBLE_SECTION_IDS = [
+  "native",
+  "target-track",
+  "native-track",
+  "position",
+  "size",
+  "presets",
+  "bottom-style",
+  "top-style",
+  "annotation-style",
+  "romanization-style",
+  "data",
+] as const;
+
+function allSectionsCollapsed(): Record<string, boolean> {
+  const m: Record<string, boolean> = {};
+  for (const id of COLLAPSIBLE_SECTION_IDS) m[id] = true;
+  return m;
+}
+
+// Module-level cache, warmed at import so the panel opens without an
+// expand→collapse flash (the content script loads well before the pill click).
+// null = not yet read from storage.
+let cachedCollapsed: Record<string, boolean> | null = null;
+
+function readCollapsedFromStorage(): Promise<Record<string, boolean>> {
+  try {
+    return browser.storage.local
+      .get(COLLAPSE_STORAGE_KEY)
+      .then((r) => {
+        const stored = r?.[COLLAPSE_STORAGE_KEY];
+        const merged =
+          stored && typeof stored === "object"
+            ? { ...allSectionsCollapsed(), ...(stored as Record<string, boolean>) }
+            : allSectionsCollapsed();
+        cachedCollapsed = merged;
+        return merged;
+      })
+      .catch(() => {
+        cachedCollapsed = allSectionsCollapsed();
+        return cachedCollapsed;
+      });
+  } catch {
+    cachedCollapsed = allSectionsCollapsed();
+    return Promise.resolve(cachedCollapsed);
+  }
+}
+void readCollapsedFromStorage();
+
+function persistCollapsed(next: Record<string, boolean>): void {
+  cachedCollapsed = next;
+  try {
+    void browser.storage.local.set({ [COLLAPSE_STORAGE_KEY]: next });
+  } catch {
+    /* storage unavailable — in-memory state still updates for this session */
+  }
+}
+
 export function SettingsPanel({
   open,
   onClose,
@@ -367,19 +432,32 @@ export function SettingsPanel({
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  // Collapsible-section state.  Kept HERE (not inside each Section) so it
-  // survives the panel closing + reopening: SettingsPanel stays mounted
-  // and merely returns null while closed, so this useState persists for
-  // the tab's lifetime.  Keyed by a stable section id; absent/false =
-  // expanded (the default — nothing is hidden until the user collapses
-  // it).  `section(id)` returns the prop pair every collapsible takes.
+  // Collapsible-section state.  Seeded from the module cache (warmed at import)
+  // so it opens without a flash; falls back to all-collapsed.  Persisted to
+  // storage.local (global) so the layout survives reloads and matches across
+  // platforms.  Keyed by a stable section id; absent/unknown id = COLLAPSED.
   const [collapsedSections, setCollapsedSections] = useState<
     Record<string, boolean>
-  >({});
+  >(() => cachedCollapsed ?? allSectionsCollapsed());
+  // If the cache wasn't warm yet at first mount, hydrate once from storage.
+  useEffect(() => {
+    if (cachedCollapsed) return;
+    let alive = true;
+    void readCollapsedFromStorage().then((m) => {
+      if (alive) setCollapsedSections(m);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const section = (id: string) => ({
-    collapsed: collapsedSections[id] ?? false,
+    collapsed: collapsedSections[id] ?? true,
     onToggleCollapse: () =>
-      setCollapsedSections((c) => ({ ...c, [id]: !c[id] })),
+      setCollapsedSections((c) => {
+        const next = { ...c, [id]: !(c[id] ?? true) };
+        persistCollapsed(next);
+        return next;
+      }),
   });
 
   // Corpus-contribution consent (CORPUS_WIRING.md §1e) — read/written
@@ -458,6 +536,38 @@ export function SettingsPanel({
         : t("settings.empty.noTracks")
       : t("settings.empty.discovering");
 
+  // ---- Collapsed-section summaries -----------------------------------
+  // Each collapsible passes one of these as `summary`; CollapsibleHeader shows
+  // it (right-aligned) only while collapsed, so the item's key state reads at a
+  // glance without expanding.  Line-cards + Data pass a live Switch so the most
+  // common toggles stay one-click; the rest are informational text/swatches.
+  const posArrow = (p: CaptionPosition): string =>
+    p.startsWith("top") ? "↑" : "↓";
+  const currentPreset =
+    activePresetId === LOOMINATE_DEFAULT_PRESET_ID
+      ? LOOMINATE_DEFAULT_PRESET
+      : (presetCatalog?.presets.find((p) => p.id === activePresetId) ?? null);
+  const presetSwatchActive = [
+    topLineEnabled,
+    bottomLineEnabled,
+    topLineEnabled && targetAnnotateEnabled,
+    topLineEnabled && targetRomanizeEnabled,
+  ];
+  const textSummary = (s: string): React.ReactNode => (
+    <span style={collapsedSummaryTextStyle()}>{s}</span>
+  );
+  const lineSummary = (
+    color: string,
+    on: boolean,
+    onToggle: (v: boolean) => void,
+    aria: string,
+  ): React.ReactNode => (
+    <>
+      <span style={summaryColorDotStyle(color)} aria-hidden="true" />
+      <Switch on={on} onToggle={onToggle} ariaLabel={aria} />
+    </>
+  );
+
   return (
     <div ref={panelRef} style={panelStyle()} {...swallowPlayerEvents}>
       {/* Scoped scrollbar styling for nested LangSelect lists.  Lives
@@ -491,7 +601,11 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <Section title={t("settings.userLang.title")} {...section("native")}>
+      <Section
+        title={t("settings.userLang.title")}
+        {...section("native")}
+        summary={textSummary(languageName(nativeLangPref))}
+      >
         <LangSelect
           value={nativeLangPref}
           onChange={(code) => setNativeLangPref(code)}
@@ -513,6 +627,9 @@ export function SettingsPanel({
         showBadges={showKindBadges}
         emptyHint={emptyTracksHint}
         {...section("target-track")}
+        summary={textSummary(
+          selectedTarget ? languageName(selectedTarget.languageCode) : "—",
+        )}
       />
 
       <LayerSection
@@ -533,9 +650,31 @@ export function SettingsPanel({
         showBadges={showKindBadges}
         emptyHint={emptyTracksHint}
         {...section("native-track")}
+        summary={textSummary(
+          selectedNative
+            ? languageName(selectedNative.languageCode)
+            : nativeTranslateTo
+              ? `→ ${languageName(nativeTranslateTo)}`
+              : "—",
+        )}
       />
 
-      <Section title={t("settings.position.title")} {...section("position")}>
+      <Section
+        title={t("settings.position.title")}
+        {...section("position")}
+        summary={
+          <>
+            <span style={summaryColorDotStyle(topColor)} aria-hidden="true" />
+            <span style={collapsedSummaryTextStyle()}>
+              {posArrow(targetPosition)}
+            </span>
+            <span style={summaryColorDotStyle(bottomColor)} aria-hidden="true" />
+            <span style={collapsedSummaryTextStyle()}>
+              {posArrow(nativePosition)}
+            </span>
+          </>
+        }
+      >
         <PositionRow
           label={t("settings.videoLang")}
           value={targetPosition}
@@ -577,7 +716,11 @@ export function SettingsPanel({
         <p style={hintStyle()}>{t("settings.position.nudgeHint")}</p>
       </Section>
 
-      <Section title={t("settings.size.title")} {...section("size")}>
+      <Section
+        title={t("settings.size.title")}
+        {...section("size")}
+        summary={textSummary(`${captionSizePct}%`)}
+      >
         <RangeRow
           label={t("settings.size.overall")}
           value={captionSizePct}
@@ -594,7 +737,23 @@ export function SettingsPanel({
           Each box owns ALL of one line's controls: its enable toggles,
           phonetic-system / alt-orth options, AND its styling.  Presets
           sit above since they paint across the lines at once. */}
-      <Section title={t("settings.presets.title")} {...section("presets")}>
+      <Section
+        title={t("settings.presets.title")}
+        {...section("presets")}
+        summary={
+          <>
+            <span style={collapsedSummaryTextStyle()}>
+              {currentPreset ? currentPreset.label : t("settings.preset.noPreset")}
+            </span>
+            {currentPreset && (
+              <PresetSwatches
+                colors={presetColors(currentPreset)}
+                active={presetSwatchActive}
+              />
+            )}
+          </>
+        }
+      >
         <PresetPicker
           catalog={presetCatalog}
           activeId={activePresetId}
@@ -612,6 +771,12 @@ export function SettingsPanel({
       <LayerStyleBlock
         label={t("settings.layer.bottom")}
         {...section("bottom-style")}
+        summary={lineSummary(
+          bottomColor,
+          bottomLineEnabled,
+          setBottomLineEnabled,
+          t("settings.layer.showBottom"),
+        )}
         color={bottomColor}
         onColorChange={setBottomColor}
         fontFamily={bottomFontFamily}
@@ -646,6 +811,12 @@ export function SettingsPanel({
       <LayerStyleBlock
         label={t("settings.layer.top")}
         {...section("top-style")}
+        summary={lineSummary(
+          topColor,
+          topLineEnabled,
+          setTopLineEnabled,
+          t("settings.layer.showTop"),
+        )}
         color={topColor}
         onColorChange={setTopColor}
         fontFamily={topFontFamily}
@@ -713,6 +884,12 @@ export function SettingsPanel({
       <LayerStyleBlock
         label={t("settings.annotation.label")}
         {...section("annotation-style")}
+        summary={lineSummary(
+          annotationColor,
+          targetAnnotateEnabled,
+          setTargetAnnotateEnabled,
+          t("settings.annotation.label"),
+        )}
         color={annotationColor}
         onColorChange={setAnnotationColor}
         fontFamily={annotationFontFamily}
@@ -761,6 +938,12 @@ export function SettingsPanel({
       <LayerStyleBlock
         label={t("settings.romanization.label")}
         {...section("romanization-style")}
+        summary={lineSummary(
+          romanizationColor,
+          targetRomanizeEnabled,
+          setTargetRomanizeEnabled,
+          t("settings.romanization.label"),
+        )}
         color={romanizationColor}
         onColorChange={setRomanizationColor}
         fontFamily={romanizationFontFamily}
@@ -812,7 +995,19 @@ export function SettingsPanel({
         <p style={hintStyle()}>{t("settings.romanization.hint")}</p>
       </LayerStyleBlock>
 
-      <Section title={t("settings.data.title")} {...section("data")}>
+      <Section
+        title={t("settings.data.title")}
+        {...section("data")}
+        summary={
+          corpusConsent !== undefined ? (
+            <Switch
+              on={resolveCaptureEnabled(corpusConsent, IS_DEV)}
+              onToggle={handleCorpusToggle}
+              ariaLabel={t("settings.data.contribute")}
+            />
+          ) : undefined
+        }
+      >
         {corpusConsent !== undefined && (
           <ToggleRow
             label={t("settings.data.contribute")}
@@ -1010,6 +1205,7 @@ interface LayerSectionProps {
   emptyHint: string;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  summary?: React.ReactNode;
 }
 
 function LayerSection({
@@ -1027,12 +1223,14 @@ function LayerSection({
   emptyHint,
   collapsed,
   onToggleCollapse,
+  summary,
 }: LayerSectionProps) {
   return (
     <Section
       title={title}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
+      summary={summary}
     >
       {tracks.length === 0 ? (
         <p style={hintStyle()}>{emptyHint}</p>
@@ -1078,6 +1276,9 @@ interface SectionProps {
       while `collapsed`.  Omit both for a static, always-open section. */
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** One-line summary shown in the header while collapsed (see
+      CollapsibleHeader.trailing) — the item's key state at a glance. */
+  summary?: React.ReactNode;
 }
 
 function Section({
@@ -1085,6 +1286,7 @@ function Section({
   children,
   collapsed = false,
   onToggleCollapse,
+  summary,
 }: SectionProps) {
   return (
     <div style={sectionStyle()}>
@@ -1094,6 +1296,7 @@ function Section({
           collapsed={collapsed}
           onToggle={onToggleCollapse}
           titleStyle={sectionTitleStyle()}
+          trailing={summary}
         />
       ) : (
         <div style={sectionTitleStyle()}>{title}</div>
@@ -1112,24 +1315,47 @@ function CollapsibleHeader({
   collapsed,
   onToggle,
   titleStyle,
+  trailing,
 }: {
   title: string;
   collapsed: boolean;
   onToggle: () => void;
   titleStyle: React.CSSProperties;
+  /** Shown to the right of the header ONLY while collapsed — a one-line
+      summary or an interactive control (e.g. a line's on/off Switch).  It sits
+      OUTSIDE the toggle button, so interactive controls don't nest in it and
+      their clicks don't toggle the collapse. */
+  trailing?: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      style={collapsibleHeaderStyle(collapsed)}
-      aria-expanded={!collapsed}
-    >
-      <span style={{ ...titleStyle, marginBottom: 0 }}>{title}</span>
-      <span style={collapseChevronStyle()} aria-hidden="true">
-        {collapsed ? "▸" : "▾"}
-      </span>
-    </button>
+    <div style={collapsibleHeaderRowStyle()}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={collapsibleHeaderStyle(collapsed)}
+        aria-expanded={!collapsed}
+      >
+        <span style={collapseChevronStyle()} aria-hidden="true">
+          {collapsed ? "▸" : "▾"}
+        </span>
+        <span
+          style={{
+            ...titleStyle,
+            marginBottom: 0,
+            flex: "1 1 auto",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {title}
+        </span>
+      </button>
+      {collapsed && trailing != null && (
+        <div style={collapsibleHeaderTrailingStyle()}>{trailing}</div>
+      )}
+    </div>
   );
 }
 
@@ -1389,6 +1615,9 @@ interface LayerStyleBlockProps {
       whole body hides while `collapsed`. */
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** One-line summary (usually the line's on/off Switch) shown in the header
+      while collapsed. */
+  summary?: React.ReactNode;
 }
 
 function LayerStyleBlock({
@@ -1406,6 +1635,7 @@ function LayerStyleBlock({
   advancedExtra,
   collapsed = false,
   onToggleCollapse,
+  summary,
 }: LayerStyleBlockProps) {
   const sizeLabel =
     sizeMode === "px" ? t("settings.sizePx") : t("settings.sizeRatio");
@@ -1421,6 +1651,7 @@ function LayerStyleBlock({
           collapsed={collapsed}
           onToggle={onToggleCollapse}
           titleStyle={layerStyleHeaderStyle()}
+          trailing={summary}
         />
       ) : (
         <div style={layerStyleHeaderStyle()}>{label}</div>
@@ -2565,9 +2796,10 @@ function collapsibleHeaderStyle(collapsed: boolean): React.CSSProperties {
   return {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: "8px",
-    width: "100%",
+    justifyContent: "flex-start",
+    gap: "6px",
+    flex: "1 1 auto",
+    minWidth: 0,
     padding: 0,
     margin: 0,
     marginBottom: collapsed ? 0 : "6px",
@@ -2576,6 +2808,48 @@ function collapsibleHeaderStyle(collapsed: boolean): React.CSSProperties {
     cursor: "pointer",
     textAlign: "left",
     fontFamily: "inherit",
+  };
+}
+
+// Row wrapper so a collapsed section can show a summary/interactive control to
+// the RIGHT of the (flex-1) toggle button without nesting a control inside it.
+function collapsibleHeaderRowStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    width: "100%",
+  };
+}
+function collapsibleHeaderTrailingStyle(): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    flex: "0 0 auto",
+    maxWidth: "58%",
+  };
+}
+// Muted one-line summary text shown when a section is collapsed.
+function collapsedSummaryTextStyle(): React.CSSProperties {
+  return {
+    fontSize: "10px",
+    color: "rgba(255, 255, 255, 0.55)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+}
+// Small hue dot used in summaries to identify a line by its color.
+function summaryColorDotStyle(color: string): React.CSSProperties {
+  return {
+    width: "9px",
+    height: "9px",
+    borderRadius: "2px",
+    background: color,
+    border: "1px solid rgba(255, 255, 255, 0.35)",
+    boxSizing: "border-box",
+    flex: "0 0 auto",
   };
 }
 

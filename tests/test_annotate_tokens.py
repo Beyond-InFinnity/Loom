@@ -335,6 +335,69 @@ def test_thai_yields_no_tokens():
 
 
 # --------------------------------------------------------------------------- #
+# Span-index remap for generic-path languages that ALSO have annotation spans
+# (Brahmic aksharas / Cyrillic words).  Regression for the bug where per-word
+# vocab lookup only worked for ja/zh/ko: the client groups words by SPAN INDEX,
+# but these langs emitted CODEPOINT offsets, so no word was ever clickable.
+# build_word_tokens now remaps them onto span indices.
+# --------------------------------------------------------------------------- #
+
+@generic
+def test_hindi_word_tokens_use_span_indices_not_codepoints():
+    pytest.importorskip("regex")
+    pytest.importorskip("aksharamukha")
+    # नमस्ते = 3 aksharas (न · म · स्ते) but 6 codepoints.  The single word token
+    # must cover span indices [0:3], NOT codepoint length 6 (which would overflow
+    # the 3-span array and drop the word).
+    spans, toks = _tokens("hi", "नमस्ते")
+    assert len(spans) == 3, [s[0] for s in spans]
+    word = next(t for t in toks if t[0] == "नमस्ते")
+    _w, _l, _p, _r, start, length = word
+    assert (start, length) == (0, 3)
+    _assert_aligned(spans, toks)
+
+
+@generic
+def test_hindi_multiword_line_token_span_alignment():
+    pytest.importorskip("regex")
+    pytest.importorskip("aksharamukha")
+    # Every word's span slice must reconstruct its surface, across a line with a
+    # space span between words.
+    spans, toks = _tokens("hi", "मैं नहीं गया")
+    assert len(toks) >= 3
+    _assert_aligned(spans, toks)
+
+
+@generic
+def test_cyrillic_word_tokens_use_span_indices():
+    # Cyrillic annotation spans are per-word + interleaved-space spans; each word
+    # token must map to its single word span, not a codepoint offset.
+    spans, toks = _tokens("ru", "Кошки едят рыбу")
+    assert toks, "expected clickable word tokens for Russian"
+    _assert_aligned(spans, toks)
+    # Each token covers exactly one span (a whole word), and its start indexes a
+    # real span whose base matches the token surface.
+    for word, _l, _p, _r, start, length in toks:
+        assert length == 1
+        assert spans[start][0] == word
+
+
+@generic
+def test_cyrillic_punctuation_adjacent_word_still_maps():
+    # Boundary skew: the word regex yields "привет" (letters only) while the
+    # Cyrillic span is "привет," (comma attached).  Overlap-based remap maps the
+    # token onto the whole span rather than dropping it.
+    spans, toks = _tokens("ru", "привет, мир")
+    words = {t[0] for t in toks}
+    assert "привет" in words  # not dropped despite the trailing comma
+    # Its span run overlaps the "привет," span.
+    tok = next(t for t in toks if t[0] == "привет")
+    _w, _l, _p, _r, start, length = tok
+    covered = "".join(s[0] for s in spans[start:start + length])
+    assert "привет" in covered
+
+
+# --------------------------------------------------------------------------- #
 # Route: tokens through /annotate/batch + cache round-trip
 # --------------------------------------------------------------------------- #
 

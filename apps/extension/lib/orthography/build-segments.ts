@@ -58,6 +58,19 @@ export function buildRichSegments(opts: BuildOptions): RichSegment[] {
     return walkRawTextWithTable(rawText, variantTable, coalescePlain);
   }
   if (rawText.length > 0) {
+    // No spans and no variant table.  This is a no-ruby language (Latin,
+    // Cyrillic, etc.).  When the caller is word-grouping (interactive target
+    // line, coalescePlain=false), emit ONE plain segment per CODEPOINT so the
+    // segment index equals the character offset — the unit the server uses for
+    // token start/length on these languages (e.g. Spanish returns spans:[] with
+    // tokens carrying char offsets: "comí" start=3 length=4).  planWordGroups
+    // then wraps each word into a clickable element, lighting up per-word vocab
+    // lookup for every definable space/character-delimited language, not just
+    // the ruby ones.  During playback (coalescePlain=true) keep a single blob —
+    // fewer DOM nodes, no interactivity needed.
+    if (!coalescePlain) {
+      return [...rawText].map((ch): RichSegment => ({ kind: "plain", text: ch }));
+    }
     return [{ kind: "plain", text: rawText }];
   }
   return [];

@@ -94,6 +94,12 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       hi ALSO changes an existing cached shape — it had ruby spans at v1
     #       (matra-truncated tokens would have been [] anyway), so the bump
     #       invalidates any hi annotate row too.
+    #   v3 (Brahmic + Cyrillic): languages whose generic word tokens are now
+    #       remapped from codepoint offsets to SPAN indices (build_word_tokens →
+    #       _remap_char_offsets_to_spans) so per-word vocab lookup lights up.
+    #       Only the langs with an annotation_func need the bump — Brahmic (hi,
+    #       and future bn/ta/te/gu/pa) + Cyrillic (ru/uk).  Latin generics keep
+    #       codepoint offsets (no spans), so they stay at v2.
     "ja": 4,
     "zh": 3,
     "yue": 3,
@@ -105,13 +111,13 @@ ENGINE_VERSIONS: dict[str, int] = {
     "pt": 2,
     "sv": 2,
     "nl": 2,
-    "ru": 2,
+    "ru": 3,
     "pl": 2,
     "ro": 2,
     "da": 2,
     "cs": 2,
-    "uk": 2,
-    "hi": 2,
+    "uk": 3,
+    "hi": 3,
     "tr": 2,
     "id": 2,
     "en": 2,
@@ -3331,6 +3337,52 @@ def _generic_tokens(text: str, lang_code: str) -> list:
     return tokens
 
 
+def _remap_char_offsets_to_spans(tokens: list, spans: list) -> list:
+    """Convert generic word tokens from CODEPOINT offsets to SPAN indices.
+
+    The generic tokenizer (_generic_tokens) reports each word's `start`/`length`
+    as codepoint positions over the stripped text — the right contract when the
+    language has no annotation `spans` (Latin: the client renders one plain
+    segment per codepoint).  But some generic-path languages ALSO have an
+    annotation func, so /annotate emits BOTH spans + codepoint-offset tokens:
+      - Brahmic (hi/bn/ta/te/gu/pa): per-akshara ruby spans (नमस्ते = 3 aksharas
+        but the word token spans 6 codepoints).
+      - Cyrillic (ru/uk/…): per-word + interleaved-space spans.
+    The client groups words by SPAN INDEX (one rendered segment per span), so
+    raw codepoint offsets mis-align and the word never becomes clickable.
+
+    The annotation spans concatenate to the same stripped text codepoint-for-
+    codepoint (every char is preserved as an akshara / word / space / passthrough
+    segment), so each span owns a known codepoint range.  Re-express every token
+    as the run of spans its codepoint range OVERLAPS.  Overlap (not exact-
+    boundary) is deliberate: it survives boundary skew between the two
+    tokenizers — e.g. the word regex yields "привет" (letters only) while the
+    Cyrillic span is "привет," (comma attached) — mapping the token onto the
+    whole span rather than dropping it.  A token overlapping no span is dropped
+    (defensive; keeps it non-interactive rather than mis-wrapping)."""
+    # Codepoint [start, end) each span occupies over the stripped text.
+    bounds: list = []
+    acc = 0
+    for base, _reading in spans:
+        n = len(base)
+        bounds.append((acc, acc + n))
+        acc += n
+    out: list = []
+    for tok in tokens:
+        word, lemma, pos, reading, start_cp, len_cp = tok
+        t_start, t_end = start_cp, start_cp + len_cp
+        first = last = None
+        for i, (s_start, s_end) in enumerate(bounds):
+            if s_start < t_end and s_end > t_start:  # ranges overlap
+                if first is None:
+                    first = i
+                last = i
+        if first is None:
+            continue
+        out.append((word, lemma, pos, reading, first, last - first + 1))
+    return out
+
+
 # Custom, per-language tokenizers (morphological analyzers) — ALWAYS preferred;
 # build_word_tokens dispatches to them first.  ko needs kiwipiepy at runtime; if
 # it's absent, tokens degrade to [] and capabilities still won't expose ko
@@ -3384,7 +3436,15 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
     if primary == "ko":
         return _korean_tokens(text, spans)
     if primary in GENERIC_TOKEN_PRIMARIES:
-        return _generic_tokens(text, lang_code)
+        tokens = _generic_tokens(text, lang_code)
+        # _generic_tokens reports CODEPOINT offsets.  When this language ALSO
+        # has annotation spans (Brahmic aksharas, Cyrillic words), the client
+        # groups words by span index, so remap onto span indices.  With no
+        # spans (Latin: annotation_func is None → spans == []) codepoint offsets
+        # are already the right contract (client renders one segment/codepoint).
+        if spans:
+            return _remap_char_offsets_to_spans(tokens, spans)
+        return tokens
     return []
 
 

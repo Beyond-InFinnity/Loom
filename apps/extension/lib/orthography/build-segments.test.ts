@@ -221,3 +221,47 @@ describe("buildRichSegments — null reading on AnnotateSpan", () => {
     expect(segs).toEqual([{ kind: "plain", text: "我" }]);
   });
 });
+
+describe("buildRichSegments — no-ruby word grouping (Latin / generic)", () => {
+  // A definable space-delimited language (e.g. Spanish) returns spans:[] with
+  // tokens carrying CODEPOINT offsets.  While interactive (coalescePlain=false)
+  // the segments must be per-codepoint so segment index == token offset and
+  // planWordGroups can wrap each word into a clickable element.
+  it("splits per codepoint when word-grouping (coalescePlain=false)", () => {
+    const segs = buildRichSegments({
+      spans: [],
+      rawText: "comí",
+      variantTable: null,
+      coalescePlain: false,
+    });
+    expect(segs).toEqual([
+      { kind: "plain", text: "c" },
+      { kind: "plain", text: "o" },
+      { kind: "plain", text: "m" },
+      { kind: "plain", text: "í" }, // 1 codepoint (NFC), not split
+    ]);
+  });
+
+  it("keeps a single plain blob during playback (coalescePlain=true)", () => {
+    const segs = buildRichSegments({
+      spans: [],
+      rawText: "comí",
+      variantTable: null,
+      coalescePlain: true,
+    });
+    expect(segs).toEqual([{ kind: "plain", text: "comí" }]);
+  });
+
+  it("segment index aligns with a token's char offset for word wrapping", () => {
+    // "Yo comí" → tokens Yo(0,2) comí(3,4); spaces are loose.  Verifies the
+    // segment count matches the codepoint count so planWordGroups lines up.
+    const segs = buildRichSegments({
+      spans: [],
+      rawText: "Yo comí",
+      variantTable: null,
+      coalescePlain: false,
+    });
+    expect(segs).toHaveLength([..."Yo comí"].length);
+    expect(segs[3]).toEqual({ kind: "plain", text: "c" }); // "comí" starts at 3
+  });
+});

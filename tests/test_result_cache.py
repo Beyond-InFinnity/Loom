@@ -292,7 +292,11 @@ class TestAnnotateCaching:
 
     def test_unannotatable_language_never_touches_cache(self, mem_cache, annotate_handler):
         handler, Req = annotate_handler
-        resp = handler(Req(texts=["hello"], lang_code="en"))
+        # A language with NO annotation func AND no word tokens — Vietnamese is
+        # Latin-script (no ruby) and not opted into the generic tokenizer, so
+        # the route early-returns without caching.  (en is NOT this case any
+        # more: it's a definable generic-token source language now.)
+        resp = handler(Req(texts=["xin chào"], lang_code="vi"))
         assert resp.results[0].spans == [] and resp.results[0].html == ""
         assert mem_cache.store == {}
 

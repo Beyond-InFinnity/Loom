@@ -33,3 +33,4 @@ fonttools
 # decide whether to ship it or find a non-neural Thai alternative.
 python-crfsuite
 torch
+regex  # Unicode \p{L}\p{M} word tokenization — keeps Brahmic matras / Arabic diacritics inside the word (stdlib \w drops them); required for Indic/Arabic generic lookup (VOCAB_LOOKUP.md Phase 4)

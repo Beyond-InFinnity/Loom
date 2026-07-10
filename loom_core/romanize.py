@@ -90,6 +90,10 @@ ENGINE_VERSIONS: dict[str, int] = {
     #   generic v2: es/fr/de/it/pt/sv/nl word tokens added (simplemma path +
     #       Romance elision split) — each was [] at the default v1, so any old
     #       annotate cache row for these langs must be invalidated too.
+    #   generic v2 (Tier-2): ru/pl/ro/da/cs/uk/hi/tr/id word tokens added.
+    #       hi ALSO changes an existing cached shape — it had ruby spans at v1
+    #       (matra-truncated tokens would have been [] anyway), so the bump
+    #       invalidates any hi annotate row too.
     "ja": 4,
     "zh": 3,
     "yue": 3,
@@ -101,6 +105,15 @@ ENGINE_VERSIONS: dict[str, int] = {
     "pt": 2,
     "sv": 2,
     "nl": 2,
+    "ru": 2,
+    "pl": 2,
+    "ro": 2,
+    "da": 2,
+    "cs": 2,
+    "uk": 2,
+    "hi": 2,
+    "tr": 2,
+    "id": 2,
 }
 
 
@@ -3227,9 +3240,22 @@ def _korean_tokens(text: str, spans: list) -> list:
 # and only reaches here for languages with no bespoke path.  Fail-soft: if
 # simplemma is absent or errors, the lemma degrades to the surface form.
 
-# A "word": a run of letters (Unicode-aware, no digits/underscore), allowing an
-# internal apostrophe or hyphen (e.g. French l'homme, Spanish is unaffected).
-_GENERIC_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", re.UNICODE)
+# A "word": a run of letters + combining marks (Unicode-aware, no digits/
+# underscore), allowing an internal apostrophe or hyphen (e.g. French l'homme).
+# Combining marks MUST be part of a word — Brahmic dependent vowel signs (matras)
+# and Arabic/Hebrew diacritics are separate codepoints that stdlib `\w` excludes
+# (Python's isalnum() is False for a mark), which would truncate करना → करन and
+# strand every Devanagari/Tamil/Telugu/Arabic word.  The `regex` module's
+# \p{L}\p{M} handles every script at once; if it's unavailable we fall back to
+# the stdlib class (correct for Latin/Cyrillic — the only langs we enable without
+# it — but matra-lossy, so a mark-bearing script is never opted in until `regex`
+# is confirmed present).
+try:
+    import regex as _regex  # C-ext, manylinux wheels — added to requirements.txt
+
+    _GENERIC_WORD_RE = _regex.compile(r"[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*")
+except Exception:  # pragma: no cover - dependency-absent fallback
+    _GENERIC_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", re.UNICODE)
 
 # Romance languages elide a proclitic before a vowel and join it with an
 # apostrophe (fr l'école, d'un, j'ai; it l'ho, l'inglese).  Orthographically the
@@ -3317,7 +3343,17 @@ SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue", "ko"})
 # existing (capabilities intersects this with SELECT DISTINCT lang), so listing a
 # language here before its dictionary is ingested is harmless.
 GENERIC_TOKEN_PRIMARIES = frozenset(
-    {"es", "fr", "de", "it", "pt", "sv", "nl"}
+    {
+        # Tier-1 (2026-07-10): Romance / Germanic / Scandinavian
+        "es", "fr", "de", "it", "pt", "sv", "nl",
+        # Tier-2 (2026-07-10): Slavic / Indic / Turkic / Austronesian / Nordic +
+        # Romance — each cleared dict_quality_check.py on Tatoeba text.  hi/ru/uk
+        # are non-Latin (Devanagari/Cyrillic) — depend on the regex \p{L}\p{M}
+        # word pattern above (matras/diacritics kept in-word).  (Norwegian
+        # deferred: kaikki ships it as the macrolanguage `no`, which simplemma
+        # doesn't lemmatize — needs a no→nb lemmatizer mapping + a harness pass.)
+        "ru", "pl", "ro", "da", "cs", "uk", "hi", "tr", "id",
+    }
 )
 
 

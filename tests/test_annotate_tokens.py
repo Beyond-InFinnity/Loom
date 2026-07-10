@@ -273,6 +273,28 @@ def test_fr_elision_preserves_genuine_apostrophe_words():
     assert "Aujourd'hui" in words and "quelqu'un" in words
 
 
+def test_generic_keeps_devanagari_matras_in_word():
+    # Regression: stdlib \w drops Brahmic dependent vowel signs (matras), so
+    # करना truncated to करन and every Devanagari word missed the dictionary.
+    # The regex \p{L}\p{M} pattern keeps marks in-word.  Requires the `regex`
+    # dep (a hard requirement); skip only in a partial env.
+    pytest.importorskip("regex")
+    from loom_core.romanize import _generic_tokens
+    words = [t[0] for t in _generic_tokens("मुझे यह करना है, मैं नहीं गया", "hi")]
+    assert "करना" in words and "नहीं" in words and "गया" in words
+    # offsets still reconstruct the surface
+    line = "मैं नहीं गया"
+    for w, _l, _p, _r, s, ln in _generic_tokens(line, "hi"):
+        assert line[s:s + ln] == w
+
+
+@generic
+def test_generic_cyrillic_lemmatizes():
+    from loom_core.romanize import build_word_tokens
+    by = {t[0]: t[1] for t in build_word_tokens("Кошки едят рыбу", "ru", [], None)}
+    assert by.get("Кошки") == "кошка" and by.get("рыбу") == "рыба"
+
+
 @generic
 def test_it_elision_splits_but_es_apostrophe_untouched():
     # Italian elides (l'ho → l + ho); Spanish is not an elision language so any
@@ -288,9 +310,9 @@ def test_generic_path_is_opt_in_per_language():
     # A simplemma-supported language NOT in GENERIC_TOKEN_PRIMARIES stays inert
     # (no dictionary/validation yet) — custom-first dispatch, deliberate opt-in.
     from loom_core.romanize import build_word_tokens, is_token_supported, GENERIC_TOKEN_PRIMARIES
-    assert "pl" not in GENERIC_TOKEN_PRIMARIES         # Polish not enabled yet
-    assert is_token_supported("es") and not is_token_supported("pl")
-    assert build_word_tokens("Dzień dobry", "pl", [], None) == []
+    assert "fi" not in GENERIC_TOKEN_PRIMARIES         # Finnish not enabled yet
+    assert is_token_supported("es") and not is_token_supported("fi")
+    assert build_word_tokens("Hyvää huomenta", "fi", [], None) == []
 
 
 def test_custom_tokenizer_takes_precedence_over_generic():

@@ -22,7 +22,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import engine_version, strip_leading_speaker_label
+from loom_core.romanize import engine_version, strip_speaker_markup
 from loom_core.styles import get_lang_config
 
 from ..deps import get_result_cache
@@ -107,11 +107,11 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
     system_name = cfg.get("romanization_name", "N/A")
     mode = req.long_vowel_mode if has_japanese_path else "-"
     eng_ver = engine_version(req.lang_code)
-    # Strip a leading （名） speaker/SFX label before romanizing — the phonetic
-    # line shouldn't spell out a proper noun.  It's a separate display line, so
-    # this can't misalign per-char ruby.  Key on the stripped text so labelled
-    # and unlabelled copies of the same line share one cache entry.
-    norm = strip_leading_speaker_label(normalize_text(req.text))
+    # Strip speaker markup (（名） labels + multi-speaker dashes) before romanizing
+    # — the phonetic line shouldn't spell out a proper noun or a turn dash.  It's
+    # a separate display line, so this can't misalign per-char ruby.  Key on the
+    # stripped text so labelled and unlabelled copies of a line share one entry.
+    norm = strip_speaker_markup(normalize_text(req.text))
     key = cache_key("romanize", req.lang_code, system_name, mode, eng_ver, norm)
 
     hit = cache.get_many([key]).get(key)
@@ -246,10 +246,10 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
     mode = req.long_vowel_mode if has_japanese_path else "-"
     eng_ver = engine_version(req.lang_code)
 
-    # Strip a leading （名） speaker/SFX label before romanizing (see /romanize).
-    # Keying on the stripped text also dedups "（A）行くよ" / "（B）行くよ" / "行くよ".
+    # Strip speaker markup (labels + multi-speaker dashes) before romanizing (see
+    # /romanize).  Keying on the stripped text dedups "（A）行くよ"/"（B）行くよ"/"行くよ".
     def _romaji_input(text: str) -> str:
-        return strip_leading_speaker_label(normalize_text(text))
+        return strip_speaker_markup(normalize_text(text))
 
     unique: dict[str, bytes] = {}  # romaji-input text -> cache key
     for text in req.texts:

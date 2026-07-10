@@ -109,6 +109,23 @@ _JA_HEAD_POS = {"動詞", "形容詞", "形状詞", "副詞"}
 # Auxiliary-verb suffixes that stack after the head (skip when finding the head).
 _JA_SURU_LEMMAS = {"為る", "する"}
 
+# POS that START A NEW WORD — the suffix walk stops here when analysing a
+# STITCHED surface (finding ③).  A split predicate 利用し|て… is stitched with the
+# next cue's lead to recover 利用して; without a boundary stop the walk would drift
+# into the NEXT word and mis-attribute its inflection (食べて寝た → 食べる wrongly
+# tagged 'past' from 寝た).  Aspectual light verbs (居る/しまう/…) never reach the
+# walk standalone — they're consumed by the て-lookahead first — so listing 動詞
+# here is safe.  Only consulted in continuation mode: a single-word surface has no
+# trailing content word, so plain analysis is byte-identical.
+_JA_WORD_BOUNDARY_POS = {
+    "名詞", "代名詞", "動詞", "形容詞", "形状詞", "副詞",
+    "連体詞", "接続詞", "感動詞", "接頭辞", "フィラー",
+}
+
+# A stitched continuation is capped — the walk only needs the inflection tail that
+# immediately follows the split, and it breaks at the first new word anyway.
+_JA_CONTINUATION_CAP = 12
+
 
 def _ja_tokens(surface: str):
     """Return a list of light morpheme records for *surface* via the shared
@@ -131,7 +148,9 @@ def _ja_tokens(surface: str):
     return out
 
 
-def analyze_japanese_grammar(surface: str) -> Optional[GrammarBreakdown]:
+def analyze_japanese_grammar(
+    surface: str, continuation: str = ""
+) -> Optional[GrammarBreakdown]:
     """Break *surface* (one inflected Japanese word) into its dictionary form +
     ordered grammar features.  Returns None when there's nothing to analyze
     (empty input, or no inflecting content word — e.g. a bare noun/particle).
@@ -139,10 +158,24 @@ def analyze_japanese_grammar(surface: str) -> Optional[GrammarBreakdown]:
     A word already in dictionary form (食べる) returns a breakdown with an empty
     feature list — the caller can note "plain / dictionary form" or omit the
     section.  Only genuinely uninflectable input returns None.
+
+    *continuation* (finding ③): the text that FOLLOWS this word in the NEXT cue,
+    for a predicate split across subtitle events (利用し | てタム… → 利用して).  When
+    given, its inflection tail is stitched onto the surface and the suffix walk
+    STOPS at the first new content word, so the split verb's own grammar is
+    recovered without absorbing the next word's inflection.  A leading （名） label
+    on the continuation is dropped first.  Harmless when the surface is already
+    complete (the walk breaks immediately).
     """
     if not surface or not surface.strip():
         return None
-    toks = _ja_tokens(surface.strip())
+    surface = surface.strip()
+    cont = ""
+    if continuation and continuation.strip():
+        from .romanize import strip_leading_speaker_label  # avoid import cycle at top
+        cont = strip_leading_speaker_label(continuation.strip())[:_JA_CONTINUATION_CAP]
+    stop_at_boundary = bool(cont)
+    toks = _ja_tokens(surface + cont)
     if not toks:
         return None
 
@@ -204,6 +237,11 @@ def analyze_japanese_grammar(surface: str) -> Optional[GrammarBreakdown]:
         elif p1 == "助詞" and lemma == "たら":
             features.append(
                 GrammarFeature("conditional_tara", "conditional (-tara)", surface=s))
+        elif stop_at_boundary and p1 in _JA_WORD_BOUNDARY_POS:
+            # Stitched-continuation mode: a new content word starts here, so the
+            # inflection chain of THIS word is finished — stop before we absorb
+            # the next word's grammar (食べて|寝た → 食べる[te-form], not [te,past]).
+            break
         # Unknown suffix morphemes are skipped (kept out of the breakdown rather
         # than surfaced as noise).
         i += consumed
@@ -224,13 +262,16 @@ def _cform_feature(cform: str) -> Optional[tuple[str, str]]:
 # Dispatch
 # --------------------------------------------------------------------------- #
 
-def analyze_grammar(surface: str, lang_code: str) -> Optional[GrammarBreakdown]:
+def analyze_grammar(
+    surface: str, lang_code: str, continuation: str = ""
+) -> Optional[GrammarBreakdown]:
     """Grammar breakdown for *surface* in *lang_code*, or None when the language
     has no grammar analyzer (Chinese is analytic — no inflection — so it returns
-    None by design) or nothing to analyze."""
+    None by design) or nothing to analyze.  *continuation* stitches the next
+    cue's lead for a predicate split across events (finding ③, Japanese)."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
-        return analyze_japanese_grammar(surface)
+        return analyze_japanese_grammar(surface, continuation)
     return None
 
 

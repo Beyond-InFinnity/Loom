@@ -1098,6 +1098,11 @@ export interface components {
              * @description Optional per-word INFLECTED surface forms, aligned to `words` — the word as it appears in the caption (食べさせられた) vs its dictionary lemma (食べる).  Used to compute the `grammar` breakdown; when absent the primary key is analyzed instead.
              */
             surfaces?: string[] | null;
+            /**
+             * Surface Continuations
+             * @description Optional per-word continuation text, aligned to `words` — the lead of the NEXT subtitle cue, for a predicate split across events (利用し | てタム… → 利用して).  Stitched onto `surfaces` for the grammar breakdown so a split verb recovers its true inflection.  Japanese only; harmless when the word is already complete.
+             */
+            surface_continuations?: string[] | null;
         };
         /** DefineResponse */
         DefineResponse: {

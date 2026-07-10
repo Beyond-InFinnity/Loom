@@ -100,14 +100,17 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       Only the langs with an annotation_func need the bump — Brahmic (hi,
     #       and future bn/ta/te/gu/pa) + Cyrillic (ru/uk).  Latin generics keep
     #       codepoint offsets (no spans), so they stay at v2.
-    #   ja v5 / zh v4 / yue v4 / ko v3: leading （名） speaker/SFX labels no longer
-    #       contribute a clickable word-token AND are stripped before the romaji
-    #       line — both the annotate `tokens` and the romanize output change for
-    #       any labelled line, so old cache rows for these langs are invalidated.
-    "ja": 5,
-    "zh": 4,
-    "yue": 4,
-    "ko": 3,
+    #   ja v5 / zh v4 / yue v4 / ko v3 (finding ①): a leading （名） speaker/SFX label
+    #       no longer contributes a clickable word-token AND is stripped before the
+    #       romaji line.
+    #   ja v6 / zh v5 / yue v5 / ko v4 (finding ②): generalized to ALL speaker-turn
+    #       markers — the mid-cue dashes/labels of a multi-speaker cue
+    #       (-[名]…\n-[名]…) are now dropped too, so tokens + romaji change again for
+    #       multi-speaker lines → the ① (v5/…) cache rows must be re-invalidated.
+    "ja": 6,
+    "zh": 5,
+    "yue": 5,
+    "ko": 4,
     "es": 2,
     "fr": 2,
     "de": 2,
@@ -3449,14 +3452,31 @@ def is_token_supported(lang_code: str) -> bool:
     return primary in SUPPORTED_TOKEN_PRIMARIES or primary in GENERIC_TOKEN_PRIMARIES
 
 
-# Leading speaker-name / SFX label in a subtitle cue: （フリーレン）, 【名】, [孫悟空],
-# （戦闘音）.  CJK streaming subs (Netflix especially) prefix ~1/3 of Japanese lines
-# and ~1/8 of Chinese lines with the speaker's name in brackets — metadata for the
-# hard-of-hearing, NOT dialogue.  It is left in DISPLAY (spans keep it, honoring
-# "Loom enhances information, not destroys it"), but excluded from ANALYSIS: no
-# dead-end clickable word-token over the name, and no pointless proper-noun romaji.
-# Matched only at the very start (optionally after a multi-speaker dash), body
-# capped at 16 chars so it can't swallow a sentence that merely opens with a paren.
+# Speaker markup in a subtitle cue.  CJK streaming subs prefix a large share of
+# cues with the speaker's name in brackets — （フリーレン）, 【名】, [孫悟空] — or an SFX
+# description （戦闘音）; multi-speaker cues additionally split utterances with a
+# leading dash, usually across a newline: "-[孫悟空]我拷！\n-[唐三藏]你…" (corpus:
+# JA 35.5% carry a leading label, ZH 4.4% are multi-speaker).  All of it is
+# hard-of-hearing metadata, not dialogue.  Loom keeps it in DISPLAY (annotation
+# `spans` still reconstruct the full cue, honoring "Loom enhances information, not
+# destroys it") but excludes it from ANALYSIS: no dead-end clickable word-token
+# over a name/dash, and no proper-noun/dash noise on the romaji line.
+#
+# A speaker-turn marker sits at the START of the cue or right after a newline: an
+# optional turn dash then an optional bracket label, OR a bare bracket label.
+# Body capped at 16 chars so it can't swallow a sentence that merely opens with a
+# paren.  The inline single-line "-你好 -再见" form only has its LEADING dash caught
+# (its interior dash is left) — deliberately, to avoid stripping space-padded
+# content dashes (3 - 5); the real corpus multi-speaker form is newline-separated.
+_SPEAKER_TURN_MARKER = re.compile(
+    r"(?:^|(?<=\n))[ \t　]*"
+    r"(?:"
+    r"[\-‐‑‒–—―−－][ \t　]*(?:[（(【\[][^）)】\]\n]{1,16}[）)】\]][ \t　]*)?"
+    r"|[（(【\[][^）)】\]\n]{1,16}[）)】\]][ \t　]*"
+    r")"
+)
+
+# Backwards-compatible narrower matcher: a SINGLE leading label (finding ①).
 _LEADING_SPEAKER_LABEL = re.compile(
     r"^[ \t　]*[\-‐‑‒–—―−－]?[ \t　]*"
     r"[（(【\[][^）)】\]\n]{1,16}[）)】\]][ \t　\n]*"
@@ -3465,41 +3485,59 @@ _LEADING_SPEAKER_LABEL = re.compile(
 
 def strip_leading_speaker_label(text: str) -> str:
     """Return *text* with a single leading （名）/【名】/[名] speaker/SFX label removed.
-
-    Used for the romanization line only (a separate display line, so no per-char
-    misalignment).  If the cue is ENTIRELY a label (nothing after it), the text is
-    returned unchanged — a bare SFX cue has no dialogue body to prefer."""
+    A cue that is ENTIRELY a label is returned unchanged (no dialogue body to
+    prefer).  See strip_speaker_markup for the multi-speaker generalization."""
     stripped = _LEADING_SPEAKER_LABEL.sub("", text or "", count=1)
     return stripped if stripped.strip() else (text or "")
 
 
-def _leading_label_span_count(spans: list) -> int:
-    """Number of leading annotation spans composing a （名） label, so their word-
-    tokens can be dropped.  0 when there is no leading label.  Works in the SPAN-
-    INDEX space the client uses to group clickable words (build_word_tokens)."""
+def strip_speaker_markup(text: str) -> str:
+    """Remove ALL speaker-turn markers (leading label + each newline-leading
+    dash/label) from *text* for the romanization line (a separate display line,
+    so no per-char misalignment).  A cue that is ENTIRELY markup is returned
+    unchanged.  Newlines are preserved; runs of spaces collapse to one."""
+    if not text:
+        return text
+    out = _SPEAKER_TURN_MARKER.sub(" ", text)
+    out = re.sub(r"[ \t　]{2,}", " ", out).strip()
+    return out if out.strip() else text
+
+
+def _speaker_markup_span_indices(spans: list) -> frozenset:
+    """Span indices covered by any speaker-turn marker, so their word-tokens can
+    be dropped.  Works in the SPAN-INDEX space the client uses to group clickable
+    words (build_word_tokens).  A marker that IS the entire cue is NOT dropped
+    (nothing else to show)."""
     if not spans:
-        return 0
-    full = "".join((s[0] or "") for s in spans)
-    m = _LEADING_SPEAKER_LABEL.match(full)
-    if not m or m.end() >= len(full):  # no label, or the whole cue is one label
-        return 0
-    cut = m.end()
+        return frozenset()
+    ranges: list = []
     acc = 0
-    for i, s in enumerate(spans):
-        acc += len(s[0] or "")
-        if acc >= cut:
-            return i + 1
-    return len(spans)
+    for s in spans:
+        n = len(s[0] or "")
+        ranges.append((acc, acc + n))
+        acc += n
+    if acc == 0:
+        return frozenset()
+    full = "".join((s[0] or "") for s in spans)
+    drop: set = set()
+    for m in _SPEAKER_TURN_MARKER.finditer(full):
+        c0, c1 = m.start(), m.end()
+        if c1 <= c0 or (c0 == 0 and c1 >= acc):  # empty, or the whole cue is markup
+            continue
+        for i, (a, b) in enumerate(ranges):
+            if a < c1 and b > c0:  # span overlaps the marker
+                drop.add(i)
+    return frozenset(drop)
 
 
-def _drop_leading_label_tokens(tokens: list, spans: list) -> list:
-    """Drop word-tokens that fall within a leading speaker-label span range.
+def _drop_speaker_markup_tokens(tokens: list, spans: list) -> list:
+    """Drop word-tokens whose starting span falls within a speaker-turn marker.
     `tokens` are (word, lemma, pos, reading, start, length); `start` is a span
-    index.  No-op when there is no leading label."""
-    k = _leading_label_span_count(spans)
-    if not k:
+    index.  No-op when there is no markup."""
+    drop = _speaker_markup_span_indices(spans)
+    if not drop:
         return tokens
-    return [t for t in tokens if t[4] >= k]
+    return [t for t in tokens if t[4] not in drop]
 
 
 def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
@@ -3511,16 +3549,16 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
     tried FIRST; a space-delimited language with no bespoke path falls through to
     the generic simplemma tokenizer.  Returns [] for unsupported languages.
 
-    A leading （名） speaker/SFX label contributes no clickable tokens (metadata,
-    not vocab) — the label still renders (spans keep it), it just isn't a lookup
-    dead-end."""
+    Speaker markup (（名） labels + multi-speaker dashes) contributes no clickable
+    tokens (metadata, not vocab) — it still renders (spans keep it), it just isn't
+    a lookup dead-end."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
-        return _drop_leading_label_tokens(_japanese_tokens(spans, annotation_func), spans)
+        return _drop_speaker_markup_tokens(_japanese_tokens(spans, annotation_func), spans)
     if primary in ("zh", "yue"):
-        return _drop_leading_label_tokens(_chinese_tokens(text, spans, lang_code), spans)
+        return _drop_speaker_markup_tokens(_chinese_tokens(text, spans, lang_code), spans)
     if primary == "ko":
-        return _drop_leading_label_tokens(_korean_tokens(text, spans), spans)
+        return _drop_speaker_markup_tokens(_korean_tokens(text, spans), spans)
     if primary in GENERIC_TOKEN_PRIMARIES:
         tokens = _generic_tokens(text, lang_code)
         # _generic_tokens reports CODEPOINT offsets.  When this language ALSO
@@ -3529,7 +3567,7 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
         # spans (Latin: annotation_func is None → spans == []) codepoint offsets
         # are already the right contract (client renders one segment/codepoint).
         if spans:
-            return _drop_leading_label_tokens(
+            return _drop_speaker_markup_tokens(
                 _remap_char_offsets_to_spans(tokens, spans), spans)
         return tokens
     return []

@@ -19,6 +19,7 @@ from loom_core.romanize import (
     build_word_tokens,
     get_annotation_func,
     strip_leading_speaker_label,
+    strip_speaker_markup,
 )
 
 
@@ -127,3 +128,42 @@ def test_zh_label_dropped_dialogue_kept():
     assert "".join(s[0] for s in spans) == "（旁白）这是我买的"
     assert "旁白" not in words
     assert "买" in words
+
+
+# --------------------------------------------------------------------------- #
+# Multi-speaker markup (finding ②)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("text, expected", [
+    ("-[孫悟空]我拷\n-[唐三藏]你好", "我拷\n 你好"),   # newline-separated turns (real corpus)
+    ("-饒命啊\n-妳有本事", "饒命啊\n 妳有本事"),        # bare dashes across a newline
+    ("- 何\n- そうです", "何\n そうです"),
+    ("（フリーレン）想定の範囲内だね", "想定の範囲内だね"),  # ① leading label still handled
+])
+def test_strip_speaker_markup_multi_turn(text, expected):
+    assert strip_speaker_markup(text) == expected
+
+
+def test_strip_speaker_markup_leaves_content_dash():
+    # A space-padded content dash (not a turn marker) is preserved.
+    assert strip_speaker_markup("3 - 5 の範囲") == "3 - 5 の範囲"
+
+
+def test_strip_speaker_markup_whole_cue_label_untouched():
+    assert strip_speaker_markup("（戦闘音）") == "（戦闘音）"
+
+
+@zh
+def test_zh_multi_speaker_both_labels_dropped_dialogue_kept():
+    spans, words = _words("zh", "-[孫悟空]我拷\n-[唐三藏]你好")
+    # Display keeps the whole cue (both names + dashes + newline).
+    assert "".join(s[0] for s in spans) == "-[孫悟空]我拷\n-[唐三藏]你好"
+    # Neither speaker name is clickable; both utterances' dialogue is.
+    assert "孫悟空" not in words and "唐三藏" not in words
+    assert "你好" in words
+
+
+@ja
+def test_ja_multi_speaker_dashes_dropped():
+    _spans, words = _words("ja", "- 何\n- そうです")
+    assert "何" in words and "です" in words

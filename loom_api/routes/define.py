@@ -83,6 +83,16 @@ class DefineRequest(BaseModel):
             "primary key is analyzed instead."
         ),
     )
+    surface_continuations: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional per-word continuation text, aligned to `words` — the lead of "
+            "the NEXT subtitle cue, for a predicate split across events (利用し | "
+            "てタム… → 利用して).  Stitched onto `surfaces` for the grammar breakdown "
+            "so a split verb recovers its true inflection.  Japanese only; harmless "
+            "when the word is already complete."
+        ),
+    )
 
 
 class DefineSense(BaseModel):
@@ -272,9 +282,13 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         romaji, romaji_alt = _romaji_pair(lang, disp_reading)
 
         # Grammar breakdown of the inflected SURFACE (the caption word), not the
-        # lemma — independent of whether the dictionary hit.
+        # lemma — independent of whether the dictionary hit.  A continuation (the
+        # next cue's lead) recovers a predicate split across events (finding ③).
         surface = req.surfaces[i] if req.surfaces and i < len(req.surfaces) and req.surfaces[i] else w
-        grammar = _grammar_model(surface, lang)
+        cont = req.surface_continuations[i] if (
+            req.surface_continuations and i < len(req.surface_continuations)
+        ) else ""
+        grammar = _grammar_model(surface, lang, cont)
 
         if chosen is None:
             # Even a miss shows the reading + its Hepburn in the header.
@@ -299,15 +313,18 @@ def define_batch(req: DefineRequest) -> DefineResponse:
     return DefineResponse(lang=lang, results=results)
 
 
-def _grammar_model(surface: str, lang: str) -> Optional[GrammarBreakdown]:
+def _grammar_model(
+    surface: str, lang: str, continuation: str = ""
+) -> Optional[GrammarBreakdown]:
     """Grammar breakdown of *surface* for *lang*, or None.  Only returned when
     there's inflection to explain (a plain dictionary form → None) so the card
-    shows a grammar section only when it adds something.  Fail-soft — a MeCab
+    shows a grammar section only when it adds something.  *continuation* stitches
+    the next cue's lead for a split predicate (finding ③).  Fail-soft — a MeCab
     hiccup never breaks a definition lookup."""
     if not grammar_supported(lang):
         return None
     try:
-        gb = analyze_grammar(surface, lang)
+        gb = analyze_grammar(surface, lang, continuation)
     except Exception:
         return None
     if gb is None or not gb.features:

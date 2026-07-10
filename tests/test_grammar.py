@@ -25,8 +25,8 @@ def _mecab_available() -> bool:
 ja = pytest.mark.skipif(not _mecab_available(), reason="fugashi/unidic-lite unavailable")
 
 
-def _codes(surface):
-    b = analyze_japanese_grammar(surface)
+def _codes(surface, continuation=""):
+    b = analyze_japanese_grammar(surface, continuation)
     return b.dict_form, [f.code for f in b.features]
 
 
@@ -205,3 +205,51 @@ def test_define_route_falls_back_to_word_when_no_surface():
     req = DefineRequest(lang="ja", words=["食べた"])
     g = define_batch(req).results[0].grammar
     assert g is not None and [f.code for f in g.features] == ["past"]
+
+
+# --------------------------------------------------------------------------- #
+# Continuation stitching — a predicate split across cues (finding ③)
+# --------------------------------------------------------------------------- #
+
+@ja
+def test_continuation_recovers_te_form_across_split():
+    # 利用し | てタム上に狙った → 利用して (te-form), not a bare 連用形 stem.
+    assert _codes("利用し", "てタム上に狙った") == ("利用する", ["te_form"])
+
+
+@ja
+def test_continuation_recovers_progressive_across_split():
+    # 食べ | ている → 食べている (progressive), the aspectual stitched from the next cue.
+    assert _codes("食べ", "ている") == ("食べる", ["progressive"])
+
+
+@ja
+def test_continuation_does_not_absorb_next_words_inflection():
+    # THE correctness case: 食べ | て寝た must be 食べる[te-form], NOT [te-form, past]
+    # — the past belongs to 寝た (a new word), which the boundary stop excludes.
+    assert _codes("食べ", "て寝た") == ("食べる", ["te_form"])
+
+
+@ja
+def test_continuation_harmless_when_word_already_complete():
+    # A complete surface + continuation == the surface analysed alone.
+    assert _codes("食べさせられた", "それは違う") == _codes("食べさせられた")
+
+
+@ja
+def test_continuation_strips_next_cue_speaker_label():
+    # The next cue often starts with a （名） label — it must not derail the stitch.
+    assert _codes("食べ", "（花子）ている") == ("食べる", ["progressive"])
+
+
+@ja
+def test_define_route_threads_continuation():
+    from loom_api.routes.define import define_batch, DefineRequest
+    req = DefineRequest(
+        lang="ja", words=["利用する"], surfaces=["利用し"],
+        surface_continuations=["てタム上に狙った"],
+    )
+    g = define_batch(req).results[0].grammar
+    assert g is not None
+    assert g.dict_form == "利用する"
+    assert [f.code for f in g.features] == ["te_form"]

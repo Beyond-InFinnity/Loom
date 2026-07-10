@@ -84,12 +84,18 @@ future dumps. Every number below traces to a page fetched during the pass.
 
 ---
 
-## KRDict ingest runbook (BUILT 2026-07-10 — awaiting the 11-language data)
+## KRDict ingest — ✅ DONE 2026-07-10 (live in prod)
 
-The parser + tokenizer are done, tested, and deployed (`scripts/ingest_dictionaries.py::parse_krdict`,
-`romanize.py::_korean_tokens` via kiwipiepy). What's left is loading the data. Decision (Connor,
-2026-07-10): **wait for the official 11-language download (incl. Chinese)** rather than ingest the
-mirror's 10-language 2019 snapshot now.
+The official 11-language NIKL XML (`한국어기초사전`, dated 2026-06-19) was downloaded and ingested:
+**603,562 ko rows across all 11 gloss languages incl. Chinese** (`dictionary_entry` → 1,106,218 total).
+`/define/capabilities` now reports `source_langs: [ja, ko, zh]`, `gloss_langs: [ar,en,es,fr,id,ja,mn,ru,th,vi,zh]`.
+Verified live: `/define` ko 사람 → EN senses; `gloss_lang=ja` → Japanese senses; `/annotate` ko →
+tokens 먹었어요→먹다. The parser scrubs two real data bugs in the official XML (unescaped `<` in a
+French gloss; a stray `\x08` control char in an Arabic gloss). Data lives on disk in
+`dictionaries/krdict/` (gitignored). Only remaining gap: user visibility needs the next extension
+build (0.4.0 hardcodes {ja,zh}). Runbook below kept for re-ingest (idempotent per source).
+
+**Runbook (for re-ingest / refresh):**
 
 - **Acquire (needs an interactive browser — the site 400s scripted requests):** krdict.korean.go.kr
   → 사전 내려받기 / download popup → choose the **XML** build (the parser reads NIKL LMF XML; the JSON

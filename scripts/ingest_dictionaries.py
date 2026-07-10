@@ -341,6 +341,76 @@ def parse_krdict(path: str, version: str = "krdict") -> Iterator[DictEntry]:
 
 
 # --------------------------------------------------------------------------- #
+# Wiktextract  (kaikki.org English Wiktionary extract — X → English, ~any lang)
+# --------------------------------------------------------------------------- #
+#
+# The universal source for space-delimited languages (Spanish, French, German,
+# …): one JSONL line per word entry, gloss language always English.  Pairs with
+# the generic simplemma tokenizer (romanize.py) — the lemma resolves the surface
+# to the headword here.  License: CC-BY-SA + GFDL (Wiktionary).  One `source`
+# ("wiktextract") across every language; the (source, lang) delete key keeps
+# per-language re-ingest independent.
+
+# kaikki `pos` code → readable POS for the card (fallback: the raw code).
+_WIKT_POS = {
+    "adj": "adjective", "adv": "adverb", "intj": "interjection",
+    "prep": "preposition", "conj": "conjunction", "pron": "pronoun",
+    "det": "determiner", "num": "numeral", "name": "proper noun",
+    "article": "article", "particle": "particle", "prefix": "prefix",
+    "suffix": "suffix", "phrase": "phrase", "proverb": "proverb",
+}
+
+
+def parse_wiktextract(path: str, lang: Optional[str] = None,
+                      version: str = "wiktextract") -> Iterator[DictEntry]:
+    """Yield normalized entries from a kaikki Wiktextract JSONL file.
+
+    One row per word entry (English glosses → gloss_lang="en").  ``lang`` filters
+    to a single ``lang_code`` (the per-language kaikki files are already single-
+    language, but the guard is cheap).  Entries with no glossed sense are
+    skipped; inflection ("form of") senses ARE kept — they never displace a real
+    card (the lemma is looked up first) and are a useful fallback when the
+    tokenizer's lemma misses.  First IPA (if any) becomes the reading.
+    """
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            word = e.get("word")
+            lc = e.get("lang_code")
+            if not word or not lc or (lang and lc != lang):
+                continue
+            pos_code = e.get("pos", "")
+            pos = [_WIKT_POS.get(pos_code, pos_code)] if pos_code else []
+            senses: list[Sense] = []
+            for s in e.get("senses", []):
+                glosses = s.get("glosses")
+                if not glosses:
+                    continue
+                senses.append(Sense(
+                    gloss=list(glosses), pos=pos, misc=list(s.get("tags") or []),
+                ))
+            if not senses:
+                continue
+            reading = None
+            for snd in e.get("sounds", []) or []:
+                ipa = snd.get("ipa")
+                if ipa:
+                    reading = ipa.strip("/[] ") or None
+                    break
+            yield DictEntry(
+                lang=lc, headword=word, reading=reading, senses=senses,
+                common=False, source="wiktextract", source_version=version,
+                gloss_lang="en",
+            )
+
+
+# --------------------------------------------------------------------------- #
 # Postgres load  (only reached in `ingest` mode)
 # --------------------------------------------------------------------------- #
 
@@ -367,8 +437,10 @@ CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading
 def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 5000) -> int:
     """Create the table (if needed) and bulk-insert entries.  Returns row count.
 
-    Replaces rows for each (source) wholesale: deletes the source's existing
-    rows first so re-ingest is idempotent.  Requires ``psycopg`` (v3).
+    Replaces rows for each (source, lang) wholesale: deletes that pair's existing
+    rows first so re-ingest is idempotent.  Keyed on (source, lang) — not source
+    alone — so a multi-language source (Wiktextract: one "source" across es/fr/de
+    …) can re-ingest ONE language without wiping the others.  Requires psycopg v3.
     """
     import psycopg  # lazy — only needed for actual load
 
@@ -376,7 +448,7 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             cur.execute(_SCHEMA)
-        sources_cleared: set[str] = set()
+        sources_cleared: set[tuple[str, str]] = set()
         buf: list[DictEntry] = []
 
         def flush(rows: list[DictEntry]) -> None:
@@ -400,10 +472,14 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
             written += len(rows)
 
         for e in entries:
-            if e.source not in sources_cleared:
+            key = (e.source, e.lang)
+            if key not in sources_cleared:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM dictionary_entry WHERE source = %s", (e.source,))
-                sources_cleared.add(e.source)
+                    cur.execute(
+                        "DELETE FROM dictionary_entry WHERE source = %s AND lang = %s",
+                        key,
+                    )
+                sources_cleared.add(key)
             buf.append(e)
             if len(buf) >= batch:
                 flush(buf)
@@ -437,6 +513,8 @@ def _iter_all(
     cedict: Optional[str],
     jmdict: Optional[str],
     krdict: Optional[list[str]] = None,
+    wiktextract: Optional[list[str]] = None,
+    wiktextract_lang: Optional[str] = None,
 ) -> Iterator[DictEntry]:
     if cedict:
         yield from parse_cedict(cedict)
@@ -444,6 +522,8 @@ def _iter_all(
         yield from parse_jmdict(jmdict)
     for path in _expand_paths(krdict):
         yield from parse_krdict(path)
+    for path in _expand_paths(wiktextract):
+        yield from parse_wiktextract(path, lang=wiktextract_lang)
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
@@ -455,7 +535,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     counts: dict[str, int] = {}
     gloss_counts: dict[str, int] = {}
     total = 0
-    for e in _iter_all(args.cedict, args.jmdict, args.krdict):
+    for e in _iter_all(args.cedict, args.jmdict, args.krdict,
+                       args.wiktextract, args.wiktextract_lang):
         total += 1
         counts[e.lang] = counts.get(e.lang, 0) + 1
         gloss_counts[e.gloss_lang] = gloss_counts.get(e.gloss_lang, 0) + 1
@@ -480,7 +561,11 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     if not dsn:
         print("ingest requires --dsn or DATABASE_URL", file=sys.stderr)
         return 2
-    n = load_to_postgres(_iter_all(args.cedict, args.jmdict, args.krdict), dsn)
+    n = load_to_postgres(
+        _iter_all(args.cedict, args.jmdict, args.krdict,
+                  args.wiktextract, args.wiktextract_lang),
+        dsn,
+    )
     print(f"loaded {n} rows into dictionary_entry")
     return 0
 
@@ -495,6 +580,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     common.add_argument(
         "--krdict", action="append",
         help="KRDict LMF XML file, directory of chunks, or glob (repeatable)",
+    )
+    common.add_argument(
+        "--wiktextract", action="append",
+        help="kaikki Wiktextract JSONL file, dir, or glob (repeatable)",
+    )
+    common.add_argument(
+        "--wiktextract-lang",
+        help="only ingest this lang_code from the Wiktextract file(s), e.g. es",
     )
 
     pv = sub.add_parser("validate", parents=[common], help="parse + print stats/samples, no DB")

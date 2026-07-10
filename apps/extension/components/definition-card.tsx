@@ -444,6 +444,7 @@ const SOURCE_LABELS: Record<string, string> = {
   jmdict: "JMdict",
   "cc-cedict": "CC-CEDICT",
   krdict: "KRDict (NIKL)",
+  wiktextract: "Wiktionary",
 };
 
 const breakdownLabelStyle: React.CSSProperties = {

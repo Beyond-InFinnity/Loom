@@ -217,6 +217,47 @@ export default function Privacy() {
                   </a>
                   .
                 </li>
+                <li>
+                  <strong className="text-foreground/80">
+                    Other languages —
+                  </strong>{" "}
+                  <a
+                    href="https://www.wiktionary.org/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Wiktionary
+                  </a>
+                  , via the{" "}
+                  <a
+                    href="https://kaikki.org/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    kaikki.org Wiktextract
+                  </a>{" "}
+                  dataset, used under{" "}
+                  <a
+                    href="https://creativecommons.org/licenses/by-sa/4.0/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    CC BY-SA 4.0
+                  </a>{" "}
+                  and the{" "}
+                  <a
+                    href="https://www.gnu.org/licenses/fdl-1.3.html"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    GFDL
+                  </a>
+                  .
+                </li>
               </ul>
               <p>
                 Each definition card also names its source dictionary. Loom’s use

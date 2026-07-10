@@ -230,6 +230,67 @@ def test_krdict_strips_invalid_control_chars(tmp_path):
     assert rows[0].senses[0].gloss[0] == "المالالذي"
 
 
+# --------------------------------------------------------------------------- #
+# Wiktextract (kaikki JSONL — X → English)
+# --------------------------------------------------------------------------- #
+
+def _write_jsonl(tmp_path, objs):
+    import json as _json
+    p = tmp_path / "wikt.jsonl"
+    p.write_text("\n".join(_json.dumps(o, ensure_ascii=False) for o in objs), encoding="utf-8")
+    return str(p)
+
+
+def test_wiktextract_basic_entry(tmp_path):
+    path = _write_jsonl(tmp_path, [{
+        "word": "comer", "lang_code": "es", "pos": "verb",
+        "sounds": [{"ipa": "/koˈmeɾ/"}],
+        "senses": [{"glosses": ["to eat"]}, {"glosses": ["to have lunch"], "tags": ["Spain"]}],
+    }])
+    rows = list(ingest.parse_wiktextract(path))
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r.lang, r.headword, r.gloss_lang, r.source) == ("es", "comer", "en", "wiktextract")
+    assert r.reading == "koˈmeɾ"                       # IPA, slashes stripped
+    assert [s.gloss[0] for s in r.senses] == ["to eat", "to have lunch"]
+    assert r.senses[0].pos == ["verb"]
+    assert r.senses[1].misc == ["Spain"]
+
+
+def test_wiktextract_lang_filter(tmp_path):
+    path = _write_jsonl(tmp_path, [
+        {"word": "comer", "lang_code": "es", "pos": "verb", "senses": [{"glosses": ["to eat"]}]},
+        {"word": "comer", "lang_code": "pt", "pos": "verb", "senses": [{"glosses": ["to eat"]}]},
+    ])
+    rows = list(ingest.parse_wiktextract(path, lang="es"))
+    assert [r.lang for r in rows] == ["es"]
+
+
+def test_wiktextract_pos_code_mapped(tmp_path):
+    path = _write_jsonl(tmp_path, [
+        {"word": "rojo", "lang_code": "es", "pos": "adj", "senses": [{"glosses": ["red"]}]},
+    ])
+    assert list(ingest.parse_wiktextract(path))[0].senses[0].pos == ["adjective"]
+
+
+def test_wiktextract_skips_glossless_entries(tmp_path):
+    path = _write_jsonl(tmp_path, [
+        {"word": "x", "lang_code": "es", "pos": "noun", "senses": [{"tags": ["obsolete"]}]},
+    ])
+    assert list(ingest.parse_wiktextract(path)) == []
+
+
+def test_wiktextract_keeps_form_of_as_fallback(tmp_path):
+    # inflection entries are kept (they never displace a real card; useful when
+    # the tokenizer's lemma misses).
+    path = _write_jsonl(tmp_path, [{
+        "word": "comieron", "lang_code": "es", "pos": "verb",
+        "senses": [{"glosses": ["inflection of comer"], "form_of": [{"word": "comer"}]}],
+    }])
+    rows = list(ingest.parse_wiktextract(path))
+    assert len(rows) == 1 and rows[0].senses[0].gloss == ["inflection of comer"]
+
+
 def test_krdict_never_reads_media_urls(tmp_path):
     # The sound/Multimedia URLs are not redistributable; they must not leak into
     # any row (reading is the pronunciation string, never a URL).

@@ -211,6 +211,25 @@ def test_krdict_sanitizes_unescaped_markup_in_values(tmp_path):
     assert rows[0].senses[0].gloss == ["chambre (gudeul <système> & sol)"]
 
 
+def test_krdict_strips_invalid_control_chars(tmp_path):
+    # Real KRDict data has a stray \x08 (backspace) inside an Arabic gloss — an
+    # invalid XML 1.0 char that crashes the parser.  It must be stripped.
+    xml = (
+        '<LexicalResource dtdVersion="16"><Lexicon>'
+        '<LexicalEntry att="id" val="1"><feat att="partOfSpeech" val="명사" />'
+        '<Lemma><feat att="writtenForm" val="세금" /></Lemma>'
+        '<Sense att="id" val="1"><Equivalent><feat att="language" val="아랍어" />'
+        '<feat att="lemma" val="المال\x08الذي" /></Equivalent>'
+        '</Sense></LexicalEntry></Lexicon></LexicalResource>'
+    )
+    p = tmp_path / "ctrl.xml"
+    p.write_text(xml, encoding="utf-8")
+    rows = list(ingest.parse_krdict(str(p)))
+    assert len(rows) == 1
+    assert "\x08" not in rows[0].senses[0].gloss[0]
+    assert rows[0].senses[0].gloss[0] == "المالالذي"
+
+
 def test_krdict_never_reads_media_urls(tmp_path):
     # The sound/Multimedia URLs are not redistributable; they must not leak into
     # any row (reading is the pronunciation string, never a URL).

@@ -254,16 +254,25 @@ _KRDICT_POS = {
 # vocabularyLevel values that mark a word as "common" (ranking signal only).
 _KRDICT_COMMON_LEVELS = {"초급", "중급"}
 
-# Some KRDict translation values contain UNESCAPED markup chars (a real bare "<"
-# inside a French gloss: `val="… (gudeul <système…>) …"`), which makes the XML
-# not well-formed.  Escape bare & < > *inside* val="…" spans before parsing so
-# ElementTree accepts the file (and un-escapes them back on read).  Attribute
-# values are "-delimited with no internal ", so [^"]* captures each whole value.
+# The real KRDict data has two well-formedness bugs we must scrub before an XML
+# parser will accept it:
+#   1. UNESCAPED markup chars inside values — a bare "<" in a French gloss
+#      (`val="… (gudeul <système…>) …"`).  Escape & < > *inside* val="…" spans.
+#      Attribute values are "-delimited with no internal ", so [^"]* captures
+#      each whole value; ElementTree un-escapes them back on read.
+#   2. Invalid XML 1.0 control characters — e.g. a stray \x08 (backspace) inside
+#      an Arabic gloss (`المال\x08الذي`).  XML 1.0 forbids C0 controls except
+#      TAB/LF/CR, so strip anything outside the legal char set.
 _KRDICT_VAL_RE = re.compile(r'val="([^"]*)"')
 _BARE_AMP_RE = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9A-Fa-f]+);)')
+_INVALID_XML_RE = re.compile(
+    "[^\x09\x0A\x0D\x20-퟿-�\U00010000-\U0010FFFF]"
+)
 
 
 def _sanitize_krdict_xml(text: str) -> str:
+    text = _INVALID_XML_RE.sub("", text)
+
     def fix(m: "re.Match") -> str:
         v = _BARE_AMP_RE.sub("&amp;", m.group(1))
         v = v.replace("<", "&lt;").replace(">", "&gt;")

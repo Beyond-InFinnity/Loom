@@ -468,6 +468,10 @@ CREATE INDEX IF NOT EXISTS dictionary_entry_lang_headword
     ON dictionary_entry (lang, headword);
 CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading
     ON dictionary_entry (lang, reading);
+-- Makes the idempotent per-triple DELETE an index scan, not a full-table scan
+-- (the table is millions of rows; without this each re-ingest scans all of it).
+CREATE INDEX IF NOT EXISTS dictionary_entry_source_lang_gloss
+    ON dictionary_entry (source, lang, gloss_lang);
 """
 
 
@@ -483,32 +487,40 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
     replace because each of their triples is cleared once.  Requires psycopg v3.
     """
     import psycopg  # lazy — only needed for actual load
+    from psycopg.types.json import Jsonb
 
+    # TCP keepalives so a dropped connection to a REMOTE (Railway proxy) DB fails
+    # fast with an error instead of blocking forever on a dead socket — the exact
+    # silent hang that stranded a multi-hundred-k-row ingest mid-transaction.
     written = 0
-    with psycopg.connect(dsn) as conn:
+    with psycopg.connect(
+        dsn, connect_timeout=30,
+        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=5,
+    ) as conn:
         with conn.cursor() as cur:
             cur.execute(_SCHEMA)
         sources_cleared: set[tuple[str, str, str]] = set()
         buf: list[DictEntry] = []
 
         def flush(rows: list[DictEntry]) -> None:
+            # COPY, not executemany: one stream instead of a round-trip per batch
+            # — dramatically faster over a remote proxy and far less exposed to a
+            # mid-transaction stall (a 1.3M-row source is minutes, not an hour).
             nonlocal written
             if not rows:
                 return
             with conn.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO dictionary_entry "
+                with cur.copy(
+                    "COPY dictionary_entry "
                     "(lang, headword, reading, senses, common, source, source_version, gloss_lang) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                    [
-                        (
+                    "FROM STDIN"
+                ) as copy:
+                    for e in rows:
+                        copy.write_row((
                             e.lang, e.headword, e.reading,
-                            json.dumps([s.to_json() for s in e.senses], ensure_ascii=False),
+                            Jsonb([s.to_json() for s in e.senses]),
                             e.common, e.source, e.source_version, e.gloss_lang,
-                        )
-                        for e in rows
-                    ],
-                )
+                        ))
             written += len(rows)
 
         for e in entries:

@@ -192,6 +192,25 @@ def test_krdict_verb_headword_kept_in_dictionary_form(tmp_path):
     assert verb[0].senses[0].gloss == ["to eat"]
 
 
+def test_krdict_sanitizes_unescaped_markup_in_values(tmp_path):
+    # Real KRDict data has bare < > & inside translation values (a French gloss
+    # `(gudeul <système…>)`), which is not well-formed XML.  The parser must
+    # sanitize + still parse, and the char must round-trip on read.
+    xml = (
+        '<LexicalResource dtdVersion="16"><Lexicon>'
+        '<LexicalEntry att="id" val="1"><feat att="partOfSpeech" val="명사" />'
+        '<Lemma><feat att="writtenForm" val="온돌방" /></Lemma>'
+        '<Sense att="id" val="1"><Equivalent><feat att="language" val="프랑스어" />'
+        '<feat att="lemma" val="chambre (gudeul <système> & sol)" /></Equivalent>'
+        '</Sense></LexicalEntry></Lexicon></LexicalResource>'
+    )
+    p = tmp_path / "bad.xml"
+    p.write_text(xml, encoding="utf-8")
+    rows = list(ingest.parse_krdict(str(p)))
+    assert len(rows) == 1
+    assert rows[0].senses[0].gloss == ["chambre (gudeul <système> & sol)"]
+
+
 def test_krdict_never_reads_media_urls(tmp_path):
     # The sound/Multimedia URLs are not redistributable; they must not leak into
     # any row (reading is the pronunciation string, never a URL).

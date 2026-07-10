@@ -254,6 +254,22 @@ _KRDICT_POS = {
 # vocabularyLevel values that mark a word as "common" (ranking signal only).
 _KRDICT_COMMON_LEVELS = {"초급", "중급"}
 
+# Some KRDict translation values contain UNESCAPED markup chars (a real bare "<"
+# inside a French gloss: `val="… (gudeul <système…>) …"`), which makes the XML
+# not well-formed.  Escape bare & < > *inside* val="…" spans before parsing so
+# ElementTree accepts the file (and un-escapes them back on read).  Attribute
+# values are "-delimited with no internal ", so [^"]* captures each whole value.
+_KRDICT_VAL_RE = re.compile(r'val="([^"]*)"')
+_BARE_AMP_RE = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9A-Fa-f]+);)')
+
+
+def _sanitize_krdict_xml(text: str) -> str:
+    def fix(m: "re.Match") -> str:
+        v = _BARE_AMP_RE.sub("&amp;", m.group(1))
+        v = v.replace("<", "&lt;").replace(">", "&gt;")
+        return f'val="{v}"'
+    return _KRDICT_VAL_RE.sub(fix, text)
+
 
 def _krdict_pos(korean_pos: Optional[str]) -> list[str]:
     p = (korean_pos or "").strip()
@@ -272,6 +288,7 @@ def parse_krdict(path: str, version: str = "krdict") -> Iterator[DictEntry]:
     Korean-only monolingual definitions are skipped (learners read the glosses,
     not the Korean definition).
     """
+    import io
     import xml.etree.ElementTree as ET
 
     def fv(parent, xpath: str) -> str:
@@ -280,7 +297,9 @@ def parse_krdict(path: str, version: str = "krdict") -> Iterator[DictEntry]:
         el = parent.find(xpath)
         return (el.get("val") or "").strip() if el is not None else ""
 
-    for _evt, le in ET.iterparse(path, events=("end",)):
+    with open(path, encoding="utf-8") as fh:
+        source = _sanitize_krdict_xml(fh.read())
+    for _evt, le in ET.iterparse(io.StringIO(source), events=("end",)):
         if le.tag != "LexicalEntry":
             continue
         headword = fv(le, "Lemma/feat[@att='writtenForm']")

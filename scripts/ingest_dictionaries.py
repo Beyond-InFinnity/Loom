@@ -537,6 +537,13 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
                         ))
             written += len(rows)
 
+        # Commit periodically so no single transaction grows huge — a remote
+        # proxy (Railway) drops a multi-million-row COPY transaction mid-stream
+        # (SSL EOF).  Idempotency survives a mid-ingest failure: the per-key DELETE
+        # runs before that key's first row, so a re-run deletes any partial rows
+        # and re-inserts cleanly.
+        commit_every = 200_000
+        since_commit = 0
         for e in entries:
             key = (e.source, e.lang, e.gloss_lang)
             if key not in sources_cleared:
@@ -551,6 +558,10 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
             if len(buf) >= batch:
                 flush(buf)
                 buf = []
+                since_commit += batch
+                if since_commit >= commit_every:
+                    conn.commit()
+                    since_commit = 0
         flush(buf)
         conn.commit()
     return written

@@ -112,18 +112,66 @@ build (0.4.0 hardcodes {ja,zh}). Runbook below kept for re-ingest (idempotent pe
   (`SELECT DISTINCT` ∩ `is_token_supported`). User visibility still needs the next EXTENSION build —
   the live 0.4.0 hardcodes `{ja,zh}` client-side; the capability-driven client (committed) ships next.
 
-## Recommended ingest order (Claude's read)
+## Recommended ingest order (Claude's read) — status 2026-07-10
 
-1. **KRDict (NIKL)** — ✅ tokenizer + parser BUILT (2026-07-10); awaiting the 11-language official
-   download per the runbook above. Unlocks Korean as a source AND many gloss langs (en/ja/zh/…) in
-   one bulk-redistributable drop; the only clean way to get native-language glosses at scale.
-2. **JMdict multilingual builds** — JA→{de,ru,hu,nl,es,fr,sv,sl} is a drop-in re-ingest of a
-   source we already parse; lights up 8 new gloss langs for existing JA tracks immediately.
-3. **English Wiktextract per-language** — universal X→English breadth for any new source
-   language (adds the source-lang tokenizer as the gating work, not the data).
-4. **HanDeDict / CFDICT** — ZH→de / ZH→fr, CEDICT-format so they reuse the CC-CEDICT parser.
-5. **Native kaikki editions (zh/ja)** — fill ZH↔JA gaps where no direct dict exists (thin,
-   flag quality).
+1. **KRDict (NIKL)** — ✅ **DONE / LIVE** (603,562 ko rows, 11 gloss langs).
+2. **JMdict multilingual builds** — ✅ **DONE / LIVE** — JA→{de,ru,hu,nl,es,fr,sv,sl} ingested
+   from the same jmdict-simplified release; the **Japanese row now has 9 gloss langs** (+567k rows).
+   `parse_jmdict` auto-detects gloss_lang from each build's `languages` metadata.
+3. **English Wiktextract per-language** — ✅ **DONE / LIVE** as a SOURCE: English enabled in
+   `GENERIC_TOKEN_PRIMARIES` (harness 99.7%), 1,472,158 en→en rows. Also the universal breadth path
+   for any future source language.
+4. **HanDeDict / CFDICT** — ✅ **DONE / LIVE** — ZH→de (264,827) / ZH→fr (95,363), CEDICT-format via
+   `parse_cedict(source=…, gloss_lang=…)`. **Chinese row now en·fr·de.**
+5. **Native kaikki editions** — 🔲 **NEXT** (scoped below) — the one remaining lever that fills whole
+   gloss COLUMNS instead of single cells.
+
+**State after 1–4:** `dictionary_entry` = **7.6M rows / 20 source langs / 16 gloss langs / 2.77 GB**.
+Ingest is now COPY-based (183k rows in ~30 s) with TCP keepalives + a (source,lang,gloss_lang) index.
+
+## Native-edition Wiktextracts — scoping (lever 5)
+
+**What they are.** `kaikki.org/<xx>wiktionary/` is a per-edition extract of a NON-English Wiktionary
+(e.g. `frwiktionary` = the French Wiktionary), containing entries for words in MANY source languages,
+each **glossed in that edition's language**. Where the English Wiktextract fills the **English column**
+across every row, each native edition fills **one gloss COLUMN** (its own language) across many rows —
+richest on the diagonal (its own language defined in itself), thinner off-diagonal.
+
+**Why it's the last lever, and its ceiling.** Native editions are the ONLY open path to native-language
+glosses at breadth for the non-CJK/Korean languages (no bilingual dicts exist for most pairs). But their
+cross-language coverage is far thinner than the English edition's — English Wiktionary is uniquely
+complete. So the honest target is: **diagonal rich, own-column decent, cross-pairs partial**, with the
+English column as the universal fallback under every gap.
+
+**Sizes (kaikki, senses; from the scouting pass — verify on the live dump before ingesting):**
+
+| Edition | Gloss col it fills | Total senses | Own-lang (diagonal) | Notes |
+|---|---|---:|---:|---|
+| `zhwiktionary` | zh | 3,360,464 | large | biggest; also KO 200k · IT 194k · **JA 93k** |
+| `eswiktionary` | es | 1,227,902 | large | strong Romance diagonal |
+| `jawiktionary` | ja | 877,740 | large | **ZH ~59k** (the ZH→JA gap-filler) |
+| `frwiktionary` | fr | (large) | large | fills the fr column |
+| `dewiktionary` | de | (large) | large | de column |
+| `ruwiktionary` | ru | (large) | large | ru column |
+| `kowiktionary` | ko | 379,582 | 114,102 | thin foreign blocks, "WIP" quality (Tier-2) |
+| + pt/it/pl/nl/cs/tr/id/vi/th | those cols | — | — | 20+ editions exist |
+
+**Work required (why it's "medium," not "free").** The native-edition JSONL schema differs from the
+English `kaikki.org/dictionary/` schema `parse_wiktextract` handles today (senses nest differently; the
+gloss language is the EDITION, not per-gloss `lang`). So lever 5 needs a **`parse_wiktextract_native`
+variant** (or a schema-detecting branch) that (a) sets `gloss_lang` = the edition code, (b) reads the
+edition's sense/gloss shape, (c) still filters by `lang_code` so one edition can ingest many source
+rows. Then it's the same harness-gate → COPY-ingest loop, one download per column.
+
+**Recommended sequence for lever 5** (by value × our existing source rows):
+1. **zh / ja editions first** — the ZH↔JA pair has NO open direct dictionary; these are the only
+   native fill (thin: ~59–93k cross senses) and the highest-demand pair for our audience.
+2. **es / fr / de / ru editions** — fill the columns for our biggest user languages; each also
+   richly self-defines (diagonal) for the monolingual-learner mode.
+3. **pt / it / pl / nl / … as demand appears** — pure repeat of the loop.
+
+Decision owed before building: confirm the native-edition JSONL schema on one real dump (ja or es),
+then write the parser variant + harness one column end-to-end before fanning out.
 
 **Flags / could-not-fully-verify:** HanDeDict exact count (blurb only); EDRDG's own pages
 wouldn't render a total (JMdict total sourced from jmdict-simplified); CFDICT's two conflicting

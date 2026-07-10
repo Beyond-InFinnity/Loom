@@ -251,13 +251,46 @@ def test_es_generic_reading_none_pos_empty():
     assert t[3] is None and t[2] == []   # no ruby; card uses dictionary reading/pos
 
 
+@generic
+def test_fr_elision_splits_leading_clitic():
+    # l'école is orthographically l' + école — the content word must become its
+    # own token so it hits the dictionary (the whole top-misses list otherwise).
+    from loom_core.romanize import build_word_tokens
+    line = "Je l'ai vu à l'école d'un ami"
+    words = [t[0] for t in build_word_tokens(line, "fr", [], None)]
+    assert "école" in words and "ai" in words and "un" in words
+    # offsets still reconstruct the surface after the split
+    for word, _l, _p, _r, start, length in build_word_tokens(line, "fr", [], None):
+        assert line[start:start + length] == word
+
+
+@generic
+def test_fr_elision_preserves_genuine_apostrophe_words():
+    # aujourd'hui / quelqu'un / presqu'île have stems >2 chars — NOT elisions,
+    # must stay whole.
+    from loom_core.romanize import build_word_tokens
+    words = {t[0] for t in build_word_tokens("Aujourd'hui quelqu'un vint", "fr", [], None)}
+    assert "Aujourd'hui" in words and "quelqu'un" in words
+
+
+@generic
+def test_it_elision_splits_but_es_apostrophe_untouched():
+    # Italian elides (l'ho → l + ho); Spanish is not an elision language so any
+    # apostrophe there is left alone.
+    from loom_core.romanize import build_word_tokens
+    it_words = {t[0] for t in build_word_tokens("L'ho visto", "it", [], None)}
+    assert "ho" in it_words
+    es_words = {t[0] for t in build_word_tokens("D'Angelo", "es", [], None)}
+    assert "D'Angelo" in es_words  # not an elision locale → regex token kept whole
+
+
 def test_generic_path_is_opt_in_per_language():
     # A simplemma-supported language NOT in GENERIC_TOKEN_PRIMARIES stays inert
     # (no dictionary/validation yet) — custom-first dispatch, deliberate opt-in.
     from loom_core.romanize import build_word_tokens, is_token_supported, GENERIC_TOKEN_PRIMARIES
-    assert "de" not in GENERIC_TOKEN_PRIMARIES        # German not enabled yet
-    assert is_token_supported("es") and not is_token_supported("de")
-    assert build_word_tokens("Die Kinder", "de", [], None) == []
+    assert "pl" not in GENERIC_TOKEN_PRIMARIES         # Polish not enabled yet
+    assert is_token_supported("es") and not is_token_supported("pl")
+    assert build_word_tokens("Dzień dobry", "pl", [], None) == []
 
 
 def test_custom_tokenizer_takes_precedence_over_generic():

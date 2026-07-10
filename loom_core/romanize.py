@@ -3221,6 +3221,39 @@ def _korean_tokens(text: str, spans: list) -> list:
 # internal apostrophe or hyphen (e.g. French l'homme, Spanish is unaffected).
 _GENERIC_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", re.UNICODE)
 
+# Romance languages elide a proclitic before a vowel and join it with an
+# apostrophe (fr l'école, d'un, j'ai; it l'ho, l'inglese).  Orthographically the
+# apostrophe is a WORD BOUNDARY, so "l'école" is really "l' + école" — but our
+# word regex keeps it as one token and the whole thing never hits the dictionary
+# (it was the entire top-misses list for fr/it in the quality harness).  We peel
+# a LEADING clitic only when it's ≤2 letters: that captures every elided clitic
+# (l d j n m t s c qu) while leaving genuine apostrophe-lexemes whole
+# (aujourd'hui, quelqu'un, presqu'île — their stems are longer than 2).
+_ELISION_PRIMARIES = frozenset({"fr", "it", "ca", "oc"})
+
+
+def _split_elision(word: str, offset: int, primary: str) -> list:
+    """Split leading elided proclitics off *word*; return [(subword, start), …].
+
+    Only peels a clitic of ≤2 letters immediately before an apostrophe, so
+    Romance elisions separate but genuine apostrophe-words stay intact.  For
+    non-elision languages (or words with no apostrophe) returns [(word, offset)].
+    """
+    if primary not in _ELISION_PRIMARIES or ("'" not in word and "’" not in word):
+        return [(word, offset)]
+    parts: list = []
+    i, n = 0, len(word)
+    while i < n:
+        ap = next((j for j in range(i, n) if word[j] in "'’"), -1)
+        if ap != -1 and 1 <= ap - i <= 2:
+            parts.append((word[i:ap], offset + i))
+            i = ap + 1
+        else:
+            break
+    parts.append((word[i:], offset + i))
+    return [(w, o) for (w, o) in parts if w]
+
+
 _simplemma_loaded = None
 
 
@@ -3253,11 +3286,11 @@ def _generic_tokens(text: str, lang_code: str) -> list:
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     tokens: list = []
     for m in _GENERIC_WORD_RE.finditer(clean):
-        word = m.group()
-        if not _is_lookupable_word(word):
-            continue
-        lemma = _generic_lemma(word, primary) or word
-        tokens.append((word, lemma, [], None, m.start(), len(word)))
+        for word, start in _split_elision(m.group(), m.start(), primary):
+            if not _is_lookupable_word(word):
+                continue
+            lemma = _generic_lemma(word, primary) or word
+            tokens.append((word, lemma, [], None, start, len(word)))
     return tokens
 
 
@@ -3273,7 +3306,9 @@ SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue", "ko"})
 # Whether a language is actually *definable* is still gated on a dictionary
 # existing (capabilities intersects this with SELECT DISTINCT lang), so listing a
 # language here before its dictionary is ingested is harmless.
-GENERIC_TOKEN_PRIMARIES = frozenset({"es"})
+GENERIC_TOKEN_PRIMARIES = frozenset(
+    {"es", "fr", "de", "it", "pt", "sv", "nl"}
+)
 
 
 def is_token_supported(lang_code: str) -> bool:

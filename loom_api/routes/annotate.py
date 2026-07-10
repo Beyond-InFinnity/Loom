@@ -24,7 +24,12 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import build_annotation_html, build_word_tokens, engine_version
+from loom_core.romanize import (
+    build_annotation_html,
+    build_word_tokens,
+    engine_version,
+    is_token_supported,
+)
 from loom_core.styles import get_lang_config
 
 from ..deps import get_result_cache
@@ -139,7 +144,12 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
         # client typos without leaking malformed HTML downstream.
         mode = default_render_mode
 
-    if not annotation_func or not req.text.strip():
+    # A language may have NO annotation_func (no ruby — Latin/Cyrillic scripts)
+    # yet still produce clickable word `tokens` for the vocab lookup (the generic
+    # simplemma path).  Compute whenever there's an annotation func OR a
+    # tokenizer; only both-absent short-circuits to empty.
+    tokens_supported = is_token_supported(req.lang_code)
+    if (not annotation_func and not tokens_supported) or not req.text.strip():
         return AnnotateResponse(
             spans=[],
             html="",
@@ -161,7 +171,7 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
         raw_spans = [(s[0], s[1]) for s in hit["spans"]]
         raw_tokens = _tokens_from_cache(hit.get("tokens"))
     else:
-        raw_spans = annotation_func(norm)
+        raw_spans = annotation_func(norm) if annotation_func else []
         raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
         cache.put_many(
             [
@@ -271,11 +281,20 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
     if mode not in _VALID_RENDER_MODES:
         mode = default_render_mode
 
+    # No annotation_func (no ruby) but a tokenizer exists → still compute the
+    # clickable word `tokens` for vocab lookup (generic simplemma path).
+    tokens_supported = is_token_supported(req.lang_code)
+
     def _computable(text: str) -> bool:
         # Per-text defensive cap.  Texts longer than _BATCH_MAX_TEXT_LENGTH
         # are zeroed out rather than rejecting the whole batch — keeps
         # positional alignment with the request guaranteed.
-        return bool(annotation_func and text and text.strip() and len(text) <= _BATCH_MAX_TEXT_LENGTH)
+        return bool(
+            (annotation_func or tokens_supported)
+            and text
+            and text.strip()
+            and len(text) <= _BATCH_MAX_TEXT_LENGTH
+        )
 
     # Read-through/write-back result cache (ROMANIZATION_CACHE.md Layer 1).
     # Caches the SPANS only — the expensive MeCab/jieba/aksharamukha pass —
@@ -306,7 +325,7 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
                 _tokens_from_cache(hit.get("tokens")),
             )
             continue
-        raw_spans = annotation_func(norm)
+        raw_spans = annotation_func(norm) if annotation_func else []
         raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
         computed[norm] = (raw_spans, raw_tokens)
         new_rows.append(

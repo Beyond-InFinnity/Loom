@@ -357,3 +357,25 @@ def test_batch_route_empty_text_has_empty_tokens(mem_cache):
     from loom_api.routes.annotate import AnnotateBatchRequest, annotate_batch
     resp = annotate_batch(AnnotateBatchRequest(texts=[""], lang_code="ja"))
     assert resp.results[0].tokens == []
+
+
+@generic
+def test_batch_route_emits_tokens_for_no_annotation_func_lang(mem_cache):
+    # Spanish has NO annotation_func (Latin script, no ruby) but IS token-
+    # supported — the batch route must still emit clickable word tokens with
+    # empty spans/html.  Regression guard for the _computable gate that used to
+    # short-circuit any lang without an annotation func.
+    from loom_api.routes.annotate import AnnotateBatchRequest, annotate_batch
+    resp = annotate_batch(AnnotateBatchRequest(texts=["Los niños comieron"], lang_code="es"))
+    item = resp.results[0]
+    assert item.spans == [] and item.html == ""  # no ruby for Latin script
+    by = {t.word: t.lemma for t in item.tokens}
+    assert by.get("comieron") == "comer" and "niños" in by
+
+
+@generic
+def test_single_route_emits_tokens_for_no_annotation_func_lang(mem_cache):
+    from loom_api.routes.annotate import AnnotateRequest, annotate
+    resp = annotate(AnnotateRequest(text="Los gatos", lang_code="es"))
+    assert resp.spans == [] and resp.html == ""
+    assert any(t.word == "gatos" for t in resp.tokens)

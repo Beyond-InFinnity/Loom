@@ -82,6 +82,25 @@ class TestPositionalAlignment:
         assert resp.has_phonetic_layer is True
 
 
+class TestSpeakerLabelStripping:
+    """A leading （名） speaker/SFX label is stripped before the romaji line so
+    the phonetic surface doesn't spell out a proper noun (corpus finding ①).
+    The romaji line is a separate display line, so this can't misalign ruby."""
+
+    def test_labelled_line_romanizes_same_as_bare_dialogue(self, batch_handler):
+        handler, Req = batch_handler
+        resp = handler(Req(texts=["（フリーレン）行くよ", "行くよ"], lang_code="ja"))
+        assert resp.results[0].romanized == resp.results[1].romanized
+        assert "furi" not in resp.results[0].romanized.lower()
+
+    def test_labelled_lines_share_one_cache_computation(self, batch_handler):
+        handler, Req = batch_handler
+        # Different labels, same dialogue → identical romaji (dedup by stripped).
+        resp = handler(Req(texts=["（Ａ）そうだね", "（Ｂ）そうだね"], lang_code="ja"))
+        assert resp.results[0].romanized == resp.results[1].romanized
+        assert resp.results[0].romanized.strip() != ""
+
+
 # ---------------------------------------------------------------------------
 # Fail-soft on languages without a phonetic layer
 # ---------------------------------------------------------------------------

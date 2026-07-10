@@ -57,6 +57,22 @@ _MUSIC = re.compile(r"[♪♫♬〜~～≈]")
 _BRACKET_ONLY = re.compile(r"^\s*[（(\[【]{1}.*[）)\]】]{1}\s*$")
 
 
+# Speaker-name label prefixing a cue: （ゼンゼ） / [孫悟空] / 【名】 — a metadata
+# label, not dialogue.  Corpus-discovered (Netflix JA + ZH).  Stripped before any
+# linguistic analysis so the name isn't tokenized/romanized/mis-joined.
+_SPEAKER_LABEL = re.compile(r"[（(【\[][^）)】\]]{1,10}[）)】\]]")
+
+
+def strip_speaker_labels(text: str) -> str:
+    """Remove leading/inline speaker-name labels and collapse the multi-speaker
+    newline so downstream analysis sees dialogue text only."""
+    t = (text or "")
+    # Only strip a label when it sits at a line/utterance start (after ^ / \n /
+    # a speaker dash) — an in-sentence parenthetical (real content) is left.
+    t = re.sub(r"(^|\n|[\-‐-―−－]\s*)" + _SPEAKER_LABEL.pattern, r"\1", t)
+    return t
+
+
 def is_multi_speaker(text: str) -> bool:
     """True when one cue holds ≥2 dash-prefixed utterances (speaker change)."""
     marks = _SPEAKER_DASH.findall(text or "")
@@ -133,34 +149,45 @@ def zh_completeness(text: str) -> str:
     return "unknown"
 
 
+# Trailing / leading punctuation that legitimately ends or starts an utterance —
+# a boundary here is a real break, never a mid-word split, so strip before joining.
+_EDGE_PUNCT = "。、，！？!?…‥「」『』【】（）()《》〈〉・～~　 \t\n\"'"
+
+
+def _clean_for_join(s: str, *, tail: bool) -> str:
+    """Speaker-label-stripped, whitespace-collapsed text for the boundary test."""
+    s = strip_speaker_labels(s or "")
+    s = re.sub(r"[ \t　]+", "", s)
+    return s.rstrip(_EDGE_PUNCT) if tail else s.lstrip(_EDGE_PUNCT)
+
+
 def boundary_word_split(tail: str, head: str, seg) -> str | None:
-    """Detect a WORD split across the cue boundary: if segmenting the join of
-    cue-N's last chars + cue-N+1's first chars yields a token that spans the
-    boundary (neither fragment produced it alone), return that word.  `seg` is a
-    callable text -> list[str] of word surfaces.  Returns None when no split."""
-    tail = (tail or "").strip()
-    head = (head or "").strip()
+    """Detect a WORD split across the cue boundary.
+
+    Position-free / whitespace-robust: we join tail+head, re-segment, and look
+    for a token that (a) neither fragment produced on its own AND (b) actually
+    STRADDLES the junction in the raw joined string (found via str.find, so the
+    segmenter's own whitespace/punct stripping can't skew the offset).  Speaker
+    labels and edge punctuation are stripped first — a break after 。 or after a
+    （名） label is not a mid-word split.  Returns the spanning word, else None."""
+    tail = _clean_for_join(tail, tail=True)
+    head = _clean_for_join(head, tail=False)
     if not tail or not head:
         return None
-    tail_words = seg(tail)
-    head_words = seg(head)
-    if not tail_words or not head_words:
-        return None
-    # Take a small window around the boundary (last 4 chars of tail, first 4 of
-    # head) so we don't re-segment whole long lines.
-    a = tail[-4:]
-    b = head[:4]
-    joined = seg(a + b)
-    # A boundary word = one that contains chars from BOTH sides.
-    i = len(a)
-    pos = 0
-    for w in joined:
-        start, end = pos, pos + len(w)
-        pos = end
-        if start < i < end and len(w) > 1:
-            # spans the boundary; confirm it's NOT just the two fragments re-cat
-            if w != (tail_words[-1] + head_words[0]) or len(w) > len(tail_words[-1]):
+    # Window the junction so we don't re-segment whole long lines.
+    a, b = tail[-8:], head[:8]
+    j = a + b
+    boundary = len(a)
+    frag = set(seg(a)) | set(seg(b))
+    for w in seg(j):
+        if len(w) < 2 or w in frag:
+            continue
+        # Does this (newly-formed) word occur ACROSS the junction?
+        idx = j.find(w)
+        while idx != -1:
+            if idx < boundary < idx + len(w):
                 return w
+            idx = j.find(w, idx + 1)
     return None
 
 
@@ -248,23 +275,29 @@ def _run_corpus(limit_tracks: int) -> int:
     ja_seg, jseg, tagger = _make_segmenters()
 
     stats: dict[str, Counter] = {}
-    samples: dict[str, list] = {"boundary_word_split": [], "incomplete": [], "multi_speaker": []}
+    samples: dict[str, list] = {"boundary_word_split": [], "incomplete": [],
+                                "multi_speaker": [], "speaker_label": []}
 
     with psycopg.connect(dsn, connect_timeout=10) as conn:
+        # NB: %% escapes the LIKE wildcard so psycopg doesn't read it as a param.
         tracks = conn.execute(
             "SELECT t.id, t.lang_code FROM corpus_track t "
-            "WHERE t.lang_code LIKE 'ja%' OR t.lang_code LIKE 'zh%' "
+            "WHERE lower(t.lang_code) LIKE 'ja%%' OR lower(t.lang_code) LIKE 'zh%%' "
             "ORDER BY t.id LIMIT %s", (limit_tracks,)).fetchall()
         for tid, lang_code in tracks:
             lang = "ja" if lang_code.lower().startswith("ja") else "zh"
             seg = ja_seg if lang == "ja" else jseg
             rows = conn.execute(
-                "SELECT text FROM corpus_line WHERE track = %s ORDER BY seq",
+                "SELECT text FROM corpus_line WHERE track_id = %s ORDER BY seq",
                 (tid,)).fetchall()
             cues = [r[0] for r in rows]
             c = stats.setdefault(lang, Counter())
             for i, cue in enumerate(cues):
                 c["cues"] += 1
+                if _SPEAKER_LABEL.search(cue or ""):
+                    c["speaker_label"] += 1
+                    if len(samples["speaker_label"]) < 40:
+                        samples["speaker_label"].append((lang, cue))
                 if is_non_dialogue(cue):
                     c["non_dialogue"] += 1
                     continue
@@ -272,7 +305,9 @@ def _run_corpus(limit_tracks: int) -> int:
                     c["multi_speaker"] += 1
                     if len(samples["multi_speaker"]) < 40:
                         samples["multi_speaker"].append((lang, cue))
-                comp = ja_completeness(cue, tagger) if lang == "ja" else zh_completeness(cue)
+                # Analyse dialogue text only — strip the （名）/[名] speaker label.
+                clean = strip_speaker_labels(cue).strip()
+                comp = ja_completeness(clean, tagger) if lang == "ja" else zh_completeness(clean)
                 c[comp] += 1
                 if comp == "incomplete" and len(samples["incomplete"]) < 40:
                     samples["incomplete"].append((lang, cue))
@@ -280,24 +315,39 @@ def _run_corpus(limit_tracks: int) -> int:
                     split = boundary_word_split(cues[i - 1], cue, seg)
                     if split:
                         c["boundary_word_split"] += 1
-                        if len(samples["boundary_word_split"]) < 60:
-                            samples["boundary_word_split"].append(
-                                (lang, cues[i - 1], cue, split))
+                        # High-precision subset: the split is only trustworthy
+                        # when the PREVIOUS cue was grammatically incomplete —
+                        # otherwise it's a coincidental re-merge (五四 / だなら).
+                        prev_clean = strip_speaker_labels(cues[i - 1]).strip()
+                        prev_comp = (ja_completeness(prev_clean, tagger)
+                                     if lang == "ja" else zh_completeness(prev_clean))
+                        bucket = "boundary_gated" if prev_comp == "incomplete" else "boundary_coincidental"
+                        c[bucket] += 1
+                        tgt = samples["boundary_word_split"] if bucket == "boundary_gated" else samples.setdefault("boundary_coincidental", [])
+                        if len(tgt) < 60:
+                            tgt.append((lang, cues[i - 1], cue, split))
 
     for lang, c in stats.items():
         n = max(1, c["cues"])
         print(f"\n=== {lang}  ({c['cues']} cues) ===")
-        for k in ("non_dialogue", "multi_speaker", "terminal", "incomplete",
-                  "unknown", "boundary_word_split"):
-            print(f"  {k:20} {c[k]:6}  {100*c[k]/n:5.1f}%")
-    print("\n--- sample boundary word splits (per-event mis-segmentation) ---")
-    for lang, prev, cue, w in samples["boundary_word_split"][:40]:
+        for k in ("speaker_label", "non_dialogue", "multi_speaker", "terminal",
+                  "incomplete", "unknown", "boundary_word_split",
+                  "boundary_gated", "boundary_coincidental"):
+            print(f"  {k:22} {c[k]:6}  {100*c[k]/n:5.1f}%")
+    print("\n--- GATED boundary splits (prev cue grammatically incomplete = REAL) ---")
+    for lang, prev, cue, w in samples["boundary_word_split"][:30]:
         print(f"  [{lang}] …{prev[-12:]!r} | {cue[:12]!r}…  → split word {w!r}")
+    print("\n--- COINCIDENTAL boundary 'splits' (prev cue complete = false merge) ---")
+    for lang, prev, cue, w in samples.get("boundary_coincidental", [])[:15]:
+        print(f"  [{lang}] …{prev[-12:]!r} | {cue[:12]!r}…  → merged {w!r}")
     print("\n--- sample multi-speaker cues ---")
     for lang, cue in samples["multi_speaker"][:20]:
         print(f"  [{lang}] {cue!r}")
     print("\n--- sample incomplete (continuation-candidate) cues ---")
     for lang, cue in samples["incomplete"][:20]:
+        print(f"  [{lang}] {cue!r}")
+    print("\n--- sample speaker-label cues (（名）/[名] metadata prefix) ---")
+    for lang, cue in samples["speaker_label"][:20]:
         print(f"  [{lang}] {cue!r}")
     return 0
 

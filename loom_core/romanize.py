@@ -100,10 +100,14 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       Only the langs with an annotation_func need the bump — Brahmic (hi,
     #       and future bn/ta/te/gu/pa) + Cyrillic (ru/uk).  Latin generics keep
     #       codepoint offsets (no spans), so they stay at v2.
-    "ja": 4,
-    "zh": 3,
-    "yue": 3,
-    "ko": 2,
+    #   ja v5 / zh v4 / yue v4 / ko v3: leading （名） speaker/SFX labels no longer
+    #       contribute a clickable word-token AND are stripped before the romaji
+    #       line — both the annotate `tokens` and the romanize output change for
+    #       any labelled line, so old cache rows for these langs are invalidated.
+    "ja": 5,
+    "zh": 4,
+    "yue": 4,
+    "ko": 3,
     "es": 2,
     "fr": 2,
     "de": 2,
@@ -3445,6 +3449,59 @@ def is_token_supported(lang_code: str) -> bool:
     return primary in SUPPORTED_TOKEN_PRIMARIES or primary in GENERIC_TOKEN_PRIMARIES
 
 
+# Leading speaker-name / SFX label in a subtitle cue: （フリーレン）, 【名】, [孫悟空],
+# （戦闘音）.  CJK streaming subs (Netflix especially) prefix ~1/3 of Japanese lines
+# and ~1/8 of Chinese lines with the speaker's name in brackets — metadata for the
+# hard-of-hearing, NOT dialogue.  It is left in DISPLAY (spans keep it, honoring
+# "Loom enhances information, not destroys it"), but excluded from ANALYSIS: no
+# dead-end clickable word-token over the name, and no pointless proper-noun romaji.
+# Matched only at the very start (optionally after a multi-speaker dash), body
+# capped at 16 chars so it can't swallow a sentence that merely opens with a paren.
+_LEADING_SPEAKER_LABEL = re.compile(
+    r"^[ \t　]*[\-‐‑‒–—―−－]?[ \t　]*"
+    r"[（(【\[][^）)】\]\n]{1,16}[）)】\]][ \t　\n]*"
+)
+
+
+def strip_leading_speaker_label(text: str) -> str:
+    """Return *text* with a single leading （名）/【名】/[名] speaker/SFX label removed.
+
+    Used for the romanization line only (a separate display line, so no per-char
+    misalignment).  If the cue is ENTIRELY a label (nothing after it), the text is
+    returned unchanged — a bare SFX cue has no dialogue body to prefer."""
+    stripped = _LEADING_SPEAKER_LABEL.sub("", text or "", count=1)
+    return stripped if stripped.strip() else (text or "")
+
+
+def _leading_label_span_count(spans: list) -> int:
+    """Number of leading annotation spans composing a （名） label, so their word-
+    tokens can be dropped.  0 when there is no leading label.  Works in the SPAN-
+    INDEX space the client uses to group clickable words (build_word_tokens)."""
+    if not spans:
+        return 0
+    full = "".join((s[0] or "") for s in spans)
+    m = _LEADING_SPEAKER_LABEL.match(full)
+    if not m or m.end() >= len(full):  # no label, or the whole cue is one label
+        return 0
+    cut = m.end()
+    acc = 0
+    for i, s in enumerate(spans):
+        acc += len(s[0] or "")
+        if acc >= cut:
+            return i + 1
+    return len(spans)
+
+
+def _drop_leading_label_tokens(tokens: list, spans: list) -> list:
+    """Drop word-tokens that fall within a leading speaker-label span range.
+    `tokens` are (word, lemma, pos, reading, start, length); `start` is a span
+    index.  No-op when there is no leading label."""
+    k = _leading_label_span_count(spans)
+    if not k:
+        return tokens
+    return [t for t in tokens if t[4] >= k]
+
+
 def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
     """Word-level tokens over the annotation `spans` (VOCAB_LOOKUP.md Phase 0).
 
@@ -3452,14 +3509,18 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
     get_annotation_func()/get_lang_config — reused here so token and span
     boundaries can't diverge (for the CJK/Korean paths).  Custom analyzers are
     tried FIRST; a space-delimited language with no bespoke path falls through to
-    the generic simplemma tokenizer.  Returns [] for unsupported languages."""
+    the generic simplemma tokenizer.  Returns [] for unsupported languages.
+
+    A leading （名） speaker/SFX label contributes no clickable tokens (metadata,
+    not vocab) — the label still renders (spans keep it), it just isn't a lookup
+    dead-end."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
-        return _japanese_tokens(spans, annotation_func)
+        return _drop_leading_label_tokens(_japanese_tokens(spans, annotation_func), spans)
     if primary in ("zh", "yue"):
-        return _chinese_tokens(text, spans, lang_code)
+        return _drop_leading_label_tokens(_chinese_tokens(text, spans, lang_code), spans)
     if primary == "ko":
-        return _korean_tokens(text, spans)
+        return _drop_leading_label_tokens(_korean_tokens(text, spans), spans)
     if primary in GENERIC_TOKEN_PRIMARIES:
         tokens = _generic_tokens(text, lang_code)
         # _generic_tokens reports CODEPOINT offsets.  When this language ALSO
@@ -3468,7 +3529,8 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
         # spans (Latin: annotation_func is None → spans == []) codepoint offsets
         # are already the right contract (client renders one segment/codepoint).
         if spans:
-            return _remap_char_offsets_to_spans(tokens, spans)
+            return _drop_leading_label_tokens(
+                _remap_char_offsets_to_spans(tokens, spans), spans)
         return tokens
     return []
 

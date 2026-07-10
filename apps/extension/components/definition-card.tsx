@@ -214,7 +214,9 @@ export function DefinitionCard({
       {state.kind === "ok" &&
       state.data.sources &&
       state.data.sources.length > 0 ? (
-        <div style={sourceStyle}>{state.data.sources.join(" · ")}</div>
+        <div style={sourceStyle}>
+          {state.data.sources.map((s) => SOURCE_LABELS[s] ?? s).join(" · ")}
+        </div>
       ) : null}
     </div>
   );
@@ -435,6 +437,13 @@ const sourceStyle: React.CSSProperties = {
   color: "#6f7d90",
   textTransform: "uppercase",
   letterSpacing: "0.04em",
+};
+
+// Pretty attribution labels for the dictionary sources (CC-BY-SA attribution).
+const SOURCE_LABELS: Record<string, string> = {
+  jmdict: "JMdict",
+  "cc-cedict": "CC-CEDICT",
+  krdict: "KRDict (NIKL)",
 };
 
 const breakdownLabelStyle: React.CSSProperties = {

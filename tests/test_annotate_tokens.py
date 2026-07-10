@@ -3,9 +3,10 @@
 Covers build_word_tokens() — JA morpheme→word merging (verb/aux chains collapse
 into one token whose lemma is the head's dictionary form) + contextual reading
 (topic は → わ) + lemma cleaning; ZH jieba grouping with exact span alignment
-incl. Traditional; unsupported langs → []; punctuation excluded — and the
-/annotate/batch route (tokens present on compute AND preserved across the
-result-cache round-trip).
+incl. Traditional; KO kiwipiepy morphology (word grouping + 다-form lemmas, incl.
+irregular conjugation with overlapping morpheme spans); unsupported langs → [];
+punctuation excluded — and the /annotate/batch route (tokens present on compute
+AND preserved across the result-cache round-trip).
 
 Token tuple shape (6): (word, lemma, pos, reading, start, length).
 """
@@ -126,13 +127,89 @@ def test_zh_lemma_equals_word_no_inflection():
 
 
 # --------------------------------------------------------------------------- #
-# Unsupported languages (Phase 0)
+# Korean (Phase 3 — kiwipiepy)
 # --------------------------------------------------------------------------- #
 
-def test_korean_yields_no_tokens():
-    _, toks = _tokens("ko", "안녕하세요")
-    assert toks == []
+def _kiwi_available() -> bool:
+    try:
+        from loom_core.romanize import _get_kiwi
+        return _get_kiwi() is not None
+    except Exception:
+        return False
 
+
+korean = pytest.mark.skipif(not _kiwi_available(), reason="kiwipiepy unavailable")
+
+
+@korean
+def test_ko_word_grouping_and_span_alignment():
+    spans, toks = _tokens("ko", "밥을 맛있게 먹었어요")
+    _assert_aligned(spans, toks)
+    words = [t[0] for t in toks]
+    # noun+particle, adverbial adjective, and the verb chain each group as one
+    # clickable word.
+    assert words == ["밥을", "맛있게", "먹었어요"]
+
+
+@korean
+def test_ko_predicate_lemma_is_dictionary_form():
+    # Inflected predicates resolve to their 다 dictionary form (KRDict headword).
+    by = {t[0]: t for t in _tokens("ko", "밥을 맛있게 먹었어요")[1]}
+    assert by["먹었어요"][1] == "먹다"     # verb
+    assert by["맛있게"][1] == "맛있다"     # adjective
+    assert by["밥을"][1] == "밥"          # noun: lemma == surface stem
+
+
+@korean
+def test_ko_irregular_conjugation_lemma():
+    # ㅂ-irregular (즐겁다) and vowel-contraction (빌리다) — kiwipiepy reports
+    # OVERLAPPING morpheme spans here; the tokenizer must still keep one word.
+    by = {t[0]: t for t in _tokens("ko", "학교생활이 즐거워요")[1]}
+    assert by["즐거워요"][1] == "즐겁다"
+    spans, toks = _tokens("ko", "책을 빌렸다")
+    _assert_aligned(spans, toks)
+    assert {t[0]: t for t in toks}["빌렸다"][1] == "빌리다"
+
+
+@korean
+def test_ko_derived_predicate_lemma():
+    # 하다/되다 verbs segment as noun + XSV; the lemma must reconstruct the
+    # DERIVED dictionary form (교역하다), which is the KRDict headword, not the
+    # bare noun (교역).  Bound roots (깨끗/XR) only exist in the derived form.
+    by = {t[0]: t for t in _tokens("ko", "열심히 공부했어요")[1]}
+    assert by["공부했어요"][1] == "공부하다"
+    by2 = {t[0]: t for t in _tokens("ko", "방이 깨끗하다")[1]}
+    assert by2["깨끗하다"][1] == "깨끗하다"
+
+
+@korean
+def test_ko_copula_attaches_to_noun():
+    # 학생이에요 → one word, lemma the noun 학생 (copula 이다 is enclitic).
+    by = {t[0]: t for t in _tokens("ko", "저는 학생이에요")[1]}
+    assert "학생이에요" in by
+    assert by["학생이에요"][1] == "학생"
+
+
+@korean
+def test_ko_reading_is_none_card_uses_define():
+    _, toks = _tokens("ko", "사람")
+    assert toks and toks[0][3] is None
+
+
+@korean
+def test_ko_punctuation_excluded():
+    _, toks = _tokens("ko", "안녕!")
+    assert all(_lookupable(t[0]) for t in toks)
+    assert "!" not in {t[0] for t in toks}
+
+
+def _lookupable(s: str) -> bool:
+    return any(c.isalnum() or ("가" <= c <= "힣") for c in s)
+
+
+# --------------------------------------------------------------------------- #
+# Unsupported languages (Phase 0)
+# --------------------------------------------------------------------------- #
 
 def test_thai_yields_no_tokens():
     func = get_annotation_func("th")

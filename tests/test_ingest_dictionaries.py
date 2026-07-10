@@ -106,3 +106,95 @@ def test_jmdict_entry_json_shape_drops_empty_tag_lists():
 def test_jmdict_entry_with_no_glosses_yields_nothing():
     word = {"id": "5", "kanji": [{"text": "空"}], "kana": [{"text": "から"}], "sense": [{"gloss": []}]}
     assert ingest.parse_jmdict_word(word, {}) == []
+
+
+def test_jmdict_default_gloss_lang_is_en():
+    word = {"id": "6", "kanji": [{"text": "本"}], "kana": [{"text": "ほん"}],
+            "sense": [{"partOfSpeech": ["n"], "gloss": [{"lang": "eng", "text": "book"}]}]}
+    assert ingest.parse_jmdict_word(word, {"n": "noun"})[0].gloss_lang == "en"
+
+
+# --------------------------------------------------------------------------- #
+# KRDict / NIKL LMF XML  (Korean → many languages)
+# --------------------------------------------------------------------------- #
+
+# Minimal LMF fragment mirroring the real DTD_LMF_REV_16 shape (feat att/val).
+_KRDICT_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<LexicalResource dtdVersion="16">
+  <GlobalInformation>
+    <feat att="label" val="한국어기초사전 - 국립국어원 제공" />
+  </GlobalInformation>
+  <Lexicon>
+    <feat att="language" val="kor" />
+    <LexicalEntry att="id" val="1001">
+      <feat att="homonym_number" val="0" />
+      <feat att="partOfSpeech" val="명사" />
+      <Lemma><feat att="writtenForm" val="사람" /></Lemma>
+      <WordForm><feat att="type" val="발음" /><feat att="pronunciation" val="사ː람" />
+        <feat att="sound" val="http://dicmedia.korean.go.kr/x.wav" /></WordForm>
+      <feat att="vocabularyLevel" val="초급" />
+      <Sense att="id" val="1">
+        <feat att="definition" val="생각을 하고 언어를 사용하는 동물." />
+        <Equivalent><feat att="language" val="영어" /><feat att="lemma" val="person" />
+          <feat att="definition" val="A being that thinks and speaks." /></Equivalent>
+        <Equivalent><feat att="language" val="일본어" /><feat att="lemma" val="ひと【人】" />
+          <feat att="definition" val="人。" /></Equivalent>
+        <Equivalent><feat att="language" val="중국어" /><feat att="lemma" val="人" /></Equivalent>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry att="id" val="1002">
+      <feat att="partOfSpeech" val="동사" />
+      <Lemma><feat att="writtenForm" val="먹다" /></Lemma>
+      <feat att="vocabularyLevel" val="없음" />
+      <Sense att="id" val="1">
+        <Equivalent><feat att="language" val="영어" /><feat att="lemma" val="to eat" /></Equivalent>
+      </Sense>
+    </LexicalEntry>
+  </Lexicon>
+</LexicalResource>
+"""
+
+
+def _write_krdict(tmp_path):
+    p = tmp_path / "krdict_chunk.xml"
+    p.write_text(_KRDICT_XML, encoding="utf-8")
+    return str(p)
+
+
+def test_krdict_one_row_per_gloss_language(tmp_path):
+    rows = list(ingest.parse_krdict(_write_krdict(tmp_path)))
+    person = [r for r in rows if r.headword == "사람"]
+    assert {r.gloss_lang for r in person} == {"en", "ja", "zh"}
+    assert all(r.lang == "ko" and r.source == "krdict" for r in person)
+
+
+def test_krdict_headword_reading_pos_common(tmp_path):
+    rows = list(ingest.parse_krdict(_write_krdict(tmp_path)))
+    en = next(r for r in rows if r.headword == "사람" and r.gloss_lang == "en")
+    assert en.reading == "사ː람"            # pronunciation, length mark kept
+    assert en.senses[0].pos == ["noun"]     # 명사 → noun
+    assert en.common is True                # 초급 → common
+    # gloss = [translated headword, translated definition]
+    assert en.senses[0].gloss == ["person", "A being that thinks and speaks."]
+
+
+def test_krdict_gloss_without_definition_keeps_headword_only(tmp_path):
+    rows = list(ingest.parse_krdict(_write_krdict(tmp_path)))
+    zh = next(r for r in rows if r.headword == "사람" and r.gloss_lang == "zh")
+    assert zh.senses[0].gloss == ["人"]     # no <definition> → just the equivalent
+
+
+def test_krdict_verb_headword_kept_in_dictionary_form(tmp_path):
+    # KRDict lists 먹다 (다-form) — the tokenizer's lemma must match THIS.
+    rows = list(ingest.parse_krdict(_write_krdict(tmp_path)))
+    verb = [r for r in rows if r.headword == "먹다"]
+    assert verb and verb[0].gloss_lang == "en" and verb[0].common is False
+    assert verb[0].senses[0].gloss == ["to eat"]
+
+
+def test_krdict_never_reads_media_urls(tmp_path):
+    # The sound/Multimedia URLs are not redistributable; they must not leak into
+    # any row (reading is the pronunciation string, never a URL).
+    rows = list(ingest.parse_krdict(_write_krdict(tmp_path)))
+    assert all("http" not in (r.reading or "") for r in rows)
+    assert all("http" not in g for r in rows for s in r.senses for g in s.gloss)

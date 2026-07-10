@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Ingest open bilingual dictionaries into Loom's ``dictionary_entry`` table.
 
-Backs the per-word vocabulary-lookup feature (see ``VOCAB_LOOKUP.md``).  Two
-sources, normalized into ONE row shape so ``/define`` can query either uniformly:
+Backs the per-word vocabulary-lookup feature (see ``VOCAB_LOOKUP.md``).  Three
+sources, normalized into ONE row shape so ``/define`` can query any uniformly:
 
 * **CC-CEDICT** (Chinese)  — ``繁 简 [pin1 yin1] /sense/sense/`` plain text.
-  License: CC-BY-SA 4.0 (MDBG).  ~124k entries.
+  License: CC-BY-SA 4.0 (MDBG).  ~124k entries.  gloss_lang=en.
 * **JMdict-simplified** (Japanese) — pre-parsed JSON of EDRDG JMdict.
-  License: CC-BY-SA 4.0 (EDRDG).  ~200k entries (full ``jmdict-eng``).
+  License: CC-BY-SA 4.0 (EDRDG).  ~200k entries (full ``jmdict-eng``).  gloss_lang=en.
+* **KRDict / NIKL 한국어기초사전** (Korean → 11 languages) — LMF XML.
+  License: CC-BY-SA 2.0 KR ("한국어기초사전 - 국립국어원 제공").  ~50k headwords,
+  each glossed in en/ja/zh/fr/es/ar/mn/vi/th/id/ru → one row per (word, gloss_lang).
 
 The PARSE layer (``parse_cedict`` / ``parse_jmdict``) is pure and DB-free so it
 can be validated without Postgres::
@@ -72,6 +75,7 @@ class DictEntry:
     common: bool
     source: str
     source_version: str
+    gloss_lang: str = "en"   # language the senses are written in (KRDict → 11 langs)
 
     def to_json(self) -> dict:
         return {
@@ -82,6 +86,7 @@ class DictEntry:
             "common": self.common,
             "source": self.source,
             "source_version": self.source_version,
+            "gloss_lang": self.gloss_lang,
         }
 
 
@@ -218,6 +223,96 @@ def parse_jmdict(path: str) -> Iterator[DictEntry]:
 
 
 # --------------------------------------------------------------------------- #
+# KRDict / NIKL 한국어기초사전  (Korean → 11 languages)
+# --------------------------------------------------------------------------- #
+#
+# Source format is NIKL's LMF XML (DTD_LMF_REV_16): an attribute/value tree of
+# `<feat att="…" val="…"/>` under nested elements.  Multilingual glosses live in
+# `<Equivalent>` blocks whose target language is a KOREAN-LANGUAGE NAME string
+# (영어 / 일본어 / …), NOT an ISO code.  Files are large (tens of MB); parsed with
+# iterparse so a chunk streams in constant memory.  License: CC-BY-SA 2.0 KR;
+# attribution "한국어기초사전 - 국립국어원 제공".  Media/audio URLs are NOT
+# redistributable and are deliberately never read.
+
+# `<Equivalent>` language name (as it appears in the data) → BCP-47 gloss code.
+_KRDICT_LANG = {
+    "영어": "en", "일본어": "ja", "중국어": "zh", "프랑스어": "fr",
+    "스페인어": "es", "아랍어": "ar", "몽골어": "mn", "베트남어": "vi",
+    "타이어": "th", "인도네시아어": "id", "러시아어": "ru",
+}
+
+# Korean partOfSpeech name → an English POS tag for the card (falls back to the
+# Korean label when unmapped; empty → no tag).
+_KRDICT_POS = {
+    "명사": "noun", "동사": "verb", "형용사": "adjective", "부사": "adverb",
+    "대명사": "pronoun", "관형사": "determiner", "감탄사": "interjection",
+    "조사": "particle", "수사": "numeral", "의존 명사": "bound noun",
+    "보조 동사": "auxiliary verb", "보조 형용사": "auxiliary adjective",
+    "어미": "ending", "접사": "affix", "품사 없음": "",
+}
+
+# vocabularyLevel values that mark a word as "common" (ranking signal only).
+_KRDICT_COMMON_LEVELS = {"초급", "중급"}
+
+
+def _krdict_pos(korean_pos: Optional[str]) -> list[str]:
+    p = (korean_pos or "").strip()
+    if not p:
+        return []
+    mapped = _KRDICT_POS.get(p, p)
+    return [mapped] if mapped else []
+
+
+def parse_krdict(path: str, version: str = "krdict") -> Iterator[DictEntry]:
+    """Yield normalized entries from ONE KRDict LMF XML file (a chunk).
+
+    Emits one row per (headword, gloss language): a Korean headword with its
+    pronunciation as ``reading`` and, for each `<Equivalent>` language, the
+    translated word + translated definition as that gloss-language's senses.
+    Korean-only monolingual definitions are skipped (learners read the glosses,
+    not the Korean definition).
+    """
+    import xml.etree.ElementTree as ET
+
+    def fv(parent, xpath: str) -> str:
+        """`val` of the first matching `<feat>` under *parent*, or "" (a feat can
+        exist with no `val` attribute → .get returns None)."""
+        el = parent.find(xpath)
+        return (el.get("val") or "").strip() if el is not None else ""
+
+    for _evt, le in ET.iterparse(path, events=("end",)):
+        if le.tag != "LexicalEntry":
+            continue
+        headword = fv(le, "Lemma/feat[@att='writtenForm']")
+        if not headword:
+            le.clear()
+            continue
+        pos = _krdict_pos(fv(le, "feat[@att='partOfSpeech']"))
+        reading = fv(le, "WordForm/feat[@att='pronunciation']") or None
+        common = fv(le, "feat[@att='vocabularyLevel']") in _KRDICT_COMMON_LEVELS
+
+        # Group each sense's foreign equivalents by gloss language.
+        per_lang: dict[str, list[Sense]] = {}
+        for sense in le.findall("Sense"):
+            for eq in sense.findall("Equivalent"):
+                iso = _KRDICT_LANG.get(fv(eq, "feat[@att='language']"))
+                if not iso:
+                    continue
+                w = fv(eq, "feat[@att='lemma']")
+                d = fv(eq, "feat[@att='definition']")
+                gloss = [g for g in (w, d) if g]
+                if gloss:
+                    per_lang.setdefault(iso, []).append(Sense(gloss=gloss, pos=pos))
+
+        for iso, senses in per_lang.items():
+            yield DictEntry(
+                lang="ko", headword=headword, reading=reading, senses=senses,
+                common=common, source="krdict", source_version=version, gloss_lang=iso,
+            )
+        le.clear()
+
+
+# --------------------------------------------------------------------------- #
 # Postgres load  (only reached in `ingest` mode)
 # --------------------------------------------------------------------------- #
 
@@ -230,8 +325,10 @@ CREATE TABLE IF NOT EXISTS dictionary_entry (
     senses         jsonb NOT NULL,
     common         boolean NOT NULL DEFAULT false,
     source         text NOT NULL,
-    source_version text NOT NULL
+    source_version text NOT NULL,
+    gloss_lang     text NOT NULL DEFAULT 'en'
 );
+ALTER TABLE dictionary_entry ADD COLUMN IF NOT EXISTS gloss_lang text NOT NULL DEFAULT 'en';
 CREATE INDEX IF NOT EXISTS dictionary_entry_lang_headword
     ON dictionary_entry (lang, headword);
 CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading
@@ -261,13 +358,13 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
             with conn.cursor() as cur:
                 cur.executemany(
                     "INSERT INTO dictionary_entry "
-                    "(lang, headword, reading, senses, common, source, source_version) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    "(lang, headword, reading, senses, common, source, source_version, gloss_lang) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                     [
                         (
                             e.lang, e.headword, e.reading,
                             json.dumps([s.to_json() for s in e.senses], ensure_ascii=False),
-                            e.common, e.source, e.source_version,
+                            e.common, e.source, e.source_version, e.gloss_lang,
                         )
                         for e in rows
                     ],
@@ -292,32 +389,58 @@ def load_to_postgres(entries: Iterable[DictEntry], dsn: str, *, batch: int = 500
 # CLI
 # --------------------------------------------------------------------------- #
 
-def _iter_all(cedict: Optional[str], jmdict: Optional[str]) -> Iterator[DictEntry]:
+def _expand_paths(paths: Optional[list[str]]) -> list[str]:
+    """Expand a list of file / directory / glob args into concrete files.  A
+    directory yields its *.xml children (KRDict ships as many numbered chunks)."""
+    import glob
+    import os
+    out: list[str] = []
+    for p in paths or []:
+        if os.path.isdir(p):
+            out.extend(sorted(glob.glob(os.path.join(p, "*.xml"))))
+        elif any(ch in p for ch in "*?["):
+            out.extend(sorted(glob.glob(p)))
+        else:
+            out.append(p)
+    return out
+
+
+def _iter_all(
+    cedict: Optional[str],
+    jmdict: Optional[str],
+    krdict: Optional[list[str]] = None,
+) -> Iterator[DictEntry]:
     if cedict:
         yield from parse_cedict(cedict)
     if jmdict:
         yield from parse_jmdict(jmdict)
+    for path in _expand_paths(krdict):
+        yield from parse_krdict(path)
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    """Parse both sources, print stats + sample entries for spot words."""
-    samples = args.sample or ["食べる", "たべる", "你好", "喜歡", "喜欢", "吃"]
+    """Parse all sources, print stats + sample entries for spot words."""
+    samples = args.sample or ["食べる", "たべる", "你好", "喜歡", "喜欢", "吃", "사람", "먹다"]
     wanted = set(samples)
     hits: dict[str, list[DictEntry]] = {w: [] for w in wanted}
 
-    counts = {"zh": 0, "ja": 0}
+    counts: dict[str, int] = {}
+    gloss_counts: dict[str, int] = {}
     total = 0
-    for e in _iter_all(args.cedict, args.jmdict):
+    for e in _iter_all(args.cedict, args.jmdict, args.krdict):
         total += 1
         counts[e.lang] = counts.get(e.lang, 0) + 1
+        gloss_counts[e.gloss_lang] = gloss_counts.get(e.gloss_lang, 0) + 1
         if e.headword in wanted:
             hits[e.headword].append(e)
 
-    print(f"=== parsed {total} rows  (zh={counts.get('zh',0)}  ja={counts.get('ja',0)}) ===\n")
+    langs = "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    glosses = "  ".join(f"{k}={v}" for k, v in sorted(gloss_counts.items()))
+    print(f"=== parsed {total} rows ===\n  by source-lang: {langs}\n  by gloss-lang:  {glosses}\n")
     for w in samples:
         rows = hits.get(w, [])
         print(f"--- {w!r}: {len(rows)} row(s) ---")
-        for e in rows[:2]:  # show at most 2 rows (e.g. trad + simp)
+        for e in rows[:3]:  # a few rows (e.g. trad+simp, or several gloss langs)
             print(json.dumps(e.to_json(), ensure_ascii=False, indent=1))
         print()
     return 0
@@ -329,7 +452,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     if not dsn:
         print("ingest requires --dsn or DATABASE_URL", file=sys.stderr)
         return 2
-    n = load_to_postgres(_iter_all(args.cedict, args.jmdict), dsn)
+    n = load_to_postgres(_iter_all(args.cedict, args.jmdict, args.krdict), dsn)
     print(f"loaded {n} rows into dictionary_entry")
     return 0
 
@@ -341,6 +464,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--cedict", help="path to cedict_*.txt (CC-CEDICT)")
     common.add_argument("--jmdict", help="path to jmdict-eng-*.json (JMdict-simplified)")
+    common.add_argument(
+        "--krdict", action="append",
+        help="KRDict LMF XML file, directory of chunks, or glob (repeatable)",
+    )
 
     pv = sub.add_parser("validate", parents=[common], help="parse + print stats/samples, no DB")
     pv.add_argument("--sample", action="append", help="headword to dump (repeatable)")

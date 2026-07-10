@@ -334,11 +334,31 @@ definable. That decision — and which language definitions are written in — i
   compound-noun gaps like 混ぜ入れる) are mostly NOT deinflectable (they're dictionary-coverage /
   decomposition territory). Deinflection is best-practice for tokenizer-LESS tools (Yomitan); we run
   MeCab, so it's redundant. Tests: +5 dictionary, +2 tokenizer; 292 py + 290 vitest green.
-- **Phase 3 — Korean:** 🔲 add morphological analyzer (`mecab-ko`/`khaiii`) + a usable KR dictionary;
-  then reuse the Phase 2 UX. NOTE (2026-07-08): Phase 3 is a NET-NEW language, NOT a better way to
-  solve the JA issues above — Korean's absence of word segmentation is unrelated to JA punctuation/
-  honorific/deinflection. Decide it on its own merits (K-drama audience; Korean has zero word-level
-  lookup today), not as a fix for Japanese.
+- **Phase 3 — Korean:** ✅ BUILT 2026-07-10 (backend; rides the next extension build for user
+  visibility). Two pieces:
+  - **Tokenizer** (`romanize.py::_korean_tokens`): **kiwipiepy** (chosen over mecab-ko/khaiii —
+    pip-installable manylinux wheels, no system deps → clean on Railway; live-validated). Korean
+    annotation spans are per-syllable (like Chinese), so the analyzer groups them into words and
+    recovers the DICTIONARY FORM: a content head (noun/verb/adj/…) opens a word, particles + endings
+    + suffixes attach, a space or the next head closes it. Lemma = KRDict headword: predicates get
+    stem + 다 (먹었어요 → 먹다, irregulars via kiwipiepy's normalized stem 즐거워요 → 즐겁다), and 하다/되다
+    derivations reconstruct the DERIVED form (공부했어요 → 공부하다, 깨끗하다 → 깨끗하다) rather than the bare
+    noun/root. Load-bearing detail: irregular conjugations give OVERLAPPING morpheme char-spans, so
+    attachment tests "no whitespace between", not exact adjacency. `SUPPORTED_TOKEN_PRIMARIES` += ko;
+    `ENGINE_VERSIONS["ko"]=2` (was [] tokens at the default v1). +8 token tests (kiwipiepy-gated skip).
+  - **Dictionary** (`ingest_dictionaries.py::parse_krdict`): **KRDict / NIKL 한국어기초사전**, the standout
+    multilingual source — Korean → up to **11 gloss languages** (en/ja/zh/fr/es/ar/mn/vi/th/id/ru),
+    **CC-BY-SA 2.0 KR**, bulk-redistributable. Format is NIKL LMF XML (`<feat att val>`); the target
+    language is a Korean NAME string (영어/일본어/…) mapped to BCP-47. One row per (headword, gloss_lang)
+    → the `gloss_lang` axis lights these up with no client change. Media/audio URLs never read
+    (not redistributable). Attribution "한국어기초사전 - 국립국어원 제공" added to `/privacy`. Parser
+    validated against a real 35 MB mirror chunk (spellcheck-ko); +8 parser tests.
+  - **Acquisition** (`DICTIONARY_SOURCES.md §5`): pull LMF chunks from the spellcheck-ko mirror
+    (git-versioned, no download gate) — but that 2019 snapshot has 10 languages, **no Chinese (중국어)**;
+    top up zh from a fresh official NIKL download later. Ingest: `python scripts/ingest_dictionaries.py
+    ingest --krdict <dir-of-chunks>` (idempotent per source).
+  Prior NOTE stands: Phase 3 is a NET-NEW language, not a fix for the JA issues — decided on its own
+  merits (K-drama / K-content audience; Korean had zero word-level lookup before this).
 
 ## 9. Open decisions
 

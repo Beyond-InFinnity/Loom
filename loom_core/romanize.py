@@ -85,9 +85,12 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       (Phase 2 §1/§2); ZH token tuple gained the same `reading` slot.
     #   v4: JA tokens strip leading/trailing punctuation from the clickable
     #       surface (は… → は), so the token's word/start/length can change.
+    #   ko v2: Korean word tokens added (Phase 3, kiwipiepy) — was [] at the
+    #       default v1, so old ko cache rows must be invalidated.
     "ja": 4,
     "zh": 3,
     "yue": 3,
+    "ko": 2,
 }
 
 
@@ -2931,12 +2934,14 @@ def get_annotation_func(lang_code: str, system: str = None):
 # get_annotation_func() produces per-token (Japanese) / per-character (Chinese)
 # annotation SPANS.  build_word_tokens() groups those spans into WORDS — the
 # clickable unit for the /define dictionary lookup — carrying the dictionary
-# lemma + POS the JA pipeline already computes, and the jieba word boundaries
-# the ZH romanizer already knows.  Only Japanese and Chinese (all variants)
-# produce tokens; every other language returns [] (Korean is Phase 3).
+# lemma + POS the JA pipeline already computes, the jieba word boundaries the ZH
+# romanizer already knows, and (Phase 3) the kiwipiepy morphology the Korean
+# analyzer provides.  Japanese, Chinese (all variants) and Korean produce
+# tokens; every other language returns [].
 #
-# A token is a 5-tuple: (word, lemma_or_None, pos_list, span_start, span_length)
-# where spans[span_start : span_start + span_length] compose the word.
+# A token is a 6-tuple: (word, lemma_or_None, pos_list, reading_or_None,
+# span_start, span_length) where spans[span_start : span_start + span_length]
+# compose the word.
 
 _t2s_converter = None
 
@@ -3065,11 +3070,149 @@ def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
     return tokens
 
 
+# Korean word tokenization (VOCAB_LOOKUP.md Phase 3).  Korean annotation spans
+# are per-SYLLABLE (like Chinese), so — as with jieba for Chinese — we need a
+# real morphological analyzer to group syllables into WORDS and, crucially, to
+# recover each word's DICTIONARY FORM (먹었어요 → 먹다) so /define hits the KRDict
+# headword.  kiwipiepy is the analyzer: pip-installable (manylinux wheels, no
+# system deps → clean on Railway), actively maintained, good quality.
+_kiwi = None
+_kiwi_failed = False
+
+
+def _get_kiwi():
+    """Lazily-built, cached kiwipiepy Kiwi analyzer.  Returns None (once) if the
+    package isn't installed / fails to load — Korean tokens then degrade to []
+    exactly like an unsupported language, never raising into the request."""
+    global _kiwi, _kiwi_failed
+    if _kiwi is not None:
+        return _kiwi
+    if _kiwi_failed:
+        return None
+    try:
+        from kiwipiepy import Kiwi  # lazy — heavy model load, build once
+        _kiwi = Kiwi()
+    except Exception:  # noqa: BLE001 — any import/model failure → graceful None
+        _kiwi_failed = True
+        return None
+    return _kiwi
+
+
+# kiwipiepy (Sejong) tags that ATTACH to the preceding content word rather than
+# starting their own: particles (J*), verb/adjective endings (E*), derivational
+# suffixes (XS*), and the copula 이다 (VCP — enclitic on its noun).  Everything
+# not here and not punctuation is a content HEAD that starts a new word.
+_KO_ATTACH_TAGS = frozenset({
+    "JKS", "JKC", "JKG", "JKO", "JKB", "JKV", "JKQ", "JX", "JC",  # particles
+    "EP", "EF", "EC", "ETN", "ETM",                               # endings
+    "XSN", "XSV", "XSA", "XSM",                                   # deriv suffixes
+    "VCP",                                                        # copula 이다
+})
+# Punctuation / symbol tags — break the current word and get no clickable token.
+_KO_PUNCT_TAGS = frozenset({"SF", "SP", "SS", "SE", "SO", "SW"})
+# Predicate heads whose dictionary form is stem + 다 (kiwipiepy normalizes the
+# stem, incl. irregular conjugations: 도왔어요 → 돕 → 돕다; 예뻐요 → 예쁘 → 예쁘다).
+_KO_PREDICATE_TAGS = frozenset({"VV", "VA", "VX", "VCN"})
+# Derivational suffixes that turn a noun/root into a predicate: 하다/되다 verbs
+# (XSV) and 하다 adjectives (XSA).  KRDict lists the DERIVED form (교역 + 하 →
+# 교역하다; 깨끗 + 하 → 깨끗하다), so the lemma must reconstruct it, not stop at the
+# bare noun/root (깨끗/XR isn't even a standalone headword).
+_KO_DERIV_PRED_TAGS = frozenset({"XSV", "XSA"})
+
+
+def _ko_has_space(sub: str) -> bool:
+    """True if a between-morphemes slice contains whitespace (a real word break,
+    vs the zero-gap / overlapping spans within one inflected word)."""
+    return any(c.isspace() for c in sub)
+
+
+def _korean_lemma(head_form: str, head_tag: str, deriv_form: str) -> "str | None":
+    """Dictionary form (KRDict headword) for a Korean word group.
+
+    - noun/root + 하/되 derivational suffix → head + suffix + 다 (교역 → 교역하다);
+    - a bare predicate head → head + 다 (먹다);
+    - anything else → the head form as-is (nouns, adverbs, …)."""
+    if not head_form:
+        return None
+    if deriv_form:
+        return head_form + deriv_form + "다"
+    if head_tag in _KO_PREDICATE_TAGS:
+        return head_form + "다"
+    return head_form
+
+
+def _korean_tokens(text: str, spans: list) -> list:
+    """Group per-syllable Korean spans into WORD tokens via kiwipiepy.
+
+    Spans are atomic characters over _strip_ass(text) (one per char, exactly
+    like Chinese), so a kiwipiepy morpheme's char offset maps straight to a span
+    index.  A content-head morpheme (noun / verb / adjective / adverb / …) opens
+    a word; trailing particles + endings + suffixes attach to it; a char gap
+    (space) or the next content head closes it.  The word's clickable surface is
+    the original slice (먹었어요) and its lemma is the head's dictionary form
+    (먹다) so /define resolves against the KRDict headword — the Korean analogue
+    of the Japanese morpheme→word merge."""
+    clean = _strip_ass(text)
+    if len(spans) != len(clean):
+        return []  # alignment broken (unexpected) — omit tokens, don't mis-map
+    kiwi = _get_kiwi()
+    if kiwi is None:
+        return []
+
+    tokens: list = []
+    # cur = [start, end, head_form, head_tag, deriv_form] for the word in
+    # progress (deriv_form = the 하/되 suffix that derived a predicate, or "").
+    cur: list | None = None
+
+    def flush() -> None:
+        nonlocal cur
+        if cur is None:
+            return
+        s, e, head_form, head_tag, deriv_form = cur
+        word = clean[s:e]
+        if _is_lookupable_word(word):
+            lemma = _korean_lemma(head_form, head_tag, deriv_form) or word
+            pos = [head_tag] if head_tag else []
+            tokens.append((word, lemma, pos, None, s, e - s))
+        cur = None
+
+    for m in kiwi.tokenize(clean):
+        # kiwipiepy marks irregular vs regular conjugation with a "-I"/"-R"
+        # suffix (VA-I, VV-R, …); the base tag is what our tag sets key on.
+        base = m.tag.split("-", 1)[0]
+        start, end = m.start, m.start + m.len
+        if base in _KO_PUNCT_TAGS:
+            flush()
+            continue
+        # An attach morpheme joins the current word UNLESS a space separates
+        # them.  The looser "no whitespace between" test (vs exact adjacency) is
+        # load-bearing: irregular conjugations contract stem + ending into a
+        # shared syllable, so kiwipiepy reports OVERLAPPING char spans for them
+        # (즐거워요 → 즐겁 [0,3) + 어요 [2,4)).  Overlap ⇒ same word.
+        joins = (
+            base in _KO_ATTACH_TAGS
+            and cur is not None
+            and (start < cur[1] or not _ko_has_space(clean[cur[1]:start]))
+        )
+        if joins:
+            if end > cur[1]:
+                cur[1] = end  # extend (max — overlapping spans mustn't shrink it)
+            if base in _KO_DERIV_PRED_TAGS and not cur[4]:
+                cur[4] = m.form  # 하/되 derived a predicate → reconstruct 다-form
+        else:
+            flush()
+            cur = [start, end, m.form, base, ""]
+    flush()
+    return tokens
+
+
 # Languages build_word_tokens can segment into clickable words.  Used by the
 # /define capabilities endpoint to intersect with the dictionaries that exist —
 # a source language is "definable" only if it has BOTH a dictionary and a
-# tokenizer.  Extend this when a new tokenizer lands (e.g. a Korean analyzer).
-SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue"})
+# tokenizer.  Extend this when a new tokenizer lands.  (ko needs kiwipiepy at
+# runtime; if it's absent, tokens degrade to [] and capabilities still won't
+# expose ko because no ko dictionary would be present either.)
+SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue", "ko"})
 
 
 def is_token_supported(lang_code: str) -> bool:
@@ -3083,13 +3226,15 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
 
     `spans` and `annotation_func` are the ones the caller already computed via
     get_annotation_func()/get_lang_config — reused here so token and span
-    boundaries can't diverge.  Returns [] for every language except Japanese
-    and Chinese."""
+    boundaries can't diverge.  Returns [] for every language except Japanese,
+    Chinese and Korean."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
         return _japanese_tokens(spans, annotation_func)
     if primary in ("zh", "yue"):
         return _chinese_tokens(text, spans, lang_code)
+    if primary == "ko":
+        return _korean_tokens(text, spans)
     return []
 
 

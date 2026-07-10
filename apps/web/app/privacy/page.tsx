@@ -147,9 +147,9 @@ export default function Privacy() {
 
             <Section title="Dictionary data & licenses">
               <p>
-                The per-word definitions Loom shows come from two open community
-                dictionaries, used under the Creative Commons
-                Attribution-ShareAlike 4.0 license (CC BY-SA 4.0):
+                The per-word definitions Loom shows come from open community
+                dictionaries, used under Creative Commons Attribution-ShareAlike
+                licenses:
               </p>
               <ul className="ml-5 list-disc space-y-2">
                 <li>
@@ -195,10 +195,32 @@ export default function Privacy() {
                   </a>
                   .
                 </li>
+                <li>
+                  <strong className="text-foreground/80">Korean —</strong>{" "}
+                  Korean Basic Dictionary (한국어기초사전), provided by the{" "}
+                  <a
+                    href="https://krdict.korean.go.kr/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    National Institute of Korean Language
+                  </a>
+                  , used under{" "}
+                  <a
+                    href="https://creativecommons.org/licenses/by-sa/2.0/kr/"
+                    className="text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    CC BY-SA 2.0 KR
+                  </a>
+                  .
+                </li>
               </ul>
               <p>
                 Each definition card also names its source dictionary. Loom’s use
-                of this data does not imply either project endorses Loom.
+                of this data does not imply any of these projects endorses Loom.
               </p>
             </Section>
 

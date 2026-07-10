@@ -150,12 +150,26 @@ def key(w: str) -> str:
 
 def _candidates(word: str, alts: Optional[List[str]]) -> List[str]:
     """Ordered, de-duplicated lookup keys for one requested word: the primary
-    key first, then its alternates (surface form, etc.).  Blank keys dropped."""
+    key first, then its alternates (surface form, etc.), then a lowercased
+    fallback for each.  Blank keys dropped.
+
+    The lowercase fallback rescues sentence-initial capitalization: the FIRST
+    word of every subtitle line is capitalized (Polish "Koty", Russian "Кошки")
+    but most Wiktextract dictionaries hold lowercase headwords.  The exact form
+    is always tried FIRST, so case-bearing dictionaries — German, whose nouns are
+    capitalized (Kinder, Brot) — still hit as-is and never fall through.  For
+    caseless scripts (CJK/Korean) .lower() is a no-op, so this is inert there.
+    (Turkish İ→i̇ is NOT solved by plain .lower(); it needs a locale casefold —
+    tracked as a known limitation.)"""
     out: List[str] = []
     for k in [word, *(alts or [])]:
         nk = key(k)
         if nk and nk not in out:
             out.append(nk)
+    for k in list(out):
+        lk = k.lower()
+        if lk != k and lk not in out:
+            out.append(lk)
     return out
 
 

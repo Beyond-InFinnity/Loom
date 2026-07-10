@@ -198,6 +198,34 @@ def test_route_alt_keys_optional_and_backcompat(mem_store, define_handler):
     assert handler(Req(lang="ja", words=["犬"])).results[0].found is True
 
 
+def test_route_case_insensitive_fallback_for_sentence_initial(mem_store, define_handler):
+    # A sentence-initial capitalized word (Polish "Koty") must resolve to the
+    # lowercase dictionary headword — every subtitle line's first word is caps.
+    handler, Req = define_handler
+    mem_store.add("pl", "koty", None, [{"gloss": ["cats"]}], source="wiktextract")
+    r = handler(Req(lang="pl", words=["Koty"])).results[0]
+    assert r.found is True
+    assert r.word == "Koty"                       # original echoed back verbatim
+    assert r.senses[0].gloss == ["cats"]
+
+
+def test_route_exact_case_wins_over_lowercase(mem_store, define_handler):
+    # German nouns are capitalized in the dictionary; the exact form must be
+    # tried FIRST so "Kinder" hits its own row, not a spurious lowercase one.
+    handler, Req = define_handler
+    mem_store.add("de", "Kinder", None, [{"gloss": ["children"]}], source="wiktextract")
+    r = handler(Req(lang="de", words=["Kinder"])).results[0]
+    assert r.found is True and r.senses[0].gloss == ["children"]
+
+
+def test_candidates_appends_lowercase_after_exact():
+    from loom_api.routes.define import _candidates
+    # exact forms first, lowercase variants appended (order matters for cased dicts)
+    assert _candidates("Koty", None) == ["Koty", "koty"]
+    assert _candidates("犬", None) == ["犬"]        # caseless → no duplicate
+    assert _candidates("kot", None) == ["kot"]      # already lowercase → no dup
+
+
 # --------------------------------------------------------------------------- #
 # Japanese Hepburn romaji on /define
 # --------------------------------------------------------------------------- #

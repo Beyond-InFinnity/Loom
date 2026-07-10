@@ -124,6 +124,17 @@ export function pickTarget(
   return foreign[0];
 }
 
+/** Best single track to show when there's no foreign/native SPLIT to make —
+    i.e. every track is the user's own language (English-only for an English
+    user), so `pickTarget` returns null.  Loom still shows ONE line (the media
+    is worth watching with Loom's styling, and dictionary lights up if/when the
+    language is definable), so pick the cleanest track: manual > ASR, plain
+    subtitles > SDH.  Returns null only for an empty tracklist. */
+export function pickPrimary(tracks: CaptionTrack[]): CaptionTrack | null {
+  if (tracks.length === 0) return null;
+  return preferStandard(tracks);
+}
+
 /** Rank a track for auto-pick: manual beats ASR, and a plain `subtitles`
     track beats an SDH `closedcaptions` one.  Higher score = better.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoPick, pickNative, pickTarget } from "./auto-pick";
+import { autoPick, pickNative, pickPrimary, pickTarget } from "./auto-pick";
 import type { CaptionTrack } from "./types";
 
 const t = (
@@ -248,9 +248,9 @@ describe("autoPick — real-world tracklists", () => {
     expect(r.native?.languageCode).toBe("en");
   });
 
-  it("English-only video for English user — unsupported case", () => {
+  it("English-only video for English user — no foreign target (pickPrimary promotes it in discover)", () => {
     const r = autoPick([t("en-US"), t("en-GB")], "en");
-    expect(r.target).toBeNull();
+    expect(r.target).toBeNull(); // no FOREIGN track; discover.ts single-lines it
     expect(r.native?.languageCode).toBe("en-US");
   });
 
@@ -262,5 +262,46 @@ describe("autoPick — real-world tracklists", () => {
     expect(r.target?.languageCode).toBe("ja");
     expect(r.target?.kind).toBe("asr");
     expect(r.native?.languageCode).toBe("en");
+  });
+});
+
+// pickPrimary is the single-line promotion: when pickTarget returns null (no
+// FOREIGN track relative to the user), Loom still shows ONE line and this
+// chooses the cleanest track for it.  (discover.ts wires it as the target so
+// the line gets styling + annotation + dictionary.)
+describe("pickPrimary — single-line promotion", () => {
+  it("returns null for an empty tracklist", () => {
+    expect(pickPrimary([])).toBeNull();
+  });
+
+  it("returns the only track when there is one", () => {
+    expect(pickPrimary([t("en")])?.languageCode).toBe("en");
+  });
+
+  it("prefers manual over ASR", () => {
+    const picked = pickPrimary([t("en", "asr"), t("en-GB", "manual")]);
+    expect(picked?.kind).toBe("manual");
+  });
+
+  it("prefers a plain subtitles track over SDH/CC", () => {
+    const cc = t("en", "manual", "English (CC)", true);
+    const std = t("en", "manual", "English", false);
+    expect(pickPrimary([cc, std])?.isCc).toBe(false);
+  });
+
+  it("rescues the all-native case pickTarget rejects", () => {
+    const tracks = [t("en-US"), t("en-GB")];
+    // pickTarget bails (every track is native)...
+    expect(pickTarget(tracks, "en")).toBeNull();
+    // ...but pickPrimary still yields the line Loom will show.
+    expect(pickPrimary(tracks)?.languageCode).toBe("en-US");
+  });
+
+  it("gives a definable-language single line for a native speaker (zh-only, zh user)", () => {
+    // A Chinese user watching a Chinese-only video: no foreign track, but the
+    // one Chinese line is fully definable (CC-CEDICT).
+    const tracks = [t("zh-Hans")];
+    expect(pickTarget(tracks, "zh")).toBeNull();
+    expect(pickPrimary(tracks)?.languageCode).toBe("zh-Hans");
   });
 });

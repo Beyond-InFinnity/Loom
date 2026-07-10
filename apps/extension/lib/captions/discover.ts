@@ -27,7 +27,7 @@
 //     without re-clicking CC.
 
 import { ISO_SOURCE, MAIN_SOURCE, logDev } from "../env";
-import { autoPick } from "./auto-pick";
+import { autoPick, pickPrimary } from "./auto-pick";
 import { getPlatform } from "./platform";
 import {
   classifyLang,
@@ -442,9 +442,18 @@ async function resolveCaptions(): Promise<void> {
     session.tracks,
     nativeLangPref,
   );
-  const target = session.targetOverride ?? autoTarget;
+
+  // Target (Top line) resolution.  When there's no FOREIGN track relative to
+  // the user's native language (e.g. English-only media for an English user),
+  // autoTarget is null — but we no longer bail.  Instead pickPrimary promotes
+  // the cleanest available track into the target role so the one line still
+  // gets the full Top treatment (styling + annotation + dictionary if the
+  // language is definable).  A single line is independently worth showing.
+  const target =
+    session.targetOverride ?? autoTarget ?? pickPrimary(session.tracks);
 
   if (target === null) {
+    // Genuinely nothing to show — an empty tracklist.
     emit({
       ...buildBasePayload(),
       status: { kind: "unsupported", reason: "no-supported-track" },
@@ -452,22 +461,48 @@ async function resolveCaptions(): Promise<void> {
     return;
   }
 
-  // Native source resolution.  Three cases:
-  //   1. User picked a track → use it
-  //   2. autoPick found en-family track → use it
-  //   3. Nothing found → implicit fallback: target source + tlang=nativeLangPref
+  // Native (Bottom line) source resolution.  Cases:
+  //   1. User picked a native track → use it.
+  //   2. autoPick found a DISTINCT native-family track → use it.
+  //   3. Real foreign target, no native track, platform can translate →
+  //      implicit fallback: target source + tlang=nativeLangPref (YouTube MT).
+  //   4. Otherwise → SINGLE-LINE MODE: no Bottom at all.  Covers a single
+  //      foreign track on a non-translate platform (Netflix / Prime / iQIYI /
+  //      WeTV) AND all-native media (English-only for an English user).
   //
-  // tlang follows the same precedence: explicit user override beats
-  // implicit fallback.
+  // Two guards make single-line correct:
+  //  - `targetIsPromotedNative`: when there's no foreign track, pickPrimary put
+  //    a NATIVE-language track on top.  There's no foreign→native translation
+  //    to make, so the MT fallback must not fire (it would MT English→English).
+  //  - `autoNativeDistinct`: in that same case autoPick's native match IS the
+  //    track we promoted to Top — drawing it as Bottom too would duplicate the
+  //    one line.  Only a native track with a DIFFERENT id counts.
+  // The fallback is also gated on supportsTranslate: a platform that ignores
+  // tlang would refetch the SAME track → the foreign line rendered twice.
+  const canTranslate = getPlatform()?.supportsTranslate ?? false;
   const nativeUserPicked = session.nativeOverride !== null;
-  const nativeSrc: CaptionTrack | null =
-    session.nativeOverride ?? autoNative ?? target;
   let nativeTlang: string | null = session.nativeTranslateTo;
+  const targetIsPromotedNative =
+    session.targetOverride === null && autoTarget === null;
+  const autoNativeDistinct =
+    autoNative !== null && autoNative.id !== target.id ? autoNative : null;
   const usingImplicitNativeFallback =
-    !nativeUserPicked && autoNative === null && nativeTlang === null;
+    !targetIsPromotedNative &&
+    !nativeUserPicked &&
+    autoNativeDistinct === null &&
+    nativeTlang === null &&
+    canTranslate;
   if (usingImplicitNativeFallback) {
     nativeTlang = nativeLangPref;
   }
+  // The Bottom line exists only if something anchors it: a picked track, a
+  // distinct auto native track, or a tlang (explicit or implicit-fallback).
+  const wantsNative =
+    nativeUserPicked || autoNativeDistinct !== null || nativeTlang !== null;
+  const singleLine = !wantsNative;
+  const nativeSrc: CaptionTrack | null = singleLine
+    ? null
+    : session.nativeOverride ?? autoNativeDistinct ?? target;
 
   // Fetch in parallel, but check cache first.
   const videoId = session.videoId ?? "";
@@ -477,12 +512,16 @@ async function resolveCaptions(): Promise<void> {
     target,
     session.targetTranslateTo ?? undefined,
   );
-  const nativePromise = fetchWithCache(
-    videoId,
-    session.acquisitionHandle,
-    nativeSrc,
-    nativeTlang ?? undefined,
-  );
+  // Single-line mode has no Bottom source — skip the fetch entirely rather
+  // than fabricate/duplicate a line.
+  const nativePromise: Promise<CaptionEvent[] | null> = nativeSrc
+    ? fetchWithCache(
+        videoId,
+        session.acquisitionHandle,
+        nativeSrc,
+        nativeTlang ?? undefined,
+      )
+    : Promise.resolve(null);
 
   const [targetEvents, nativeEvents] = await Promise.all([
     targetPromise,
@@ -504,7 +543,9 @@ async function resolveCaptions(): Promise<void> {
 
   const effectiveTargetLang =
     session.targetTranslateTo ?? target.languageCode;
-  const effectiveNativeLang = nativeTlang ?? nativeSrc.languageCode;
+  // "" in single-line mode (no Bottom); harmless — the native annotation /
+  // romanization fetches no-op on empty nativeEvents regardless of lang.
+  const effectiveNativeLang = nativeTlang ?? nativeSrc?.languageCode ?? "";
 
   logDev(
     "[Loom ISO] resolve gen",
@@ -517,7 +558,7 @@ async function resolveCaptions(): Promise<void> {
     "→",
     targetEvents?.length ?? 0,
     "events; native",
-    nativeSrc.languageCode,
+    nativeSrc?.languageCode ?? "(single-line: none)",
     nativeTlang ? `→ tlang=${nativeTlang}` : "(no tlang)",
     "→",
     nativeEvents?.length ?? 0,
@@ -939,8 +980,17 @@ function buildBasePayload(): CaptionPayload {
     session.tracks,
     nativeLangPref,
   );
-  const selectedTarget = session.targetOverride ?? autoTarget;
-  const selectedNative = session.nativeOverride ?? autoNative;
+  // Mirror resolveCaptions' target resolution (incl. the single-line
+  // promotion) so the settings panel shows the language + phonetic defaults the
+  // pipeline actually acts on for all-native / single-track media.
+  const selectedTarget =
+    session.targetOverride ?? autoTarget ?? pickPrimary(session.tracks);
+  // Don't show the promoted single-line track as the Bottom source too: in
+  // all-native media autoNative is that very track.  Only a DISTINCT auto
+  // native counts (an explicit override always wins).
+  const selectedNative =
+    session.nativeOverride ??
+    (autoNative && autoNative.id !== selectedTarget?.id ? autoNative : null);
   // Resolve the Top layer's display language so the romanize-enable +
   // phonetic-system defaults shown in the UI match what the pipeline
   // actually fetches (tlang override beats the source track's lang).

@@ -184,16 +184,25 @@ already covers native editions.
 
 **Recommended sequence for lever 5** (by value × our existing source rows):
 1. ✅ **es edition — DONE / LIVE** (validated the whole approach; diagonal 98.3%).
-2. **ja / zh editions next** — the ZH↔JA pair has NO open direct dictionary; these are the only
-   native fill (thin: ~59–93k cross senses) and the highest-demand pair for our audience. Same command,
-   `--wiktextract-gloss-lang ja` / `zh`. NOTE: for CJK editions the source-lang FILTER matters (keep
-   ja/zh/ko + the langs we tokenize); the diagonal is CJK, so it's the monolingual-CJK win too.
-3. **fr / de / ru editions** — fill the columns for our other big user languages (each richly
-   self-defines on the diagonal for monolingual mode).
-4. **pt / it / pl / nl / … as demand appears** — pure repeat of the loop (one download + one ingest).
+2. ✅ **ja edition — DONE / LIVE** (423,874 rows). Prod-harness (tokenize via live `/annotate` MeCab,
+   check native gloss in DB): **ja→ja 90.2%** (monolingual Japanese — net-new), **zh→ja 57.5%** (the
+   ZH↔JA gap-filler, the only open native fill; English-backstopped). Live: `/define` gloss_lang=ja
+   猫→"（ねこ…）ネコ科を構成する小型の哺乳類…", zh 猫→"ねこ。".
+3. 🔴 **zh edition — BLOCKED on disk (2026-07-10).** The zhwiktionary extract is the 3.36M-sense
+   monster; ingesting it hit a hard **`DiskFull` on the Railway Postgres volume** (full at ~3.5 GB
+   data). Relieved by dropping the `dictionary_entry_source_lang_gloss` index (70 MB, recreated by
+   `_SCHEMA` on next ingest) + VACUUM → DB back to 3.25 GB and writable. **Decision owed (Connor):**
+   (a) EXPAND the Railway volume (dashboard → Postgres → Volume; clean, ~billing) — then zh + future
+   columns fit; or (b) TRIM footprint — DROP "form of" inflection rows (~70% of Wiktextract; our
+   tokenizers lemmatize so the base headword usually hits — small recall cost, roughly HALVES the
+   Wiktextract footprint, freeing room for zh + more); or (c) zh **diagonal-only** (keep_langs=zh,ja,ko)
+   to shrink the zh ingest. Until then zh definitions come from CC-CEDICT (en) + the zh column is deferred.
+4. **fr / de / ru editions, then pt / it / pl / nl …** — the same loop, gated on the disk decision.
 
-The loop is now: download `kaikki.org/<xx>wiktionary/raw-wiktextract-data.jsonl` → (optional harness)
+The loop is: download `kaikki.org/<xx>wiktionary/raw-wiktextract-data.jsonl` → (optional harness)
 → `ingest --wiktextract <file> --wiktextract-gloss-lang <xx> --wiktextract-keep-langs <supported set>`.
+`load_to_postgres` now COPY-streams with periodic commits (200k rows) + TCP keepalives — resilient to
+a proxy drop, but NOT to a full volume (a capacity limit, not a code bug).
 
 **Flags / could-not-fully-verify:** HanDeDict exact count (blurb only); EDRDG's own pages
 wouldn't render a total (JMdict total sourced from jmdict-simplified); CFDICT's two conflicting

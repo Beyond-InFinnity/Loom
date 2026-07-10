@@ -123,8 +123,8 @@ build (0.4.0 hardcodes {ja,zh}). Runbook below kept for re-ingest (idempotent pe
    for any future source language.
 4. **HanDeDict / CFDICT** — ✅ **DONE / LIVE** — ZH→de (264,827) / ZH→fr (95,363), CEDICT-format via
    `parse_cedict(source=…, gloss_lang=…)`. **Chinese row now en·fr·de.**
-5. **Native kaikki editions** — 🔲 **NEXT** (scoped below) — the one remaining lever that fills whole
-   gloss COLUMNS instead of single cells.
+5. **Native kaikki editions** — 🟡 **VALIDATED + FIRST COLUMN LIVE** (eswiktionary, 2026-07-10) — the
+   lever that fills whole gloss COLUMNS. Schema + parser proven, es column ingested; see below.
 
 **State after 1–4:** `dictionary_entry` = **7.6M rows / 20 source langs / 16 gloss langs / 2.77 GB**.
 Ingest is now COPY-based (183k rows in ~30 s) with TCP keepalives + a (source,lang,gloss_lang) index.
@@ -156,22 +156,44 @@ English column as the universal fallback under every gap.
 | `kowiktionary` | ko | 379,582 | 114,102 | thin foreign blocks, "WIP" quality (Tier-2) |
 | + pt/it/pl/nl/cs/tr/id/vi/th | those cols | — | — | 20+ editions exist |
 
-**Work required (why it's "medium," not "free").** The native-edition JSONL schema differs from the
-English `kaikki.org/dictionary/` schema `parse_wiktextract` handles today (senses nest differently; the
-gloss language is the EDITION, not per-gloss `lang`). So lever 5 needs a **`parse_wiktextract_native`
-variant** (or a schema-detecting branch) that (a) sets `gloss_lang` = the edition code, (b) reads the
-edition's sense/gloss shape, (c) still filters by `lang_code` so one edition can ingest many source
-rows. Then it's the same harness-gate → COPY-ingest loop, one download per column.
+**Work required — RESOLVED, cheaper than scoped.** On inspecting live `eswiktionary` + `jawiktionary`
+dumps the native-edition JSONL turned out to share the EXACT schema `parse_wiktextract` already handles
+(`word` / `lang_code` / `senses[].glosses` / `sounds[].ipa`) — it differs only in the gloss LANGUAGE and
+in carrying many source langs per file. So NO parser variant was needed: `parse_wiktextract` gained two
+params — `gloss_lang` (stamp the column) + `keep_langs` (take only the source langs we tokenize). Then
+it's the same harness-gate → COPY-ingest loop, one download per column.
+
+**es column — proven + LIVE (2026-07-10).** Harness of the `es` edition vs Tatoeba, by source row:
+
+| Source row → es gloss | headwords in es-edition | useful% |
+|---|---:|---:|
+| **es → es (diagonal)** | 831,025 | **98.3%** |
+| en → es | 17,847 | 97.4% |
+| fr → es | 7,625 | 82.6% |
+| pt → es | 5,335 | 76.2% |
+| it → es | 6,257 | 72.4% |
+| de → es | 3,880 | 67.1% |
+
+The predicted shape, now measured: **diagonal rich** (near the English-edition's 99.1% Spanish), the
+own-column near-neighbour (en) decent, distant cross-pairs thin. Ingested the whole es column
+(gloss_lang=es, keep = our 20 supported source langs) → **911,704 rows** (es 848k … zh 47); every
+cross-pair miss is backstopped by the English column. Verified live: `/define` gloss_lang=es —
+es comer→"Ingerir o tomar alimentos", en cat→"(Felis silvestris catus) Gato", fr chat→"Gato".
+`dictionary_entry` → **8.52M rows / 3.13 GB**. `/privacy`'s generic "Wiktionary via kaikki" credit
+already covers native editions.
 
 **Recommended sequence for lever 5** (by value × our existing source rows):
-1. **zh / ja editions first** — the ZH↔JA pair has NO open direct dictionary; these are the only
-   native fill (thin: ~59–93k cross senses) and the highest-demand pair for our audience.
-2. **es / fr / de / ru editions** — fill the columns for our biggest user languages; each also
-   richly self-defines (diagonal) for the monolingual-learner mode.
-3. **pt / it / pl / nl / … as demand appears** — pure repeat of the loop.
+1. ✅ **es edition — DONE / LIVE** (validated the whole approach; diagonal 98.3%).
+2. **ja / zh editions next** — the ZH↔JA pair has NO open direct dictionary; these are the only
+   native fill (thin: ~59–93k cross senses) and the highest-demand pair for our audience. Same command,
+   `--wiktextract-gloss-lang ja` / `zh`. NOTE: for CJK editions the source-lang FILTER matters (keep
+   ja/zh/ko + the langs we tokenize); the diagonal is CJK, so it's the monolingual-CJK win too.
+3. **fr / de / ru editions** — fill the columns for our other big user languages (each richly
+   self-defines on the diagonal for monolingual mode).
+4. **pt / it / pl / nl / … as demand appears** — pure repeat of the loop (one download + one ingest).
 
-Decision owed before building: confirm the native-edition JSONL schema on one real dump (ja or es),
-then write the parser variant + harness one column end-to-end before fanning out.
+The loop is now: download `kaikki.org/<xx>wiktionary/raw-wiktextract-data.jsonl` → (optional harness)
+→ `ingest --wiktextract <file> --wiktextract-gloss-lang <xx> --wiktextract-keep-langs <supported set>`.
 
 **Flags / could-not-fully-verify:** HanDeDict exact count (blurb only); EDRDG's own pages
 wouldn't render a total (JMdict total sourced from jmdict-simplified); CFDICT's two conflicting

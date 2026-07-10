@@ -84,11 +84,33 @@ future dumps. Every number below traces to a page fetched during the pass.
 
 ---
 
+## KRDict ingest runbook (BUILT 2026-07-10 — awaiting the 11-language data)
+
+The parser + tokenizer are done, tested, and deployed (`scripts/ingest_dictionaries.py::parse_krdict`,
+`romanize.py::_korean_tokens` via kiwipiepy). What's left is loading the data. Decision (Connor,
+2026-07-10): **wait for the official 11-language download (incl. Chinese)** rather than ingest the
+mirror's 10-language 2019 snapshot now.
+
+- **Acquire (needs an interactive browser — the site 400s scripted requests):** krdict.korean.go.kr
+  → 사전 내려받기 / download popup → choose the **XML** build (the parser reads NIKL LMF XML; the JSON
+  build's schema is unverified). Save the XML chunk(s) to a directory. The parser already maps
+  `중국어 → zh`, so Chinese lights up automatically once present.
+- **Verify (no DB):** `python scripts/ingest_dictionaries.py validate --krdict <dir> --sample 사람 --sample 먹다`
+  — check the `by gloss-lang` line now includes `zh` (the mirror showed 10 langs / 531,485 rows; the
+  official pull should add `zh`). The parser sanitizes unescaped `< > &` inside values (a real KRDict
+  data bug) and streams per chunk.
+- **Ingest (prod write, idempotent — deletes `source='krdict'` first):**
+  `python scripts/ingest_dictionaries.py ingest --krdict <dir> --dsn <Railway DATABASE_PUBLIC_URL>`
+  (run from a machine with `psycopg`; same pattern as the corpus export).
+- **After ingest:** `/define/capabilities` will expose `ko` + all gloss langs automatically
+  (`SELECT DISTINCT` ∩ `is_token_supported`). User visibility still needs the next EXTENSION build —
+  the live 0.4.0 hardcodes `{ja,zh}` client-side; the capability-driven client (committed) ships next.
+
 ## Recommended ingest order (Claude's read)
 
-1. **KRDict (NIKL)** — unlocks Korean as a source AND many gloss langs (en/ja/zh/…) in one
-   bulk-redistributable drop; also the only clean way to get native-language glosses at scale.
-   Needs a KO tokenizer (mecab-ko/khaiii) for `is_token_supported` — the known Phase-3 leg.
+1. **KRDict (NIKL)** — ✅ tokenizer + parser BUILT (2026-07-10); awaiting the 11-language official
+   download per the runbook above. Unlocks Korean as a source AND many gloss langs (en/ja/zh/…) in
+   one bulk-redistributable drop; the only clean way to get native-language glosses at scale.
 2. **JMdict multilingual builds** — JA→{de,ru,hu,nl,es,fr,sv,sl} is a drop-in re-ingest of a
    source we already parse; lights up 8 new gloss langs for existing JA tracks immediately.
 3. **English Wiktextract per-language** — universal X→English breadth for any new source

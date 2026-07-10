@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { Fragment, type RefObject, useEffect, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 
 import { useCaptionStream } from "./caption-context";
@@ -599,6 +599,12 @@ export function SettingsPanel({
           catalog={presetCatalog}
           activeId={activePresetId}
           onApply={applyPreset}
+          swatchActive={[
+            topLineEnabled,
+            bottomLineEnabled,
+            topLineEnabled && targetAnnotateEnabled,
+            topLineEnabled && targetRomanizeEnabled,
+          ]}
         />
       </Section>
 
@@ -2235,22 +2241,21 @@ interface PresetPickerProps {
   catalog: PresetCatalog | null;
   activeId: string;
   onApply: (preset: Preset) => void;
+  /** Which swatch positions (Top, Bottom, Annotation, Romanized — in that
+      order) are actually rendered in the current setup.  Inactive positions
+      still show their preset color, dimmed, so the whole scheme previews. */
+  swatchActive: boolean[];
 }
 
-const PRESET_CUSTOM_ID = "__custom__";
-
-function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
+function PresetPicker({
+  catalog,
+  activeId,
+  onApply,
+  swatchActive,
+}: PresetPickerProps) {
   const items = buildPresetOptions(catalog);
-  const currentLabel = (() => {
-    if (activeId === LOOMINATE_DEFAULT_PRESET_ID) return LOOMINATE_DEFAULT_PRESET.label;
-    if (!activeId) return t("settings.preset.noPreset");
-    const found = items.find((it) => it.code === activeId);
-    // Strip the "Group  ·  " banner prefix baked into first-of-group labels.
-    return found?.label.replace(/^.*·\s\s/, "") ?? t("settings.preset.custom");
-  })();
 
   function pick(code: string): void {
-    if (code === PRESET_CUSTOM_ID || code === "") return;
     if (code === LOOMINATE_DEFAULT_PRESET_ID) {
       onApply(LOOMINATE_DEFAULT_PRESET); // re-pick = reset colors to default
       return;
@@ -2267,45 +2272,167 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
       </div>
     );
   }
-  if (items.length === 0) {
-    return (
-      <div style={presetPickerWrapperStyle()}>
-        <span style={layerStyleRowLabelStyle()}>{t("settings.preset.label")}</span>
-        <div style={presetPickerPlaceholderStyle()}>
-          {t("settings.preset.none")}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={presetPickerWrapperStyle()}>
       <div style={presetPickerHeaderStyle()}>
         <span style={layerStyleRowLabelStyle()}>{t("settings.preset.label")}</span>
-        <span style={presetPickerCurrentStyle()} title={currentLabel}>
-          {currentLabel}
-        </span>
       </div>
-      <LangSelect
+      <PresetSelect
         value={activeId}
         onChange={pick}
         options={items}
-        emptyOption={{ label: t("settings.preset.noPreset") }}
+        swatchActive={swatchActive}
+        emptyLabel={t("settings.preset.noPreset")}
       />
+      {catalog.presets.length === 0 && (
+        <div style={presetPickerPlaceholderStyle()}>{t("settings.preset.none")}</div>
+      )}
     </div>
   );
 }
 
-/** Flatten the catalog's groups into LangSelect-friendly options.
- *  Group label appears as a (non-interactive) banner-style "—— Group ——"
- *  pseudo-row baked into the label of the first preset of each group.
- *  Cleaner than hacking LangSelect to render section headers. */
-function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
+// A preset row: clean display name + the scheme's colors in layer order
+// (Top, Bottom, Annotation, Romanized).  `groupLabel` marks the first row of a
+// catalog group so the list can print a section header above it.
+interface PresetOption {
+  code: string;
+  label: string;
+  colors: string[];
+  groupLabel?: string;
+}
+
+// Swatch order = primary first.  Top is the video/foreign line (the main
+// learning content), then the native Bottom, then the two reading aids.
+const PRESET_SWATCH_LAYERS = ["Top", "Bottom", "Annotation", "Romanized"];
+
+function presetColors(p: Preset): string[] {
+  return PRESET_SWATCH_LAYERS.map((k) => p.layers[k]?.color ?? "#000000");
+}
+
+/** A color swatch strip — one square per preset layer, in PRESET_SWATCH_LAYERS
+    order.  A position that isn't shown in the current setup renders its own
+    color dimmed (a greyed-out version of that hue, never neutral grey), so the
+    whole scheme is previewable without applying it. */
+function PresetSwatches({
+  colors,
+  active,
+}: {
+  colors: string[];
+  active: boolean[];
+}) {
+  return (
+    <span style={presetSwatchesRowStyle()} aria-hidden="true">
+      {colors.map((c, i) => (
+        <span key={i} style={presetSwatchStyle(c, active[i] ?? false)} />
+      ))}
+    </span>
+  );
+}
+
+/** Preset dropdown with per-row color previews.  Dedicated (not LangSelect) so
+    each row can render "name | swatches" and NO internal id/variable code. */
+function PresetSelect({
+  value,
+  onChange,
+  options,
+  swatchActive,
+  emptyLabel,
+}: {
+  value: string;
+  onChange: (code: string) => void;
+  options: PresetOption[];
+  swatchActive: boolean[];
+  emptyLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const current = options.find((o) => o.code === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      const path = e.composedPath();
+      if (buttonRef.current && path.includes(buttonRef.current)) return;
+      if (listRef.current && path.includes(listRef.current)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handle, true);
+    return () => document.removeEventListener("mousedown", handle, true);
+  }, [open]);
+
+  function pick(code: string): void {
+    onChange(code);
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={selectButtonStyle(open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span style={selectButtonLabelStyle()}>
+          {current ? current.label : emptyLabel}
+        </span>
+        {current && (
+          <>
+            <span style={presetSepStyle()}>|</span>
+            <PresetSwatches colors={current.colors} active={swatchActive} />
+          </>
+        )}
+        <span style={chevronStyle(open)}>▾</span>
+      </button>
+      {open && (
+        <div
+          ref={listRef}
+          className="loom-langselect-list"
+          style={listStyle()}
+          role="listbox"
+        >
+          {options.map((opt) => (
+            <Fragment key={opt.code}>
+              {opt.groupLabel && (
+                <div style={presetGroupHeaderStyle()}>{opt.groupLabel}</div>
+              )}
+              <button
+                type="button"
+                onClick={() => pick(opt.code)}
+                style={langSelectItemStyle(value === opt.code)}
+                role="option"
+                aria-selected={value === opt.code}
+              >
+                <span style={trackRowDotStyle(value === opt.code)} />
+                <span style={langSelectItemLabelStyle()}>{opt.label}</span>
+                <span style={presetSepStyle()}>|</span>
+                <PresetSwatches colors={opt.colors} active={swatchActive} />
+              </button>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Flatten the catalog's groups into preset rows: clean display name + the
+ *  scheme's colors, with each group's first row tagged so the list prints a
+ *  section header above it.  No internal id/variable code is ever surfaced. */
+function buildPresetOptions(catalog: PresetCatalog | null): PresetOption[] {
   // The Loom default preset is client-side (not from /styles/presets) and
   // ALWAYS leads the list — even while the catalog is still loading or a
-  // track has no language-themed presets, "Loominate (Default)" is pickable.
-  const out: LangOption[] = [
-    { code: LOOMINATE_DEFAULT_PRESET_ID, label: `Loom  ·  ${LOOMINATE_DEFAULT_PRESET.label}` },
+  // track has no language-themed presets, "Brainbow (Loom Default)" is pickable.
+  const out: PresetOption[] = [
+    {
+      code: LOOMINATE_DEFAULT_PRESET_ID,
+      label: LOOMINATE_DEFAULT_PRESET.label,
+      colors: presetColors(LOOMINATE_DEFAULT_PRESET),
+    },
   ];
   if (!catalog) return out;
   const groupKeyToLabel = new Map(
@@ -2321,13 +2448,14 @@ function buildPresetOptions(catalog: PresetCatalog | null): LangOption[] {
     const list = grouped[groupKey] ?? [];
     if (list.length === 0) continue;
     const groupLabel = groupKeyToLabel.get(groupKey) ?? groupKey;
-    for (let i = 0; i < list.length; i++) {
-      const p = list[i]!;
-      // Prefix the first preset's label with the group banner so the
-      // user can see section boundaries in the scrollable list.
-      const labelPrefix = i === 0 ? `${groupLabel}  ·  ` : "";
-      out.push({ code: p.id, label: `${labelPrefix}${p.label}` });
-    }
+    list.forEach((p, i) => {
+      out.push({
+        code: p.id,
+        label: p.label,
+        colors: presetColors(p),
+        groupLabel: i === 0 ? groupLabel : undefined,
+      });
+    });
   }
   return out;
 }
@@ -3061,6 +3189,52 @@ function presetPickerCurrentStyle(): React.CSSProperties {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     maxWidth: "180px",
+  };
+}
+
+function presetSwatchesRowStyle(): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "3px",
+    flex: "0 0 auto",
+  };
+}
+
+// Active = full color; inactive = the SAME hue dimmed (never neutral grey), so
+// a row previews the whole scheme while showing which colors the current setup
+// actually paints.
+function presetSwatchStyle(color: string, active: boolean): React.CSSProperties {
+  return {
+    width: "12px",
+    height: "12px",
+    borderRadius: "3px",
+    background: color,
+    opacity: active ? 1 : 0.22,
+    border: "1px solid rgba(255, 255, 255, 0.35)",
+    boxSizing: "border-box",
+    flex: "0 0 auto",
+  };
+}
+
+function presetSepStyle(): React.CSSProperties {
+  return {
+    flex: "0 0 auto",
+    color: "rgba(255, 255, 255, 0.25)",
+    fontSize: "12px",
+    margin: "0 2px",
+  };
+}
+
+function presetGroupHeaderStyle(): React.CSSProperties {
+  return {
+    padding: "6px 8px 2px",
+    fontSize: "9px",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "rgba(255, 255, 255, 0.4)",
+    userSelect: "none",
   };
 }
 

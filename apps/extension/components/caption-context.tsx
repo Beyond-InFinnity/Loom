@@ -207,7 +207,7 @@ const DEFAULT_GLOW_ALPHA = 100;
 const DEFAULT_TOP_GROUP_OPACITY_LINKED = true;
 
 /** The Loom factory defaults, expressed AS a preset so a fresh install
- *  shows a named preset ("Loominate (Default)") instead of the bare
+ *  shows a named preset ("Brainbow (Loom Default)") instead of the bare
  *  "(no preset — custom colors)" placeholder — and so re-picking it acts
  *  as "reset colors to default".  Built from the same DEFAULT_* constants
  *  the initial layer state uses, so the two can never drift.  This is a
@@ -226,7 +226,7 @@ const _defaultLayer = (color: string): PresetLayerColors => ({
 });
 export const LOOMINATE_DEFAULT_PRESET: Preset = {
   id: LOOMINATE_DEFAULT_PRESET_ID,
-  label: "Loominate (Default)",
+  label: "Brainbow (Loom Default)",
   description: "Loom's default pastel colors.",
   group: "loom",
   layers: {

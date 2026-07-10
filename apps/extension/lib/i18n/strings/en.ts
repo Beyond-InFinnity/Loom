@@ -66,6 +66,8 @@ export const en = {
   "define.unreachable": "Couldn't reach the dictionary.",
   "define.noEntry": "No dictionary entry.",
   "define.breakdown": "Breakdown",
+  "define.glossLanguage": "Dictionary language",
+  "define.glossAuto": "Auto",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate (Default)",

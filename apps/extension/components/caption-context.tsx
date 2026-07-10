@@ -10,6 +10,7 @@ import {
 
 import {
   setLongVowelMode as discoverSetLongVowelMode,
+  setDictionaryGlossLang as discoverSetDictionaryGlossLang,
   setNativeAnnotateEnabled as discoverSetNativeAnnotateEnabled,
   setNativeLangPref as discoverSetNativeLangPref,
   setNativePhoneticSystem as discoverSetNativePhoneticSystem,
@@ -365,6 +366,9 @@ interface CaptionContextValue {
   nativeRomanizeEnabled: boolean;
   /** Japanese long-vowel mode.  Global (not per-layer).  Persisted. */
   longVowelMode: "macrons" | "doubled" | "unmarked";
+  /** Dictionary gloss-language override (language definitions are written in).
+      null = auto (browser UI language, English fallback).  Persisted. */
+  dictionaryGlossLang: string | null;
   /** Romanization maps keyed by event text — full-utterance phonetic
       strings (vs the per-token spans in the annotate maps). */
   targetRomanizeMap: RomanizeMap | null;
@@ -497,6 +501,8 @@ interface CaptionContextValue {
   setTargetRomanizeEnabled: (v: boolean) => void;
   setNativeRomanizeEnabled: (v: boolean) => void;
   setLongVowelMode: (mode: "macrons" | "doubled" | "unmarked") => void;
+  /** Dictionary gloss-language override; null = auto. */
+  setDictionaryGlossLang: (code: string | null) => void;
   /** Alternate-orthography setters.  Per-layer enable; shared highlight
       + colors. */
   setTargetVariantEnabled: (v: boolean) => void;
@@ -616,6 +622,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const [longVowelMode, setLongVowelModeState] = useState<
     "macrons" | "doubled" | "unmarked"
   >("macrons");
+  const [dictionaryGlossLang, setDictionaryGlossLangState] = useState<
+    string | null
+  >(null);
   const [targetRomanizeMap, setTargetRomanizeMapState] =
     useState<RomanizeMap | null>(null);
   const [nativeRomanizeMap, setNativeRomanizeMapState] =
@@ -722,6 +731,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTargetRomanizeEnabledState(payload.targetRomanizeEnabled);
       setNativeRomanizeEnabledState(payload.nativeRomanizeEnabled);
       setLongVowelModeState(payload.longVowelMode);
+      setDictionaryGlossLangState(payload.dictionaryGlossLang);
       setTargetRomanizeMapState(payload.targetRomanizeMap);
       setNativeRomanizeMapState(payload.nativeRomanizeMap);
 
@@ -1441,6 +1451,9 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+  const setDictionaryGlossLang = useCallback((code: string | null) => {
+    discoverSetDictionaryGlossLang(code);
+  }, []);
 
   const setNativePosition = useCallback((pos: CaptionPosition) => {
     setNativePositionState((prevNative) => {
@@ -1507,6 +1520,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       targetRomanizeEnabled,
       nativeRomanizeEnabled,
       longVowelMode,
+      dictionaryGlossLang,
       targetRomanizeMap,
       nativeRomanizeMap,
       targetVariantEnabled,
@@ -1594,6 +1608,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTargetRomanizeEnabled,
       setNativeRomanizeEnabled,
       setLongVowelMode,
+      setDictionaryGlossLang,
       setTargetVariantEnabled,
       setNativeVariantEnabled,
       setVariantHighlightEnabled,
@@ -1646,6 +1661,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       targetRomanizeEnabled,
       nativeRomanizeEnabled,
       longVowelMode,
+      dictionaryGlossLang,
       targetRomanizeMap,
       nativeRomanizeMap,
       targetVariantEnabled,
@@ -1733,6 +1749,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTargetRomanizeEnabled,
       setNativeRomanizeEnabled,
       setLongVowelMode,
+      setDictionaryGlossLang,
       setTargetVariantEnabled,
       setNativeVariantEnabled,
       setVariantHighlightEnabled,

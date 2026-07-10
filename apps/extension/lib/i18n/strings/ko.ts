@@ -59,6 +59,8 @@ export const ko: LocaleTable = {
   "define.unreachable": "사전에 연결할 수 없습니다.",
   "define.noEntry": "사전 항목이 없습니다.",
   "define.breakdown": "분석",
+  "define.glossLanguage": "사전 언어",
+  "define.glossAuto": "자동",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate (기본값)",

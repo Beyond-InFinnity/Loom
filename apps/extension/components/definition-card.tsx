@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getApiClient } from "@/lib/api-client";
 import { getDefineCapabilities } from "@/lib/annotate/capabilities";
-import { t } from "@/lib/i18n";
+import { t, languageName } from "@/lib/i18n";
 import {
+  glossLangsForSource,
   normalizeDefineSourceLang,
   resolveGlossLang,
 } from "@/lib/annotate/define-lang";
@@ -66,6 +67,12 @@ interface DefinitionCardProps {
   reading?: string | null;
   rect: DOMRect;
   langCode: string | null;
+  /** Current dictionary gloss-language override (null = auto).  Threaded from
+      the caption context so the in-card picker and the settings-panel line stay
+      in sync. */
+  glossLangOverride: string | null;
+  /** Set the gloss-language override (persists globally); re-fetches the card. */
+  onGlossLangChange: (code: string | null) => void;
   onDismiss: () => void;
 }
 
@@ -80,11 +87,18 @@ export function DefinitionCard({
   reading,
   rect,
   langCode,
+  glossLangOverride,
+  onGlossLangChange,
   onDismiss,
 }: DefinitionCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // Gloss-language picker data, resolved from the server's per-source
+  // capabilities in the fetch effect (so the dropdown offers only languages a
+  // definition can really be written in for this video's language).
+  const [glossOptions, setGlossOptions] = useState<string[]>([]);
+  const [activeGloss, setActiveGloss] = useState<string>("en");
   // The card only mounts for a definable track (tokens were present), so the
   // source lang is always valid; the server decides if the specific word hits.
   const sourceLang = useMemo(
@@ -136,7 +150,10 @@ export function DefinitionCard({
         // definitions once that data exists, with no extension change.
         const caps = await getDefineCapabilities();
         if (cancelled) return;
-        const glossLang = resolveGlossLang(caps);
+        // Restrict the override + options to what THIS source language offers.
+        const glossLang = resolveGlossLang(caps, glossLangOverride, sourceLang);
+        setActiveGloss(glossLang);
+        setGlossOptions(glossLangsForSource(caps, sourceLang));
         // Look up the lemma first, then fall back to the surface form: MeCab's
         // lemma is wrong/truncated for some compounds (黒曜石 → lemma 黒曜), and
         // a glued honorific (玉葉様) only decomposes off the surface.  `readings`
@@ -178,7 +195,7 @@ export function DefinitionCard({
     return () => {
       cancelled = true;
     };
-  }, [sourceLang, lemma, word, reading]);
+  }, [sourceLang, lemma, word, reading, glossLangOverride]);
 
   // Dismiss on Escape or a click outside the card.  composedPath() pierces
   // the shadow boundary (the overlay lives in a shadow root), so the
@@ -212,12 +229,57 @@ export function DefinitionCard({
         <HeaderReading {...readingBits(reading, state)} />
       </div>
       <Body state={state} />
-      {state.kind === "ok" &&
-      state.data.sources &&
-      state.data.sources.length > 0 ? (
-        <div style={sourceStyle}>
-          {state.data.sources.map((s) => SOURCE_LABELS[s] ?? s).join(" · ")}
-        </div>
+      <Footer
+        sources={
+          state.kind === "ok" ? state.data.sources ?? null : null
+        }
+        glossOptions={glossOptions}
+        activeGloss={activeGloss}
+        onGlossLangChange={onGlossLangChange}
+      />
+    </div>
+  );
+}
+
+/** Bottom dark-grey strip: the dictionary citation (left) + the "Dictionary
+    language" picker (right).  The picker shows only when the source language
+    offers more than one gloss language.  Selecting one sets the global
+    override; the card re-fetches with the new gloss language. */
+function Footer({
+  sources,
+  glossOptions,
+  activeGloss,
+  onGlossLangChange,
+}: {
+  sources: string[] | null;
+  glossOptions: string[];
+  activeGloss: string;
+  onGlossLangChange: (code: string | null) => void;
+}) {
+  const showPicker = glossOptions.length > 1;
+  const citation =
+    sources && sources.length > 0
+      ? sources.map((s) => SOURCE_LABELS[s] ?? s).join(" · ")
+      : null;
+  if (!showPicker && !citation) return null;
+  return (
+    <div style={footerStyle}>
+      {citation ? <span style={sourceStyle}>{citation}</span> : <span />}
+      {showPicker ? (
+        <label style={glossPickerStyle} title={t("define.glossLanguage")}>
+          <span style={glossPickerLabelStyle}>{t("define.glossLanguage")}</span>
+          <select
+            style={glossSelectStyle}
+            value={activeGloss}
+            onChange={(e) => onGlossLangChange(e.currentTarget.value)}
+          >
+            {glossOptions.map((code) => (
+              <option key={code} value={code}>
+                {languageName(code)}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
     </div>
   );
@@ -430,14 +492,53 @@ const mutedStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
-const sourceStyle: React.CSSProperties = {
+const footerStyle: React.CSSProperties = {
   marginTop: 8,
   paddingTop: 6,
   borderTop: "1px solid rgba(255,255,255,0.08)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+};
+
+const sourceStyle: React.CSSProperties = {
   fontSize: 10,
   color: "#6f7d90",
   textTransform: "uppercase",
   letterSpacing: "0.04em",
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const glossPickerStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  flex: "0 0 auto",
+};
+
+const glossPickerLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: "#8ea0b6",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+// Compact native select — robust inside the shadow-root overlay; the page's
+// styles don't reach here so we set our own dark look.
+const glossSelectStyle: React.CSSProperties = {
+  appearance: "auto",
+  background: "rgba(255,255,255,0.08)",
+  color: "#e6ebf2",
+  border: "1px solid rgba(255,255,255,0.16)",
+  borderRadius: 5,
+  fontSize: 11,
+  padding: "2px 4px",
+  maxWidth: 130,
+  cursor: "pointer",
 };
 
 // Pretty attribution labels for the dictionary sources (CC-BY-SA attribution).

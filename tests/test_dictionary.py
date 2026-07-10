@@ -357,3 +357,36 @@ def test_route_failsoft_on_null_store(define_handler):
         assert resp.results[0].senses == []
     finally:
         set_dictionary_store(None)
+
+
+# --------------------------------------------------------------------------- #
+# Capabilities — per-source gloss availability (Dictionary-language picker)
+# --------------------------------------------------------------------------- #
+
+def test_capabilities_per_source_gloss_map(mem_store):
+    mem_store.add("ja", "猫", "ねこ", [{"gloss": ["cat"]}], source="jmdict")
+    mem_store.add("ja", "猫", "ねこ", [{"gloss": ["Katze"]}], source="jmdict", gloss_lang="de")
+    mem_store.add("es", "gato", None, [{"gloss": ["cat"]}], source="wiktextract")
+    caps = mem_store.capabilities()
+    assert set(caps.source_langs) == {"ja", "es"}
+    assert set(caps.gloss_langs) == {"en", "de"}
+    # ja has both en + de definitions; es only en.
+    assert set(caps.gloss_langs_by_source["ja"]) == {"en", "de"}
+    assert set(caps.gloss_langs_by_source["es"]) == {"en"}
+
+
+def test_null_store_has_empty_gloss_map():
+    assert NullDictionaryStore().capabilities().gloss_langs_by_source == {}
+
+
+def test_capabilities_route_exposes_per_source_map(mem_store):
+    from loom_api.routes.define import define_capabilities
+    mem_store.add("ja", "猫", "ねこ", [{"gloss": ["cat"]}], source="jmdict")
+    mem_store.add("ja", "猫", "ねこ", [{"gloss": ["Katze"]}], source="jmdict", gloss_lang="de")
+    resp = define_capabilities()
+    assert resp.version >= 2
+    assert "ja" in resp.gloss_langs_by_source
+    assert set(resp.gloss_langs_by_source["ja"]) == {"en", "de"}
+    # The per-source map is filtered to token-supported source langs only, so
+    # every key is also a definable source lang.
+    assert set(resp.gloss_langs_by_source).issubset(set(resp.source_langs))

@@ -59,6 +59,8 @@ export const es: LocaleTable = {
   "define.unreachable": "No se pudo acceder al diccionario.",
   "define.noEntry": "Sin entrada en el diccionario.",
   "define.breakdown": "Desglose",
+  "define.glossLanguage": "Idioma del diccionario",
+  "define.glossAuto": "Automático",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate (predeterminado)",

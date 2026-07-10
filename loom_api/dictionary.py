@@ -26,8 +26,8 @@ import logging
 import re
 import time
 import unicodedata
-from dataclasses import dataclass
-from typing import Any, Optional, Protocol, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Protocol, Sequence
 
 logger = logging.getLogger("loom.dictionary")
 if not logger.handlers:
@@ -381,6 +381,14 @@ class Capabilities:
     dictionary changes only this (and the data), never the extension."""
     source_langs: tuple[str, ...]   # languages with entries (e.g. ("ja", "zh"))
     gloss_langs: tuple[str, ...]    # languages glosses are written in (e.g. ("en",))
+    # Per-source-language gloss availability: which gloss languages actually have
+    # entries for each source language (e.g. {"ja": ("en","de","ru"), "es":
+    # ("en","es")}).  Lets the client offer a "Dictionary language" picker that
+    # lists only the languages a definition can really be written in for the
+    # video's language — not the global union.  Empty tuple/dict is a safe
+    # degrade (client falls back to the global gloss_langs).
+    gloss_langs_by_source: Mapping[str, tuple[str, ...]] = field(
+        default_factory=dict)
 
 
 class DictionaryStore(Protocol):
@@ -454,9 +462,15 @@ class InMemoryDictionaryStore:
         return out
 
     def capabilities(self) -> Capabilities:
+        by_source: dict[str, set[str]] = {}
+        for r in self.rows:
+            by_source.setdefault(r["lang"], set()).add(
+                r.get("gloss_lang", DEFAULT_GLOSS_LANG))
         return Capabilities(
             source_langs=tuple(sorted({r["lang"] for r in self.rows})),
             gloss_langs=tuple(sorted({r.get("gloss_lang", DEFAULT_GLOSS_LANG) for r in self.rows})),
+            gloss_langs_by_source={
+                lang: tuple(sorted(gl)) for lang, gl in by_source.items()},
         )
 
 
@@ -564,11 +578,23 @@ class PostgresDictionaryStore:
             return Capabilities(source_langs=(), gloss_langs=())
         try:
             with self._pool.connection(timeout=2.5) as conn:
-                langs = [r[0] for r in conn.execute(
-                    "SELECT DISTINCT lang FROM dictionary_entry ORDER BY lang").fetchall()]
-                glosses = [r[0] for r in conn.execute(
-                    "SELECT DISTINCT gloss_lang FROM dictionary_entry ORDER BY gloss_lang").fetchall()]
+                # One DISTINCT (lang, gloss_lang) scan gives all three views:
+                # the source set, the gloss set, and the per-source gloss map.
+                pairs = conn.execute(
+                    "SELECT DISTINCT lang, gloss_lang FROM dictionary_entry "
+                    "ORDER BY lang, gloss_lang").fetchall()
         except Exception:
             self._trip("capabilities")
             return Capabilities(source_langs=(), gloss_langs=())
-        return Capabilities(source_langs=tuple(langs), gloss_langs=tuple(glosses))
+        by_source: dict[str, list[str]] = {}
+        glosses: list[str] = []
+        for lang, gloss in pairs:
+            by_source.setdefault(lang, []).append(gloss)
+            if gloss not in glosses:
+                glosses.append(gloss)
+        return Capabilities(
+            source_langs=tuple(by_source.keys()),
+            gloss_langs=tuple(sorted(glosses)),
+            gloss_langs_by_source={
+                lang: tuple(gl) for lang, gl in by_source.items()},
+        )

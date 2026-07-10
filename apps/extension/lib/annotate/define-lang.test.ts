@@ -5,8 +5,16 @@ import {
   normalizeDefineSourceLang,
   isDefinable,
   resolveGlossLang,
+  glossLangsForSource,
 } from "./define-lang";
 import type { DefineCapabilities } from "./capabilities";
+
+/** Build a DefineCapabilities for tests without repeating the empty map. */
+function mkCaps(
+  partial: Partial<DefineCapabilities> & Pick<DefineCapabilities, "sourceLangs" | "glossLangs">,
+): DefineCapabilities {
+  return { glossLangsBySource: new Map(), ...partial };
+}
 
 describe("baseLang", () => {
   it("strips region/script subtags and lowercases", () => {
@@ -44,10 +52,7 @@ describe("normalizeDefineSourceLang", () => {
 });
 
 describe("isDefinable", () => {
-  const caps: DefineCapabilities = {
-    sourceLangs: new Set(["ja", "zh"]),
-    glossLangs: ["en"],
-  };
+  const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["ja", "zh"]), glossLangs: ["en"] });
 
   it("is true for languages the server declares", () => {
     expect(isDefinable(caps, "ja")).toBe(true);
@@ -62,10 +67,10 @@ describe("isDefinable", () => {
   });
 
   it("lights up a newly-served language with no code change", () => {
-    const withKorean: DefineCapabilities = {
+    const withKorean = mkCaps({
       sourceLangs: new Set(["ja", "zh", "ko"]),
       glossLangs: ["en"],
-    };
+    });
     expect(isDefinable(withKorean, "ko")).toBe(true);
   });
 });
@@ -77,29 +82,74 @@ describe("resolveGlossLang", () => {
   };
 
   it("prefers an explicit override the server offers", () => {
-    const caps: DefineCapabilities = { sourceLangs: new Set(["ja"]), glossLangs: ["en", "ja"] };
+    const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["ja"]), glossLangs: ["en", "ja"] });
     uiLang("en-US");
     expect(resolveGlossLang(caps, "ja")).toBe("ja");
     expect(resolveGlossLang(caps, "ja-JP")).toBe("ja");
   });
 
   it("falls back to the browser UI language when offered", () => {
-    const caps: DefineCapabilities = { sourceLangs: new Set(["zh"]), glossLangs: ["en", "ja"] };
+    const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["zh"]), glossLangs: ["en", "ja"] });
     uiLang("ja-JP");
     expect(resolveGlossLang(caps)).toBe("ja");
   });
 
   it("falls back to English when neither override nor UI lang is offered", () => {
-    const caps: DefineCapabilities = { sourceLangs: new Set(["zh"]), glossLangs: ["en"] };
+    const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["zh"]), glossLangs: ["en"] });
     uiLang("ja-JP");
     expect(resolveGlossLang(caps)).toBe("en");
     expect(resolveGlossLang(caps, "de")).toBe("en");
   });
 
   it("survives browser.i18n throwing", () => {
-    const caps: DefineCapabilities = { sourceLangs: new Set(["ja"]), glossLangs: ["en"] };
+    const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["ja"]), glossLangs: ["en"] });
     // @ts-expect-error test shim
     globalThis.browser = { i18n: { getUILanguage: () => { throw new Error("no i18n"); } } };
     expect(resolveGlossLang(caps)).toBe("en");
+  });
+
+  it("restricts the override to the SOURCE language's available gloss langs", () => {
+    // de is a global gloss lang and available for ja, but NOT for es.
+    const caps = mkCaps({
+      sourceLangs: new Set(["ja", "es"]),
+      glossLangs: ["en", "de", "es"],
+      glossLangsBySource: new Map([
+        ["ja", ["en", "de"]],
+        ["es", ["en", "es"]],
+      ]),
+    });
+    uiLang("en-US");
+    expect(resolveGlossLang(caps, "de", "ja")).toBe("de"); // available for ja
+    expect(resolveGlossLang(caps, "de", "es")).toBe("en"); // NOT for es → fallback
+  });
+});
+
+describe("glossLangsForSource", () => {
+  const caps = mkCaps({
+    sourceLangs: new Set(["ja", "es"]),
+    glossLangs: ["en", "de", "es"],
+    glossLangsBySource: new Map([
+      ["ja", ["en", "de"]],
+      ["es", ["en", "es"]],
+    ]),
+  });
+
+  it("returns the per-source list when declared", () => {
+    expect(glossLangsForSource(caps, "ja")).toEqual(["en", "de"]);
+    expect(glossLangsForSource(caps, "zh-Hant" as string)).toBeDefined();
+  });
+
+  it("normalizes the source subtag before lookup", () => {
+    expect(glossLangsForSource(caps, "es-MX")).toEqual(["en", "es"]);
+  });
+
+  it("falls back to the global gloss list for an undeclared source", () => {
+    const bare = mkCaps({ sourceLangs: new Set(["ja"]), glossLangs: ["en", "fr"] });
+    expect(glossLangsForSource(bare, "ja")).toEqual(["en", "fr"]);
+  });
+
+  it("falls back to en when nothing is available", () => {
+    const empty = mkCaps({ sourceLangs: new Set(), glossLangs: [] });
+    expect(glossLangsForSource(empty, "ja")).toEqual(["en"]);
   });
 });

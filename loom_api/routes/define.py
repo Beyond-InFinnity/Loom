@@ -16,7 +16,7 @@ Contract mirrors the batch endpoints:
 """
 
 import unicodedata
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -27,7 +27,9 @@ from ..deps import get_dictionary_store
 
 # Bumped if the capabilities response SHAPE changes; the client refetches per
 # session so a new dictionary needs no bump — this is only for wire-format.
-CAPABILITIES_VERSION = 1
+#   v2: added gloss_langs_by_source (per-source gloss availability for the
+#       "Dictionary language" picker).
+CAPABILITIES_VERSION = 2
 
 router = APIRouter(tags=["define"])
 
@@ -179,6 +181,11 @@ class DefineCapabilities(BaseModel):
         "video-track languages Loom can offer per-word lookup for.")
     gloss_langs: List[str] = Field(
         ..., description="Languages definitions can be written in (English always).")
+    gloss_langs_by_source: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Per source language, which gloss languages actually have "
+        "entries — drives the client's per-video 'Dictionary language' picker so "
+        "it offers only languages a definition can really be written in.")
     version: int = Field(..., description="Wire-format version of this response.")
 
 
@@ -189,9 +196,15 @@ def define_capabilities() -> DefineCapabilities:
     to offer — so a NEW dictionary is a pure server change, no extension update.
     A source language is included only if it has both data AND a tokenizer."""
     caps = get_dictionary_store().capabilities()
+    supported = {l for l in caps.source_langs if is_token_supported(l)}
     return DefineCapabilities(
-        source_langs=[l for l in caps.source_langs if is_token_supported(l)],
+        source_langs=sorted(supported),
         gloss_langs=list(caps.gloss_langs) or ["en"],
+        gloss_langs_by_source={
+            lang: list(gl)
+            for lang, gl in caps.gloss_langs_by_source.items()
+            if lang in supported
+        },
         version=CAPABILITIES_VERSION,
     )
 

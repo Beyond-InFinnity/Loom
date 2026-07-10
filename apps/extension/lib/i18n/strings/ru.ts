@@ -59,6 +59,8 @@ export const ru: LocaleTable = {
   "define.unreachable": "Не удалось связаться со словарём.",
   "define.noEntry": "Нет статьи в словаре.",
   "define.breakdown": "Разбор",
+  "define.glossLanguage": "Язык словаря",
+  "define.glossAuto": "Авто",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate (по умолчанию)",

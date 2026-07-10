@@ -198,6 +198,8 @@ export function CaptionOverlay() {
     targetPosition,
     nativePosition,
     targetAnnotateEnabled,
+    dictionaryGlossLang,
+    setDictionaryGlossLang,
     targetAnnotateMap,
     nativeAnnotateMap,
     targetTokenMap,
@@ -501,6 +503,8 @@ export function CaptionOverlay() {
           reading={selectedWord.reading}
           rect={selectedWord.rect}
           langCode={selectedWord.langCode}
+          glossLangOverride={dictionaryGlossLang}
+          onGlossLangChange={setDictionaryGlossLang}
           onDismiss={() => setSelectedWord(null)}
         />
       ) : null}

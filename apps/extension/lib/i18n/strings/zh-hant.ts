@@ -59,6 +59,8 @@ export const zhHant: LocaleTable = {
   "define.unreachable": "無法連線至字典。",
   "define.noEntry": "查無字典釋義。",
   "define.breakdown": "拆解",
+  "define.glossLanguage": "詞典語言",
+  "define.glossAuto": "自動",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate（預設）",

@@ -8,6 +8,19 @@
 
 import type { DefineCapabilities } from "./capabilities";
 
+/** Gloss languages available for a specific source language, per the server.
+    Falls back to the global gloss list (then ["en"]) when the server hasn't
+    declared a per-source map for it (older server, or the fallback). */
+export function glossLangsForSource(
+  caps: DefineCapabilities,
+  sourceLang: string | null | undefined,
+): string[] {
+  const src = baseLang(sourceLang);
+  const perSource = src ? caps.glossLangsBySource.get(src) : undefined;
+  if (perSource && perSource.length) return perSource;
+  return caps.glossLangs.length ? caps.glossLangs : ["en"];
+}
+
 /** Base subtag, lowercased: "zh-Hant" -> "zh", "en-US" -> "en". */
 export function baseLang(code: string | null | undefined): string {
   return (code ?? "").toLowerCase().split(/[-_]/)[0];
@@ -39,13 +52,25 @@ export function isDefinable(
 }
 
 /** Pick the gloss language (the language definitions are written in): the user's
-    explicit override if the server offers it, else the browser UI language if
-    offered, else English (always available). */
+    explicit override if it's available for this source language, else the
+    browser UI language if available, else English (always available).
+
+    When `sourceLang` is given the availability set is the gloss languages that
+    actually have entries for THAT source (so a de override picked while watching
+    Japanese doesn't leak onto a Spanish video that has no es→de dictionary);
+    without it, the global gloss set is used. */
 export function resolveGlossLang(
   caps: DefineCapabilities,
   override?: string | null,
+  sourceLang?: string | null,
 ): string {
-  const available = new Set(caps.glossLangs.length ? caps.glossLangs : ["en"]);
+  const list =
+    sourceLang !== undefined
+      ? glossLangsForSource(caps, sourceLang)
+      : caps.glossLangs.length
+        ? caps.glossLangs
+        : ["en"];
+  const available = new Set(list.length ? list : ["en"]);
   const ov = override ? baseLang(override) : "";
   if (ov && available.has(ov)) return ov;
   let ui = "en";

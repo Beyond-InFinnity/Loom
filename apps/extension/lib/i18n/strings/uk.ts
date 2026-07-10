@@ -59,6 +59,8 @@ export const uk: LocaleTable = {
   "define.unreachable": "Не вдалося зв'язатися зі словником.",
   "define.noEntry": "Немає словникової статті.",
   "define.breakdown": "Розбір",
+  "define.glossLanguage": "Мова словника",
+  "define.glossAuto": "Авто",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate (Типовий)",

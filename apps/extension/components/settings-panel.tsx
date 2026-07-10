@@ -31,6 +31,8 @@ import {
 } from "@/lib/corpus/consent";
 import { IS_DEV } from "@/lib/env";
 import { t, languageName } from "@/lib/i18n";
+import { getDefineCapabilities } from "@/lib/annotate/capabilities";
+import { glossLangsForSource, isDefinable } from "@/lib/annotate/define-lang";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -249,6 +251,7 @@ const COLLAPSIBLE_SECTION_IDS = [
   "top-style",
   "annotation-style",
   "romanization-style",
+  "dictionary",
   "data",
 ] as const;
 
@@ -417,6 +420,8 @@ export function SettingsPanel({
     setTargetRomanizeEnabled,
     setNativeRomanizeEnabled,
     setLongVowelMode,
+    dictionaryGlossLang,
+    setDictionaryGlossLang,
     setRomanizationColor,
     setRomanizationFontFamily,
     setRomanizationFontRatio,
@@ -995,6 +1000,13 @@ export function SettingsPanel({
         <p style={hintStyle()}>{t("settings.romanization.hint")}</p>
       </LayerStyleBlock>
 
+      <DictionaryLanguageSection
+        track={selectedTarget}
+        glossLang={dictionaryGlossLang}
+        onChange={setDictionaryGlossLang}
+        sectionProps={section("dictionary")}
+      />
+
       <Section
         title={t("settings.data.title")}
         {...section("data")}
@@ -1279,6 +1291,75 @@ interface SectionProps {
   /** One-line summary shown in the header while collapsed (see
       CollapsibleHeader.trailing) — the item's key state at a glance. */
   summary?: React.ReactNode;
+}
+
+/** "Dictionary language" line — picks the gloss language per-word definitions
+    are written in.  Renders ONLY when the current video (Top) track is definable
+    AND its source language offers more than one gloss language (else there's
+    nothing to choose).  Auto = follow the browser UI language.  Mirrors the
+    picker inside the definition card via the shared global override. */
+function DictionaryLanguageSection({
+  track,
+  glossLang,
+  onChange,
+  sectionProps,
+}: {
+  track: CaptionTrack | null;
+  glossLang: string | null;
+  onChange: (code: string | null) => void;
+  sectionProps: { collapsed: boolean; onToggleCollapse: () => void };
+}) {
+  const [options, setOptions] = useState<string[]>([]);
+  const sourceLang = track?.languageCode ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    getDefineCapabilities()
+      .then((caps) => {
+        if (cancelled) return;
+        setOptions(
+          isDefinable(caps, sourceLang)
+            ? glossLangsForSource(caps, sourceLang)
+            : [],
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceLang]);
+
+  // Nothing to pick from → no line (keeps the panel quiet for single-gloss or
+  // non-definable languages).
+  if (options.length <= 1) return null;
+  const value = glossLang ?? "";
+  return (
+    <Section
+      title={t("define.glossLanguage")}
+      {...sectionProps}
+      summary={
+        <span style={collapsedSummaryTextStyle()}>
+          {value ? languageName(value) : t("define.glossAuto")}
+        </span>
+      }
+    >
+      <div style={dictLangRowStyle()}>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.currentTarget.value || null)}
+          style={dictLangSelectStyle()}
+        >
+          <option value="">{t("define.glossAuto")}</option>
+          {options.map((code) => (
+            <option key={code} value={code}>
+              {languageName(code)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </Section>
+  );
 }
 
 function Section({
@@ -2960,6 +3041,24 @@ function hintStyle(): React.CSSProperties {
     margin: "4px 0 0 0",
     fontSize: "10px",
     color: "rgba(255, 255, 255, 0.4)",
+  };
+}
+
+function dictLangRowStyle(): React.CSSProperties {
+  return { display: "flex", alignItems: "center", padding: "2px 0" };
+}
+
+function dictLangSelectStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    appearance: "auto",
+    background: "rgba(255,255,255,0.08)",
+    color: "#e6ebf2",
+    border: "1px solid rgba(255,255,255,0.16)",
+    borderRadius: "5px",
+    fontSize: "12px",
+    padding: "4px 6px",
+    cursor: "pointer",
   };
 }
 

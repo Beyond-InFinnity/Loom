@@ -59,6 +59,8 @@ export const yue: LocaleTable = {
   "define.unreachable": "連唔到字典。",
   "define.noEntry": "冇呢個字典解釋。",
   "define.breakdown": "拆解",
+  "define.glossLanguage": "詞典語言",
+  "define.glossAuto": "自動",
 
   // ── Default preset (caption-context) ────────────────────────────────────
   "preset.loominate.label": "Loominate（預設）",

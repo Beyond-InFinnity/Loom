@@ -64,6 +64,9 @@ const STORAGE_KEY_TARGET_ANNOTATE_ENABLED = "loom_target_annotate_enabled";
 const STORAGE_KEY_NATIVE_ANNOTATE_ENABLED = "loom_native_annotate_enabled";
 const STORAGE_KEY_TARGET_PHONETIC = "loom_target_phonetic_system";
 const STORAGE_KEY_NATIVE_PHONETIC = "loom_native_phonetic_system";
+// Dictionary gloss-language override (the language definitions are written in),
+// null = auto (follow the browser UI language among what the source offers).
+const STORAGE_KEY_DICTIONARY_GLOSS_LANG = "loom_dictionary_gloss_lang";
 const DEFAULT_TARGET_ANNOTATE_ENABLED = true;
 const DEFAULT_NATIVE_ANNOTATE_ENABLED = false;
 
@@ -159,6 +162,11 @@ export interface CaptionPayload {
       /romanize/batch.  Global (not per-layer); ignored by non-
       Japanese languages.  Persisted. */
   longVowelMode: "macrons" | "doubled" | "unmarked";
+  /** Dictionary gloss-language override — the language per-word definitions are
+      written in.  null = auto (browser UI language, English fallback).  Global
+      (not per-layer); consumed by the definition card, not the fetch pipeline,
+      so a change doesn't refetch annotations.  Persisted. */
+  dictionaryGlossLang: string | null;
   /** Romanization maps keyed by event text — the full-utterance
       phonetic line rendered above the foreign text in the overlay's
       4th slot.  Same lifecycle as the annotate maps. */
@@ -241,6 +249,7 @@ const targetRomanizeEnabledByFamily = new Map<string, boolean>();
 let nativeRomanizeEnabled = DEFAULT_NATIVE_ROMANIZE_ENABLED;
 let longVowelMode: "macrons" | "doubled" | "unmarked" =
   DEFAULT_LONG_VOWEL_MODE;
+let dictionaryGlossLang: string | null = null;
 let romanizationPrefsLoaded = false;
 
 // ---- Language-aware target defaults ---------------------------------
@@ -1020,6 +1029,7 @@ function buildBasePayload(): CaptionPayload {
     targetRomanizeEnabled: effectiveTargetRomanizeEnabled(targetLangForDefaults),
     nativeRomanizeEnabled,
     longVowelMode,
+    dictionaryGlossLang,
     targetRomanizeMap: null,
     nativeRomanizeMap: null,
     targetEvents: null,
@@ -1191,6 +1201,19 @@ export function setLongVowelMode(
   rerunRomanizations();
 }
 
+/** Dictionary gloss language (the language definitions are written in).
+    null = auto (browser UI language among what the source offers, English
+    fallback).  Global; consumed only by the definition card, so no annotate /
+    romanize refetch — just persist + re-emit so the UI + card pick it up. */
+export function setDictionaryGlossLang(code: string | null): void {
+  const v = code && code.trim() !== "" ? code.trim().toLowerCase() : null;
+  dictionaryGlossLang = v;
+  void browser.storage.local
+    .set({ [STORAGE_KEY_DICTIONARY_GLOSS_LANG]: v ?? "" })
+    .catch((e) => console.warn("[Loom] persist dictionaryGlossLang:", e));
+  if (latest) emit({ ...latest, dictionaryGlossLang });
+}
+
 /** Mirror of rerunAnnotations for the romanize surface.  Phonetic-
     system changes go through rerunAnnotations because they also
     drive romanization choice (Pinyin vs Zhuyin uses different output
@@ -1250,17 +1273,21 @@ async function loadAnnotationPrefs(): Promise<void> {
       STORAGE_KEY_NATIVE_ANNOTATE_ENABLED,
       STORAGE_KEY_TARGET_PHONETIC,
       STORAGE_KEY_NATIVE_PHONETIC,
+      STORAGE_KEY_DICTIONARY_GLOSS_LANG,
     ]);
     const tEnabled = result[STORAGE_KEY_TARGET_ANNOTATE_ENABLED];
     const nEnabled = result[STORAGE_KEY_NATIVE_ANNOTATE_ENABLED];
     const tPhon = result[STORAGE_KEY_TARGET_PHONETIC];
     const nPhon = result[STORAGE_KEY_NATIVE_PHONETIC];
+    const gloss = result[STORAGE_KEY_DICTIONARY_GLOSS_LANG];
     if (typeof tEnabled === "boolean") targetAnnotateEnabled = tEnabled;
     if (typeof nEnabled === "boolean") nativeAnnotateEnabled = nEnabled;
     if (typeof tPhon === "string")
       targetPhoneticSystem = tPhon.length > 0 ? tPhon : null;
     if (typeof nPhon === "string")
       nativePhoneticSystem = nPhon.length > 0 ? nPhon : null;
+    if (typeof gloss === "string")
+      dictionaryGlossLang = gloss.length > 0 ? gloss : null;
   } catch (e) {
     console.warn("[Loom] failed to load annotation prefs:", e);
   }

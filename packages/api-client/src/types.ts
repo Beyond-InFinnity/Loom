@@ -1031,6 +1031,13 @@ export interface components {
              */
             gloss_langs: string[];
             /**
+             * Gloss Langs By Source
+             * @description Per source language, which gloss languages actually have entries — drives the client's per-video 'Dictionary language' picker so it offers only languages a definition can really be written in.
+             */
+            gloss_langs_by_source?: {
+                [key: string]: string[];
+            };
+            /**
              * Version
              * @description Wire-format version of this response.
              */

@@ -2,6 +2,8 @@ import { resolveUiLocale, type UiLocale } from "./resolve";
 import { en, type StringKey, type LocaleTable } from "./strings/en";
 import { ja } from "./strings/ja";
 import { zh } from "./strings/zh";
+import { zhHant } from "./strings/zh-hant";
+import { yue } from "./strings/yue";
 import { ko } from "./strings/ko";
 import { de } from "./strings/de";
 import { fr } from "./strings/fr";
@@ -17,6 +19,8 @@ const TABLES: Record<UiLocale, LocaleTable> = {
   en,
   ja,
   zh,
+  "zh-Hant": zhHant,
+  yue,
   ko,
   de,
   fr,

@@ -3,6 +3,8 @@ import { describe, it, expect } from "vitest";
 import { en, type StringKey } from "./strings/en";
 import { ja } from "./strings/ja";
 import { zh } from "./strings/zh";
+import { zhHant } from "./strings/zh-hant";
+import { yue } from "./strings/yue";
 import { ko } from "./strings/ko";
 import { de } from "./strings/de";
 import { fr } from "./strings/fr";
@@ -12,7 +14,19 @@ import { uk } from "./strings/uk";
 import { ru } from "./strings/ru";
 import { initUiLocale, t, languageName } from "./index";
 
-const LOCALES = { ja, zh, ko, de, fr, es, it: itTable, uk, ru } as const;
+const LOCALES = {
+  ja,
+  zh,
+  "zh-Hant": zhHant,
+  yue,
+  ko,
+  de,
+  fr,
+  es,
+  it: itTable,
+  uk,
+  ru,
+} as const;
 const enKeys = Object.keys(en) as StringKey[];
 
 describe("locale tables", () => {

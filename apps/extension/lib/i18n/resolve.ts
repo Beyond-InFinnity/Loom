@@ -1,23 +1,40 @@
-import { baseLang } from "../annotate/define-lang";
-
 // The UI locales Loom's chrome (popup + settings panel + pill + consent) is
 // translated into.  The subtitle OUTPUT already works in every language; this is
 // purely the interface text.  English is the canonical source table and the
 // fallback for any unsupported browser language.
 export const SUPPORTED_UI_LOCALES = [
-  "en", "ja", "zh", "ko", "de", "fr", "es", "it", "uk", "ru",
+  "en", "ja", "zh", "zh-Hant", "yue", "ko", "de", "fr", "es", "it", "uk", "ru",
 ] as const;
 
 export type UiLocale = (typeof SUPPORTED_UI_LOCALES)[number];
 
 const SUPPORTED = new Set<string>(SUPPORTED_UI_LOCALES);
 
-// Every Chinese variant maps to the Simplified UI table (a Traditional table can
-// be added later under "zh-Hant"; the browser primary subtag doesn't distinguish
-// script, and Simplified is the common default for a bare "zh").
-const ZH_UI_PRIMARIES = new Set([
-  "zh", "yue", "cmn", "wuu", "hak", "nan", "gan", "hsn",
+// Chinese primary subtags (Mandarin macrolanguage + the Sinitic tongues that a
+// browser may report). "yue" (Cantonese) is handled first and separately.
+const ZH_PRIMARIES = new Set([
+  "zh", "cmn", "wuu", "hak", "nan", "gan", "hsn",
 ]);
+
+// Map a Chinese BCP-47 code to a script-specific UI table.  Standard Written
+// Chinese has two script tables — Simplified ("zh") and Traditional ("zh-Hant").
+// Routing: explicit script subtag wins (Hans/Hant); else by region (TW/HK/MO →
+// Traditional, CN/SG/MY/bare → Simplified).  zh-HK deliberately routes to formal
+// Traditional, NOT the colloquial Cantonese table — HK UIs are written in
+// Standard Written Chinese; the "yue" table is an informal register reachable
+// only via an explicit "yue"/"zh-yue" code (or a future manual locale picker).
+function classifyChinese(subtags: string[]): UiLocale {
+  if (subtags.includes("hant")) return "zh-Hant";
+  if (subtags.includes("hans")) return "zh";
+  if (
+    subtags.includes("tw") ||
+    subtags.includes("hk") ||
+    subtags.includes("mo")
+  ) {
+    return "zh-Hant";
+  }
+  return "zh";
+}
 
 /** Resolve a BCP-47 code (e.g. the browser UI language) to one of our UI
     locales.  Unknown/unsupported languages fall back to English.  Pass an
@@ -32,7 +49,9 @@ export function resolveUiLocale(raw?: string | null): UiLocale {
       return "en";
     }
   }
-  const primary = baseLang(code);
-  if (ZH_UI_PRIMARIES.has(primary)) return "zh";
+  const subtags = code.toLowerCase().split(/[-_]/).filter(Boolean);
+  const primary = subtags[0] ?? "";
+  if (primary === "yue" || subtags.includes("yue")) return "yue";
+  if (ZH_PRIMARIES.has(primary)) return classifyChinese(subtags);
   return SUPPORTED.has(primary) ? (primary as UiLocale) : "en";
 }

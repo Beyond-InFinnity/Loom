@@ -22,6 +22,7 @@ pythainlp
 aksharamukha
 korean-romanizer
 kiwipiepy  # Korean morphological analyzer — word tokens + dictionary-form lemmas for /define (VOCAB_LOOKUP.md Phase 3)
+simplemma  # Generic lemmatizer (~50 space-delimited langs) — baseline word tokens for /define; custom analyzers above take precedence
 fonttools
 # Thai transliteration transitive deps (lazy-imported by pythainlp):
 #   - python-crfsuite: han_solo CRF-based word segmentation used by

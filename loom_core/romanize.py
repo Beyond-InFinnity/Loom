@@ -3206,19 +3206,81 @@ def _korean_tokens(text: str, spans: list) -> list:
     return tokens
 
 
-# Languages build_word_tokens can segment into clickable words.  Used by the
-# /define capabilities endpoint to intersect with the dictionaries that exist —
-# a source language is "definable" only if it has BOTH a dictionary and a
-# tokenizer.  Extend this when a new tokenizer lands.  (ko needs kiwipiepy at
-# runtime; if it's absent, tokens degrade to [] and capabilities still won't
-# expose ko because no ko dictionary would be present either.)
+# ---- Generic tokenizer (space-delimited languages via simplemma) ---------- #
+#
+# The FALLBACK path under the custom morphological analyzers above.  Romance /
+# Germanic / Scandinavian / Slavic languages are space-delimited, so tokenizing
+# is trivial (word runs by regex); the only real work is LEMMATIZATION so the
+# clickable word resolves to its dictionary headword (comieron → comer).  That's
+# delegated to simplemma (one lightweight dep, ~50 languages).  This never
+# overrides a custom tokenizer — build_word_tokens checks the custom langs FIRST
+# and only reaches here for languages with no bespoke path.  Fail-soft: if
+# simplemma is absent or errors, the lemma degrades to the surface form.
+
+# A "word": a run of letters (Unicode-aware, no digits/underscore), allowing an
+# internal apostrophe or hyphen (e.g. French l'homme, Spanish is unaffected).
+_GENERIC_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", re.UNICODE)
+
+_simplemma_loaded = None
+
+
+def _generic_lemma(word: str, lang: str) -> str:
+    """simplemma lemma for *word* in *lang*; the surface form if simplemma is
+    unavailable / doesn't know the language (fail-soft, never raises)."""
+    global _simplemma_loaded
+    if _simplemma_loaded is None:
+        try:
+            import simplemma  # noqa: F401 — probe once
+            _simplemma_loaded = True
+        except Exception:
+            _simplemma_loaded = False
+    if not _simplemma_loaded:
+        return word
+    try:
+        import simplemma
+        return simplemma.lemmatize(word, lang=lang) or word
+    except Exception:
+        return word
+
+
+def _generic_tokens(text: str, lang_code: str) -> list:
+    """Word tokens for a space-delimited language: each letter-run is a clickable
+    word, its lemma from simplemma so /define hits the dictionary headword.  No
+    ruby (Latin/Cyrillic scripts), so reading=None and pos=[] — the card uses the
+    dictionary's own reading + POS.  Offsets are char positions over the stripped
+    text, consistent with the CJK/Korean token contract."""
+    clean = _strip_ass(text)
+    primary = (lang_code or "").lower().split("-")[0].split("_")[0]
+    tokens: list = []
+    for m in _GENERIC_WORD_RE.finditer(clean):
+        word = m.group()
+        if not _is_lookupable_word(word):
+            continue
+        lemma = _generic_lemma(word, primary) or word
+        tokens.append((word, lemma, [], None, m.start(), len(word)))
+    return tokens
+
+
+# Custom, per-language tokenizers (morphological analyzers) — ALWAYS preferred;
+# build_word_tokens dispatches to them first.  ko needs kiwipiepy at runtime; if
+# it's absent, tokens degrade to [] and capabilities still won't expose ko
+# because no ko dictionary would be present either.
 SUPPORTED_TOKEN_PRIMARIES = frozenset({"ja", "zh", "yue", "ko"})
+
+# Generic simplemma path — enabled PER LANGUAGE, and only after a corpus quality
+# check (scripts/dict_quality_check.py) clears the bar.  simplemma supports ~50
+# languages; we opt them in deliberately rather than flip them all on at once.
+# Whether a language is actually *definable* is still gated on a dictionary
+# existing (capabilities intersects this with SELECT DISTINCT lang), so listing a
+# language here before its dictionary is ingested is harmless.
+GENERIC_TOKEN_PRIMARIES = frozenset({"es"})
 
 
 def is_token_supported(lang_code: str) -> bool:
-    """True if build_word_tokens can produce word tokens for *lang_code*."""
+    """True if build_word_tokens can produce word tokens for *lang_code* — via a
+    custom analyzer OR the generic simplemma path."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
-    return primary in SUPPORTED_TOKEN_PRIMARIES
+    return primary in SUPPORTED_TOKEN_PRIMARIES or primary in GENERIC_TOKEN_PRIMARIES
 
 
 def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
@@ -3226,8 +3288,9 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
 
     `spans` and `annotation_func` are the ones the caller already computed via
     get_annotation_func()/get_lang_config — reused here so token and span
-    boundaries can't diverge.  Returns [] for every language except Japanese,
-    Chinese and Korean."""
+    boundaries can't diverge (for the CJK/Korean paths).  Custom analyzers are
+    tried FIRST; a space-delimited language with no bespoke path falls through to
+    the generic simplemma tokenizer.  Returns [] for unsupported languages."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
         return _japanese_tokens(spans, annotation_func)
@@ -3235,6 +3298,8 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
         return _chinese_tokens(text, spans, lang_code)
     if primary == "ko":
         return _korean_tokens(text, spans)
+    if primary in GENERIC_TOKEN_PRIMARIES:
+        return _generic_tokens(text, lang_code)
     return []
 
 

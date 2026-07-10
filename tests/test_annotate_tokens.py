@@ -208,6 +208,66 @@ def _lookupable(s: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Generic space-delimited path (simplemma) — Spanish
+# --------------------------------------------------------------------------- #
+
+def _simplemma_available() -> bool:
+    try:
+        import simplemma  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+generic = pytest.mark.skipif(not _simplemma_available(), reason="simplemma unavailable")
+
+
+@generic
+def test_es_generic_tokens_word_and_lemma():
+    from loom_core.romanize import build_word_tokens
+    toks = build_word_tokens("Los niños comieron manzanas", "es", [], None)
+    by = {t[0]: t for t in toks}
+    # inflected words resolve to their dictionary lemma
+    assert by["comieron"][1] == "comer"
+    assert by["niños"][1] == "niño"
+    assert by["manzanas"][1] == "manzana"
+    # offsets reconstruct the surface from the raw text
+    for word, _l, _p, _r, start, length in toks:
+        assert "Los niños comieron manzanas"[start:start + length] == word
+
+
+@generic
+def test_es_generic_excludes_punctuation_and_numbers():
+    from loom_core.romanize import build_word_tokens
+    words = {t[0] for t in build_word_tokens("¿Tienes 3 gatos, verdad?", "es", [], None)}
+    assert "3" not in words and "¿" not in words and "," not in words
+    assert "gatos" in words and "verdad" in words
+
+
+@generic
+def test_es_generic_reading_none_pos_empty():
+    from loom_core.romanize import build_word_tokens
+    t = build_word_tokens("gato", "es", [], None)[0]
+    assert t[3] is None and t[2] == []   # no ruby; card uses dictionary reading/pos
+
+
+def test_generic_path_is_opt_in_per_language():
+    # A simplemma-supported language NOT in GENERIC_TOKEN_PRIMARIES stays inert
+    # (no dictionary/validation yet) — custom-first dispatch, deliberate opt-in.
+    from loom_core.romanize import build_word_tokens, is_token_supported, GENERIC_TOKEN_PRIMARIES
+    assert "de" not in GENERIC_TOKEN_PRIMARIES        # German not enabled yet
+    assert is_token_supported("es") and not is_token_supported("de")
+    assert build_word_tokens("Die Kinder", "de", [], None) == []
+
+
+def test_custom_tokenizer_takes_precedence_over_generic():
+    # ja/zh/ko must never fall through to the generic path even though they're
+    # "supported" — the dispatch checks them first.
+    from loom_core.romanize import is_token_supported
+    assert is_token_supported("ja") and is_token_supported("ko") and is_token_supported("zh")
+
+
+# --------------------------------------------------------------------------- #
 # Unsupported languages (Phase 0)
 # --------------------------------------------------------------------------- #
 

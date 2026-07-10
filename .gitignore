@@ -70,6 +70,10 @@ apps/desktop/src-tauri/resources/fonts/
 apps/desktop/src-tauri/resources/python/
 apps/desktop/src-tauri/resources/playwright-browsers/
 
+# Dictionary source data for scripts/ingest_dictionaries.py — large + licensed
+# (CC-CEDICT / JMdict / KRDict).  Kept on disk as ingest input, NOT in git.
+dictionaries/
+
 # Claude Code per-project state (settings, scheduled-tasks lock).
 .claude/
 .playwright-mcp/

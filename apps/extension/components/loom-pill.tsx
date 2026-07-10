@@ -9,6 +9,7 @@ import {
 
 import { useCaptionStream } from "./caption-context";
 import { SettingsPanel } from "./settings-panel";
+import { t } from "@/lib/i18n";
 import { getPillAnchor } from "@/lib/overlay/pill-position";
 import {
   stopToPlayer,
@@ -179,7 +180,7 @@ const PillButton = memo(function PillButton({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={containerStyle(tone, open, visible)}
-      aria-label="Loom settings"
+      aria-label={t("pill.settings")}
       aria-expanded={open}
     >
       <span style={dotStyle(tone)} />
@@ -195,7 +196,7 @@ function renderStatus(status: DiscoveryStatus): { label: string; tone: Tone } {
     case "idle":
       return { label: "Loom", tone: "neutral" };
     case "discovering":
-      return { label: "discovering…", tone: "neutral" };
+      return { label: t("pill.discovering"), tone: "neutral" };
     case "tracking":
       return {
         label: `${status.targetLang} → ${status.nativeLang}`,
@@ -205,12 +206,12 @@ function renderStatus(status: DiscoveryStatus): { label: string; tone: Tone } {
       return {
         label:
           status.reason === "no-captions"
-            ? "no captions"
-            : "no supported tracks",
+            ? t("pill.noCaptions")
+            : t("pill.noSupportedTracks"),
         tone: "inactive",
       };
     case "error":
-      return { label: "error (see console)", tone: "error" };
+      return { label: t("pill.error"), tone: "error" };
   }
 }
 

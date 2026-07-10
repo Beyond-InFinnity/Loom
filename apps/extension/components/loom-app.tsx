@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { getEnabled, onEnabledChanged } from "@/lib/enabled";
+import { initUiLocale } from "@/lib/i18n";
 import { CaptionOverlay } from "./caption-overlay";
 import { CaptionStreamProvider } from "./caption-context";
 import { CorpusConsentPrompt } from "./corpus-consent-prompt";
@@ -22,6 +23,11 @@ import { LoomPill } from "./loom-pill";
 // Why per-tab and not per-extension: the user typically has many
 // YouTube tabs open in the background.  Loom running on all of them
 // burns CPU + memory unnecessarily.  Opt-in keeps idle tabs idle.
+
+// Resolve the UI locale once, when the overlay module first loads in the page.
+// All five content-script entrypoints render LoomApp, so this single call covers
+// the whole in-page surface (pill, panel, consent, definition card).
+initUiLocale();
 
 const SESSION_STORAGE_KEY = "loom_activated";
 

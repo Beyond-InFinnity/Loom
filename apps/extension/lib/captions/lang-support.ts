@@ -28,6 +28,7 @@
 // fall out for free.
 
 import { canonicalBaseLang, parseBcp47, resolveScript } from "./lang-code";
+import { t } from "../i18n";
 
 export type ScriptFamily =
   | "latin"
@@ -223,7 +224,7 @@ export function phoneticSystemLabelFor(code: string): string {
     if (cls.base === "ur") return "Urdu transliteration";
     return "Arabic transliteration";
   }
-  return "Romanization style";
+  return t("settings.romanize.style");
 }
 
 // ---- Language-aware target defaults ---------------------------------

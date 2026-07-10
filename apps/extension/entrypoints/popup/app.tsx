@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getApiClient } from "@/lib/api-client";
 import { getEnabled, setEnabled } from "@/lib/enabled";
 import { API_BASE_URL, IS_DEV } from "@/lib/env";
+import { t } from "@/lib/i18n";
 import { getOwnerKey, setOwnerKey } from "@/lib/owner-key";
 
 type CheckStatus =
@@ -88,18 +89,16 @@ export function App() {
     <div className="loom-popup">
       <header>
         <h1>Loom</h1>
-        <p className="subtitle">Dual subs for foreign-language video.</p>
+        <p className="subtitle">{t("popup.tagline")}</p>
       </header>
 
       <section>
-        <label>Loom on this browser</label>
+        <label>{t("popup.enableLabel")}</label>
         <button onClick={handleToggle} type="button">
-          {enabled ? "Turn Loom off" : "Turn Loom on"}
+          {enabled ? t("popup.turnOff") : t("popup.turnOn")}
         </button>
         <p className={enabled ? "status status-on" : "status status-off"}>
-          {enabled
-            ? "ON — Loom appears automatically on compatible videos."
-            : "OFF — Loom runs nowhere until you turn it back on."}
+          {enabled ? t("popup.statusOn") : t("popup.statusOff")}
         </p>
       </section>
 
@@ -132,21 +131,25 @@ export function App() {
           type="button"
           disabled={check.kind === "pending"}
         >
-          {check.kind === "pending" ? "Checking…" : "Check API"}
+          {check.kind === "pending" ? t("popup.checking") : t("popup.checkApi")}
         </button>
         {check.kind === "ok" && (
           <p className="status status-ok">
-            HTTP {check.status}: <code>{check.body}</code>
+            {t("popup.httpStatus", { status: check.status, body: "" })}
+            <code>{check.body}</code>
           </p>
         )}
         {check.kind === "err" && (
-          <p className="status status-err">Error: {check.message}</p>
+          <p className="status status-err">
+            {t("popup.error", { message: check.message })}
+          </p>
         )}
       </section>
 
       <footer>
         <p className="footnote">
-          API: <code>{new URL(API_BASE_URL).host}</code>
+          {t("popup.apiHost", { host: "" })}
+          <code>{new URL(API_BASE_URL).host}</code>
         </p>
       </footer>
     </div>

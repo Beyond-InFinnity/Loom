@@ -17,8 +17,23 @@ import {
   setCorpusConsent,
   type CorpusConsent,
 } from "@/lib/corpus/consent";
+import { t } from "@/lib/i18n";
 
 const PLATFORMS = "YouTube, Netflix, iQIYI, and WeTV";
+
+// Render a template containing a single "{pill}" token with the styled Loom chip
+// spliced in at the token's position (word order varies by language).
+function withPillChip(template: string): React.ReactNode {
+  const [before, after] = template.split("{pill}");
+  if (after === undefined) return template; // token absent — plain string
+  return (
+    <>
+      {before}
+      <span className="pill-chip">Loom</span>
+      {after}
+    </>
+  );
+}
 
 export function App() {
   // undefined = still loading from storage; null = never answered.
@@ -43,37 +58,24 @@ export function App() {
     <main className="page">
       <header className="hero">
         <div className="wordmark">Loom</div>
-        <p className="tagline">
-          Learn languages from the shows you already watch.
-        </p>
+        <p className="tagline">{t("onboarding.tagline")}</p>
       </header>
 
       <section className="steps">
-        <Step n={1} title="Open a video">
-          Loom works on {PLATFORMS} — any video with subtitles in the
-          language you're learning.
+        <Step n={1} title={t("onboarding.step1.title")}>
+          {t("onboarding.step1.body", { platforms: PLATFORMS })}
         </Step>
-        <Step n={2} title="Click the Loom pill">
-          A small <span className="pill-chip">Loom</span> pill appears in the
-          player. Click it to activate — each tab stays off until you ask.
+        <Step n={2} title={t("onboarding.step2.title")}>
+          {withPillChip(t("onboarding.step2.body"))}
         </Step>
-        <Step n={3} title="Read all four layers">
-          Your language, the video's language, a phonetic line, and
-          per-character readings (furigana, Pinyin, and more). The ⚙ panel
-          on the pill customizes everything.
+        <Step n={3} title={t("onboarding.step3.title")}>
+          {t("onboarding.step3.body")}
         </Step>
       </section>
 
       <section className="consent">
-        <h2>Help improve Loom?</h2>
-        <p>
-          Contribute anonymous caption data: the videos you watch share
-          their <strong>video ID and subtitle text</strong> with Loom's
-          training corpus to improve annotations, romanization, and future
-          OCR support. It's never linked to you — no account, no IP address,
-          no identifiers — and identical content is stored only once no
-          matter how many people watch it.
-        </p>
+        <h2>{t("onboarding.help.title")}</h2>
+        <p>{t("onboarding.help.body")}</p>
         {consent === undefined ? null : consent === null ? (
           <div className="choices">
             <button
@@ -81,22 +83,22 @@ export function App() {
               className="primary"
               onClick={() => choose(true)}
             >
-              Contribute caption data
+              {t("onboarding.help.contribute")}
             </button>
             <button
               type="button"
               className="secondary"
               onClick={() => choose(false)}
             >
-              No thanks
+              {t("onboarding.help.decline")}
             </button>
           </div>
         ) : (
           <p className="decided">
             {consent
-              ? "Thank you! You're contributing caption data."
-              : "No problem — nothing will be shared."}{" "}
-            You can change this anytime in the Loom pill's ⚙ settings panel.
+              ? t("onboarding.help.thanks")
+              : t("onboarding.help.noProblem")}{" "}
+            {t("onboarding.help.changeLater")}
           </p>
         )}
       </section>

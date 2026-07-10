@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { t } from "@/lib/i18n";
 import { getPillAnchor } from "@/lib/overlay/pill-position";
 import {
   stopToPlayer,
@@ -106,8 +107,8 @@ export function DormantPill({ onActivate }: DormantPillProps) {
           wake(false);
         }}
         style={containerStyle(lit)}
-        aria-label="Activate Loom on this tab"
-        title="Activate Loom on this tab"
+        aria-label={t("dormant.activate")}
+        title={t("dormant.activate")}
       >
         <span aria-hidden="true" style={glowWrapStyle(lit)}>
           <span style={glowInnerStyle(lit)} />

@@ -24,6 +24,7 @@ import {
   setCorpusConsent,
 } from "@/lib/corpus/consent";
 import { IS_DEV } from "@/lib/env";
+import { t } from "@/lib/i18n";
 import { getPillAnchor } from "@/lib/overlay/pill-position";
 import { swallowPlayerEvents } from "@/lib/overlay/stop-player-events";
 
@@ -87,12 +88,9 @@ export const CorpusConsentPrompt = memo(function CorpusConsentPrompt() {
       {...swallowPlayerEvents}
     >
       <div style={{ fontWeight: 600, marginBottom: "6px" }}>
-        Help improve Loom?
+        {t("consent.title")}
       </div>
-      <p style={{ margin: "0 0 10px", color: "#c4c0ba" }}>
-        Contribute anonymous caption data (video ID + subtitle text — never
-        anything about you) to improve annotations and romanization.
-      </p>
+      <p style={{ margin: "0 0 10px", color: "#c4c0ba" }}>{t("consent.body")}</p>
       <div style={{ display: "flex", gap: "8px" }}>
         <button
           type="button"
@@ -108,7 +106,7 @@ export const CorpusConsentPrompt = memo(function CorpusConsentPrompt() {
             color: "#1a1408",
           }}
         >
-          Contribute
+          {t("consent.contribute")}
         </button>
         <button
           type="button"
@@ -123,7 +121,7 @@ export const CorpusConsentPrompt = memo(function CorpusConsentPrompt() {
             color: "#b8b4ae",
           }}
         >
-          No thanks
+          {t("consent.decline")}
         </button>
       </div>
     </div>

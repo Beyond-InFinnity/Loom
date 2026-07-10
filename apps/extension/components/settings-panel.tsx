@@ -30,6 +30,7 @@ import {
   type CorpusConsent,
 } from "@/lib/corpus/consent";
 import { IS_DEV } from "@/lib/env";
+import { t, languageName } from "@/lib/i18n";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -71,57 +72,68 @@ interface LangOption {
     rows because the variants drive different romanization systems
     (Pinyin / Zhuyin / Jyutping) downstream.  Alphabetized by label so
     the rendered dropdown order matches reading order. */
-const SUPPORTED_LANGS: LangOption[] = [
-  { code: "ar", label: "Arabic" },
-  { code: "be", label: "Belarusian" },
-  { code: "bn", label: "Bengali" },
-  { code: "bg", label: "Bulgarian" },
-  { code: "yue", label: "Cantonese" },
-  { code: "ca", label: "Catalan" },
-  { code: "zh-Hans", label: "Chinese (Simplified)" },
-  { code: "zh-Hant", label: "Chinese (Traditional)" },
-  { code: "hr", label: "Croatian" },
-  { code: "cs", label: "Czech" },
-  { code: "da", label: "Danish" },
-  { code: "nl", label: "Dutch" },
-  { code: "en", label: "English" },
-  { code: "fil", label: "Filipino" },
-  { code: "fi", label: "Finnish" },
-  { code: "fr", label: "French" },
-  { code: "gl", label: "Galician" },
-  { code: "de", label: "German" },
-  { code: "gu", label: "Gujarati" },
-  { code: "he", label: "Hebrew" },
-  { code: "hi", label: "Hindi" },
-  { code: "hu", label: "Hungarian" },
-  { code: "id", label: "Indonesian" },
-  { code: "it", label: "Italian" },
-  { code: "ja", label: "Japanese" },
-  { code: "ko", label: "Korean" },
-  { code: "mk", label: "Macedonian" },
-  { code: "ms", label: "Malay" },
-  { code: "mn", label: "Mongolian" },
-  { code: "no", label: "Norwegian" },
-  { code: "fa", label: "Persian" },
-  { code: "pl", label: "Polish" },
-  { code: "pt", label: "Portuguese" },
-  { code: "pa", label: "Punjabi" },
-  { code: "ro", label: "Romanian" },
-  { code: "ru", label: "Russian" },
-  { code: "sr", label: "Serbian" },
-  { code: "sk", label: "Slovak" },
-  { code: "sl", label: "Slovenian" },
-  { code: "es", label: "Spanish" },
-  { code: "sw", label: "Swahili" },
-  { code: "sv", label: "Swedish" },
-  { code: "ta", label: "Tamil" },
-  { code: "te", label: "Telugu" },
-  { code: "th", label: "Thai" },
-  { code: "tr", label: "Turkish" },
-  { code: "uk", label: "Ukrainian" },
-  { code: "ur", label: "Urdu" },
-  { code: "vi", label: "Vietnamese" },
+const SUPPORTED_LANG_CODES: string[] = [
+  "ar",
+  "be",
+  "bn",
+  "bg",
+  "yue",
+  "ca",
+  "zh-Hans",
+  "zh-Hant",
+  "hr",
+  "cs",
+  "da",
+  "nl",
+  "en",
+  "fil",
+  "fi",
+  "fr",
+  "gl",
+  "de",
+  "gu",
+  "he",
+  "hi",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "ko",
+  "mk",
+  "ms",
+  "mn",
+  "no",
+  "fa",
+  "pl",
+  "pt",
+  "pa",
+  "ro",
+  "ru",
+  "sr",
+  "sk",
+  "sl",
+  "es",
+  "sw",
+  "sv",
+  "ta",
+  "te",
+  "th",
+  "tr",
+  "uk",
+  "ur",
+  "vi",
 ];
+
+/** Build the language-picker options at render time.  Codes + ordering
+    are fixed (SUPPORTED_LANG_CODES); the human-readable names come from
+    Intl.DisplayNames via languageName() in the active UI locale, so the
+    49-entry list never needs hand-translation. */
+function supportedLangs(): LangOption[] {
+  return SUPPORTED_LANG_CODES.map((code) => ({
+    code,
+    label: languageName(code),
+  }));
+}
 
 // Color swatches optimized for legibility over dark video content.
 // User can still type any hex via the native color input below.
@@ -135,12 +147,16 @@ const COLOR_SWATCHES = [
   "#9b8aff",
 ];
 
-const POSITION_OPTIONS: Array<{ code: CaptionPosition; label: string }> = [
-  { code: "top-1", label: "↑ Top 1" },
-  { code: "top-2", label: "↑ Top 2" },
-  { code: "bottom-1", label: "↓ Bot 1" },
-  { code: "bottom-2", label: "↓ Bot 2" },
-];
+// Built at render time (labels via t()) — see the timing note on
+// FONT_FAMILY / LONG_VOWEL options below.
+function positionOptions(): Array<{ code: CaptionPosition; label: string }> {
+  return [
+    { code: "top-1", label: t("settings.pos.top1") },
+    { code: "top-2", label: t("settings.pos.top2") },
+    { code: "bottom-1", label: t("settings.pos.bot1") },
+    { code: "bottom-2", label: t("settings.pos.bot2") },
+  ];
+}
 
 // Webkit/Firefox custom scrollbar styling for LangSelect popovers.
 // Injected once via <style> inside the shadow root.  The .scrolling
@@ -438,9 +454,9 @@ export function SettingsPanel({
   const emptyTracksHint =
     status.kind === "unsupported"
       ? platform?.id === "netflix" && status.reason === "no-captions"
-        ? "This title’s subtitles are images, not text, so Loom can’t read them. Try a title with text-based subtitles."
-        : "No supported subtitle tracks on this video."
-      : "Discovering subtitles…";
+        ? t("settings.empty.imageSubs")
+        : t("settings.empty.noTracks")
+      : t("settings.empty.discovering");
 
   return (
     <div ref={panelRef} style={panelStyle()} {...swallowPlayerEvents}>
@@ -460,34 +476,32 @@ export function SettingsPanel({
         style={supportLinkStyle()}
       >
         <span aria-hidden="true">☕</span>
-        <span>Support Loom</span>
+        <span>{t("settings.support")}</span>
       </a>
 
       <div style={headerStyle()}>
-        <span>Loom settings</span>
+        <span>{t("settings.title")}</span>
         <button
           type="button"
           onClick={onClose}
           style={closeButtonStyle()}
-          aria-label="Close settings"
+          aria-label={t("settings.close")}
         >
           ×
         </button>
       </div>
 
-      <Section title="User language (auto-pick base)" {...section("native")}>
+      <Section title={t("settings.userLang.title")} {...section("native")}>
         <LangSelect
           value={nativeLangPref}
           onChange={(code) => setNativeLangPref(code)}
-          options={SUPPORTED_LANGS}
+          options={supportedLangs()}
         />
-        <p style={hintStyle()}>
-          Auto-pick matches any regional variant (en → en-US, en-GB, en-AU…).
-        </p>
+        <p style={hintStyle()}>{t("settings.userLang.hint")}</p>
       </Section>
 
       <LayerSection
-        title={`Video language (Top) — ${tracks.length} tracks`}
+        title={t("settings.videoLang.title", { count: tracks.length })}
         tracks={tracks}
         selected={selectedTarget}
         isUserPicked={isUserPickedTarget}
@@ -502,7 +516,7 @@ export function SettingsPanel({
       />
 
       <LayerSection
-        title="User language (Bottom)"
+        title={t("settings.bottomLang.title")}
         tracks={tracks}
         selected={selectedNative}
         isUserPicked={isUserPickedNative}
@@ -512,8 +526,8 @@ export function SettingsPanel({
         allowNullTrack
         nullLabel={
           supportsTranslate
-            ? `(auto: translate to ${nativeLangPref} when no matching track)`
-            : `(none — no auto-translation on ${platformName})`
+            ? t("settings.bottomLang.autoTranslate", { lang: nativeLangPref })
+            : t("settings.bottomLang.noAutoTranslate", { platform: platformName })
         }
         showTranslate={supportsTranslate}
         showBadges={showKindBadges}
@@ -521,23 +535,20 @@ export function SettingsPanel({
         {...section("native-track")}
       />
 
-      <Section title="Position" {...section("position")}>
+      <Section title={t("settings.position.title")} {...section("position")}>
         <PositionRow
-          label="Video language"
+          label={t("settings.videoLang")}
           value={targetPosition}
           onChange={setTargetPosition}
         />
         <PositionRow
-          label="User language"
+          label={t("settings.userLang")}
           value={nativePosition}
           onChange={setNativePosition}
         />
-        <p style={hintStyle()}>
-          Slot 1 = upper line in its zone, slot 2 = lower.  Solo in a
-          zone uses the zone's default position.
-        </p>
+        <p style={hintStyle()}>{t("settings.position.hint")}</p>
         <RangeRow
-          label="Top line — vertical nudge"
+          label={t("settings.position.topNudge")}
           value={topPositionOffsetPct}
           min={-40}
           max={40}
@@ -546,7 +557,7 @@ export function SettingsPanel({
           hint={`${topPositionOffsetPct > 0 ? "+" : ""}${topPositionOffsetPct}%`}
         />
         <RangeRow
-          label="Bottom line — vertical nudge"
+          label={t("settings.position.bottomNudge")}
           value={bottomPositionOffsetPct}
           min={-40}
           max={40}
@@ -555,7 +566,7 @@ export function SettingsPanel({
           hint={`${bottomPositionOffsetPct > 0 ? "+" : ""}${bottomPositionOffsetPct}%`}
         />
         <RangeRow
-          label="Line spacing"
+          label={t("settings.position.lineSpacing")}
           value={lineSpacingPx}
           min={0}
           max={40}
@@ -563,17 +574,12 @@ export function SettingsPanel({
           onChange={setLineSpacingPx}
           hint={`${lineSpacingPx}px`}
         />
-        <p style={hintStyle()}>
-          Nudge moves a line toward the picture center as you raise it
-          (down for the top line, up for the bottom) — handy for pulling
-          text off the black bars on letterboxed video.  Signs and vertical
-          cues keep their own position.  Saved per platform.
-        </p>
+        <p style={hintStyle()}>{t("settings.position.nudgeHint")}</p>
       </Section>
 
-      <Section title="Subtitle size" {...section("size")}>
+      <Section title={t("settings.size.title")} {...section("size")}>
         <RangeRow
-          label="Overall size"
+          label={t("settings.size.overall")}
           value={captionSizePct}
           min={50}
           max={150}
@@ -581,19 +587,14 @@ export function SettingsPanel({
           onChange={setCaptionSizePct}
           hint={`${captionSizePct}%`}
         />
-        <p style={hintStyle()}>
-          Scales every line together, on top of the per-line sizes below.
-          100% matches the tuned default; drop it if the subtitles render
-          large here (e.g. Netflix in fullscreen).  Remembered separately
-          for each platform.
-        </p>
+        <p style={hintStyle()}>{t("settings.size.hint")}</p>
       </Section>
 
       {/* ---- The four line-cards (C-1) ----------------------------
           Each box owns ALL of one line's controls: its enable toggles,
           phonetic-system / alt-orth options, AND its styling.  Presets
           sit above since they paint across the lines at once. */}
-      <Section title="Color presets" {...section("presets")}>
+      <Section title={t("settings.presets.title")} {...section("presets")}>
         <PresetPicker
           catalog={presetCatalog}
           activeId={activePresetId}
@@ -603,7 +604,7 @@ export function SettingsPanel({
 
       {/* Bottom — native text */}
       <LayerStyleBlock
-        label="Bottom — user language"
+        label={t("settings.layer.bottom")}
         {...section("bottom-style")}
         color={bottomColor}
         onColorChange={setBottomColor}
@@ -629,7 +630,7 @@ export function SettingsPanel({
         }}
       >
         <ToggleRow
-          label="Show Bottom line"
+          label={t("settings.layer.showBottom")}
           value={bottomLineEnabled}
           onChange={setBottomLineEnabled}
         />
@@ -637,7 +638,7 @@ export function SettingsPanel({
 
       {/* Top — foreign text + its alternate-orthography ruby */}
       <LayerStyleBlock
-        label="Top — video language"
+        label={t("settings.layer.top")}
         {...section("top-style")}
         color={topColor}
         onColorChange={setTopColor}
@@ -651,12 +652,12 @@ export function SettingsPanel({
           <div style={layerStyleRowStyle()}>
             <div style={variantInlineLabelRowStyle()}>
               <span style={layerStyleRowLabelStyle()}>
-                Link opacity (annotation, romanization, alt-spelling)
+                {t("settings.layer.linkOpacity")}
               </span>
               <Switch
                 on={topGroupOpacityLinked}
                 onToggle={setTopGroupOpacityLinked}
-                ariaLabel="Link Top group opacity"
+                ariaLabel={t("settings.layer.linkOpacityAria")}
               />
             </div>
           </div>
@@ -677,7 +678,7 @@ export function SettingsPanel({
         }}
       >
         <ToggleRow
-          label="Show Top line"
+          label={t("settings.layer.showTop")}
           value={topLineEnabled}
           onChange={setTopLineEnabled}
         />
@@ -704,7 +705,7 @@ export function SettingsPanel({
 
       {/* Annotation — per-token readings above the foreign text */}
       <LayerStyleBlock
-        label="Per-character annotation"
+        label={t("settings.annotation.label")}
         {...section("annotation-style")}
         color={annotationColor}
         onColorChange={setAnnotationColor}
@@ -734,30 +735,25 @@ export function SettingsPanel({
         }}
       >
         <AnnotateRow
-          label="Video language"
+          label={t("settings.videoLang")}
           track={selectedTarget}
           enabled={targetAnnotateEnabled}
           onToggle={setTargetAnnotateEnabled}
         />
-        <AdvancedDisclosure label="User-language annotation">
+        <AdvancedDisclosure label={t("settings.annotation.userLangAdvanced")}>
           <AnnotateRow
-            label="User language"
+            label={t("settings.userLang")}
             track={selectedNative}
             enabled={nativeAnnotateEnabled}
             onToggle={setNativeAnnotateEnabled}
           />
         </AdvancedDisclosure>
-        <p style={hintStyle()}>
-          Small readings above each character — furigana for Japanese,
-          Pinyin / Zhuyin / Jyutping for Chinese, Romanization for Korean.
-          Available for Chinese, Japanese, and Korean.  Size is a fraction
-          of the Top line (0.5 = half).
-        </p>
+        <p style={hintStyle()}>{t("settings.annotation.hint")}</p>
       </LayerStyleBlock>
 
       {/* Romanization — full-utterance phonetic line */}
       <LayerStyleBlock
-        label="Romanization (phonetic line)"
+        label={t("settings.romanization.label")}
         {...section("romanization-style")}
         color={romanizationColor}
         onColorChange={setRomanizationColor}
@@ -776,7 +772,7 @@ export function SettingsPanel({
         advanced={null}
       >
         <RomanizeRow
-          label="Video language"
+          label={t("settings.videoLang")}
           track={selectedTarget}
           enabled={targetRomanizeEnabled}
           onToggle={setTargetRomanizeEnabled}
@@ -794,9 +790,9 @@ export function SettingsPanel({
             onPickMode={setLongVowelMode}
           />
         )}
-        <AdvancedDisclosure label="User-language romanization">
+        <AdvancedDisclosure label={t("settings.romanization.userLangAdvanced")}>
           <RomanizeRow
-            label="User language"
+            label={t("settings.userLang")}
             track={selectedNative}
             enabled={nativeRomanizeEnabled}
             onToggle={setNativeRomanizeEnabled}
@@ -807,29 +803,18 @@ export function SettingsPanel({
             onChange={setNativePhoneticSystem}
           />
         </AdvancedDisclosure>
-        <p style={hintStyle()}>
-          A full pronunciation line above the video’s text.  Available for
-          Chinese, Japanese, Korean, Cyrillic, Thai, Indic, Hebrew, and
-          Arabic / Persian / Urdu scripts.  The style picker appears only
-          where there’s more than one option.  Size is a fraction of the
-          parent line.
-        </p>
+        <p style={hintStyle()}>{t("settings.romanization.hint")}</p>
       </LayerStyleBlock>
 
-      <Section title="Data" {...section("data")}>
+      <Section title={t("settings.data.title")} {...section("data")}>
         {corpusConsent !== undefined && (
           <ToggleRow
-            label="Contribute caption data"
+            label={t("settings.data.contribute")}
             value={resolveCaptureEnabled(corpusConsent, IS_DEV)}
             onChange={handleCorpusToggle}
           />
         )}
-        <p style={hintStyle()}>
-          Sends the subtitles of videos you watch (video title/ID and
-          caption text — never anything about you) to Loom’s training
-          corpus to improve annotations, romanization, and future OCR
-          support.
-        </p>
+        <p style={hintStyle()}>{t("settings.data.hint")}</p>
       </Section>
 
       <div style={deactivateRowStyle()}>
@@ -838,12 +823,9 @@ export function SettingsPanel({
           onClick={onDeactivate}
           style={deactivateButtonStyle()}
         >
-          Turn off Loom on this tab
+          {t("settings.turnOff")}
         </button>
-        <p style={hintStyle()}>
-          Reactivate via the small pill that returns when you turn it
-          off.  Persists across reloads of this tab.
-        </p>
+        <p style={hintStyle()}>{t("settings.turnOff.hint")}</p>
       </div>
 
       <div style={footerStyle()}>
@@ -854,7 +836,7 @@ export function SettingsPanel({
           rel="noopener noreferrer"
           style={footerLinkStyle()}
         >
-          Send feedback
+          {t("settings.feedback")}
         </a>
       </div>
     </div>
@@ -1061,14 +1043,16 @@ function LayerSection({
           />
           {showTranslate && (
             <div style={translateRowStyle()}>
-              <label style={translateLabelStyle()}>Translate to</label>
+              <label style={translateLabelStyle()}>
+                {t("settings.translateTo")}
+              </label>
               <LangSelect
                 value={translateTo ?? ""}
                 onChange={(code) =>
                   onPickTranslateTo(code === "" ? null : code)
                 }
-                options={SUPPORTED_LANGS}
-                emptyOption={{ label: "(no translation)" }}
+                options={supportedLangs()}
+                emptyOption={{ label: t("settings.noTranslation") }}
               />
             </div>
           )}
@@ -1171,7 +1155,7 @@ function TrackList({
           isSelected={selected === null}
           isAuto={!isUserPicked && selected === null}
           onClick={() => onPick(null)}
-          primary={nullLabel ?? "(auto)"}
+          primary={nullLabel ?? t("settings.track.auto")}
           secondary=""
           badge={null}
         />
@@ -1215,8 +1199,8 @@ function describeProcessing(c: LangSupport): string {
   if (c.family === "hebrew") return "Hebrew translit";
   if (c.family === "arabic") return "Arabic translit";
   if (c.family === "indic") return "Indic Roman (IAST)";
-  if (c.processing === "native-display") return "Latin (no romanization)";
-  return "no romanization";
+  if (c.processing === "native-display") return t("settings.proc.latinNone");
+  return t("settings.proc.none");
 }
 
 interface TrackRowProps {
@@ -1245,7 +1229,7 @@ function TrackRow({
           <span style={trackSecondaryStyle()}>{secondary}</span>
         ) : null}
       </span>
-      {isAuto && <span style={autoBadgeStyle()}>auto</span>}
+      {isAuto && <span style={autoBadgeStyle()}>{t("settings.badge.auto")}</span>}
       {badge && <span style={kindBadgeStyle(badge)}>{badge}</span>}
     </button>
   );
@@ -1270,16 +1254,16 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
               type="button"
               onClick={() => onChange(hex)}
               style={swatchStyle(hex, value.toLowerCase() === hex.toLowerCase())}
-              aria-label={`Set color to ${hex}`}
+              aria-label={t("settings.setColor", { hex })}
             />
           ))}
           <button
             type="button"
             onClick={() => setWheelOpen((v) => !v)}
             style={wheelTriggerStyle(wheelOpen, value)}
-            aria-label="Open color wheel"
+            aria-label={t("settings.colorWheel")}
             aria-pressed={wheelOpen}
-            title="Open color wheel"
+            title={t("settings.colorWheel")}
           >
             ◐
           </button>
@@ -1325,24 +1309,29 @@ function ColorRow({ label, value, onChange }: ColorRowProps) {
     most modern OSes OR are common enough that even when absent the
     browser's fallback chain produces something legible.  CSS values
     are full font-family strings so they're applied verbatim. */
-const FONT_FAMILY_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: "auto", label: "Auto (Noto + system fallback)" },
-  { code: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
-  { code: "'Noto Sans SC', sans-serif", label: "Noto Sans SC (Simplified)" },
-  { code: "'Noto Sans TC', sans-serif", label: "Noto Sans TC (Traditional)" },
-  { code: "'Noto Sans KR', sans-serif", label: "Noto Sans KR" },
-  { code: "'Noto Sans Thai', sans-serif", label: "Noto Sans Thai" },
-  { code: "'Noto Serif JP', serif", label: "Noto Serif JP" },
-  { code: "'Noto Serif', serif", label: "Noto Serif" },
-  { code: "sans-serif", label: "System sans-serif" },
-  { code: "serif", label: "System serif" },
-  { code: "monospace", label: "System monospace" },
-  { code: "Arial, sans-serif", label: "Arial" },
-  { code: "Helvetica, sans-serif", label: "Helvetica" },
-  { code: "Georgia, serif", label: "Georgia" },
-  { code: "'Times New Roman', serif", label: "Times New Roman" },
-  { code: "'Courier New', monospace", label: "Courier New" },
-];
+// Built at render time — t() must never run at module top level (it runs
+// before initUiLocale()).  Only the two generic labels are keyed; the
+// Noto/OS font family names are proper nouns kept verbatim.
+function fontFamilyOptions(): Array<{ code: string; label: string }> {
+  return [
+    { code: "auto", label: t("settings.font.auto") },
+    { code: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
+    { code: "'Noto Sans SC', sans-serif", label: "Noto Sans SC (Simplified)" },
+    { code: "'Noto Sans TC', sans-serif", label: "Noto Sans TC (Traditional)" },
+    { code: "'Noto Sans KR', sans-serif", label: "Noto Sans KR" },
+    { code: "'Noto Sans Thai', sans-serif", label: "Noto Sans Thai" },
+    { code: "'Noto Serif JP', serif", label: "Noto Serif JP" },
+    { code: "'Noto Serif', serif", label: "Noto Serif" },
+    { code: "sans-serif", label: t("settings.font.systemSans") },
+    { code: "serif", label: "System serif" },
+    { code: "monospace", label: "System monospace" },
+    { code: "Arial, sans-serif", label: "Arial" },
+    { code: "Helvetica, sans-serif", label: "Helvetica" },
+    { code: "Georgia, serif", label: "Georgia" },
+    { code: "'Times New Roman', serif", label: "Times New Roman" },
+    { code: "'Courier New', monospace", label: "Courier New" },
+  ];
+}
 
 interface LayerStyleBlockProps {
   label: string;
@@ -1412,7 +1401,8 @@ function LayerStyleBlock({
   collapsed = false,
   onToggleCollapse,
 }: LayerStyleBlockProps) {
-  const sizeLabel = sizeMode === "px" ? "Size (px)" : "Size (ratio of Top)";
+  const sizeLabel =
+    sizeMode === "px" ? t("settings.sizePx") : t("settings.sizeRatio");
   const sizeMin = sizeMode === "px" ? 12 : 0.2;
   const sizeMax = sizeMode === "px" ? 120 : 1.0;
   const sizeStep = sizeMode === "px" ? 1 : 0.05;
@@ -1433,15 +1423,15 @@ function LayerStyleBlock({
         <>
       {children}
       <div style={layerStyleRowStyle()}>
-        <span style={layerStyleRowLabelStyle()}>Color</span>
+        <span style={layerStyleRowLabelStyle()}>{t("settings.color")}</span>
         <ColorRow label="" value={color} onChange={onColorChange} />
       </div>
       <div style={layerStyleRowStyle()}>
-        <span style={layerStyleRowLabelStyle()}>Font</span>
+        <span style={layerStyleRowLabelStyle()}>{t("settings.font")}</span>
         <LangSelect
           value={fontFamily}
           onChange={(code) => onFontFamilyChange(code)}
-          options={FONT_FAMILY_OPTIONS}
+          options={fontFamilyOptions()}
         />
       </div>
       <div style={layerStyleRowStyle()}>
@@ -1461,7 +1451,7 @@ function LayerStyleBlock({
       </div>
       {opacity && (opacity.show ?? true) && (
         <PercentSliderRow
-          label="Opacity"
+          label={t("settings.opacity")}
           value={opacity.value}
           onChange={opacity.onChange}
         />
@@ -1474,7 +1464,7 @@ function LayerStyleBlock({
             style={advancedToggleStyle(advancedOpen)}
             aria-expanded={advancedOpen}
           >
-            Advanced {advancedOpen ? "▴" : "▾"}
+            {t("settings.advanced")} {advancedOpen ? "▴" : "▾"}
           </button>
           {advancedOpen && (
             <div style={advancedBlockStyle()}>
@@ -1482,7 +1472,7 @@ function LayerStyleBlock({
               {advanced && (
                 <>
               <div style={layerStyleRowStyle()}>
-                <span style={layerStyleRowLabelStyle()}>Outline color</span>
+                <span style={layerStyleRowLabelStyle()}>{t("settings.outlineColor")}</span>
                 <ColorRow
                   label=""
                   value={advanced.outlineColor}
@@ -1490,12 +1480,12 @@ function LayerStyleBlock({
                 />
               </div>
               <PercentSliderRow
-                label="Outline alpha"
+                label={t("settings.outlineAlpha")}
                 value={advanced.outlineAlpha}
                 onChange={advanced.onOutlineAlphaChange}
               />
               <RangeRow
-                label="Glow radius (px)"
+                label={t("settings.glowRadius")}
                 value={advanced.glowRadius}
                 min={0}
                 max={20}
@@ -1503,14 +1493,14 @@ function LayerStyleBlock({
                 onChange={advanced.onGlowRadiusChange}
                 hint={
                   advanced.glowRadius === 0
-                    ? "0 = no glow"
-                    : `${advanced.glowRadius}px halo`
+                    ? t("settings.glowNone")
+                    : t("settings.glowHalo", { n: advanced.glowRadius })
                 }
               />
               {advanced.glowRadius > 0 && (
                 <>
                   <div style={layerStyleRowStyle()}>
-                    <span style={layerStyleRowLabelStyle()}>Glow color</span>
+                    <span style={layerStyleRowLabelStyle()}>{t("settings.glowColor")}</span>
                     <ColorRow
                       label=""
                       value={advanced.glowColor}
@@ -1518,7 +1508,7 @@ function LayerStyleBlock({
                     />
                   </div>
                   <PercentSliderRow
-                    label="Glow alpha"
+                    label={t("settings.glowAlpha")}
                     value={advanced.glowAlpha}
                     onChange={advanced.onGlowAlphaChange}
                   />
@@ -1619,7 +1609,7 @@ function PositionRow({ label, value, onChange }: PositionRowProps) {
     <div style={positionRowStyle()}>
       <span style={positionLabelStyle()}>{label}</span>
       <div style={positionButtonsStyle()}>
-        {POSITION_OPTIONS.map((opt) => (
+        {positionOptions().map((opt) => (
           <button
             key={opt.code}
             type="button"
@@ -1721,7 +1711,7 @@ function ToggleRow({
 // an edge case — accessible, but out of the primary flow; C-4).
 function AdvancedDisclosure({
   children,
-  label = "Advanced",
+  label = t("settings.advanced"),
 }: {
   children: React.ReactNode;
   label?: string;
@@ -1772,8 +1762,8 @@ function AnnotateRow({ label, track, enabled, onToggle }: AnnotateRowProps) {
       {!annotatable && (
         <p style={hintStyle()}>
           {track
-            ? "No per-character annotation for this language yet."
-            : "(choose a track above first)"}
+            ? t("settings.annotate.none")
+            : t("settings.chooseTrack")}
         </p>
       )}
     </div>
@@ -1798,7 +1788,7 @@ function PhoneticSystemRow({ track, value, onChange }: PhoneticSystemRowProps) {
   if (systems.length < 2) return null;
   const systemLabel = track
     ? phoneticSystemLabelFor(track.languageCode)
-    : "Romanization style";
+    : t("settings.romanize.style");
   return (
     <div style={annotateSystemRowStyle()}>
       <span style={annotateSystemLabelStyle()}>{systemLabel}</span>
@@ -1806,7 +1796,7 @@ function PhoneticSystemRow({ track, value, onChange }: PhoneticSystemRowProps) {
         value={value ?? ""}
         onChange={(code) => onChange(code === "" ? null : code)}
         options={systems}
-        emptyOption={{ label: "Auto (default for language)" }}
+        emptyOption={{ label: t("settings.romanize.auto") }}
       />
     </div>
   );
@@ -1843,8 +1833,8 @@ function RomanizeRow({ label, track, enabled, onToggle }: RomanizeRowProps) {
       {!romanizable && (
         <p style={hintStyle()}>
           {track
-            ? "No pronunciation line for this language (Latin script or unsupported)."
-            : "(choose a track above first)"}
+            ? t("settings.romanize.none")
+            : t("settings.chooseTrack")}
         </p>
       )}
     </div>
@@ -1858,14 +1848,17 @@ function RomanizeRow({ label, track, enabled, onToggle }: RomanizeRowProps) {
 // surfaces meaningfully on Japanese tracks; harmless on everything
 // else (backend ignores it for non-ja langs).
 
-const LONG_VOWEL_OPTIONS: Array<{
+// Built at render time (labels via t()) — see the FONT_FAMILY note above.
+function longVowelOptions(): Array<{
   code: "macrons" | "doubled" | "unmarked";
   label: string;
-}> = [
-  { code: "macrons", label: "Macrons (tōkyō)" },
-  { code: "doubled", label: "Doubled vowels (tookyoo)" },
-  { code: "unmarked", label: "Unmarked (tokyo)" },
-];
+}> {
+  return [
+    { code: "macrons", label: t("settings.longVowel.macrons") },
+    { code: "doubled", label: t("settings.longVowel.doubled") },
+    { code: "unmarked", label: t("settings.longVowel.unmarked") },
+  ];
+}
 
 function JapaneseLongVowelRow({
   mode,
@@ -1876,7 +1869,7 @@ function JapaneseLongVowelRow({
 }) {
   return (
     <div style={annotateSystemRowStyle()}>
-      <span style={annotateSystemLabelStyle()}>Japanese long vowels</span>
+      <span style={annotateSystemLabelStyle()}>{t("settings.longVowel.label")}</span>
       <LangSelect
         value={mode}
         onChange={(code) => {
@@ -1884,7 +1877,7 @@ function JapaneseLongVowelRow({
             onPickMode(code);
           }
         }}
-        options={LONG_VOWEL_OPTIONS}
+        options={longVowelOptions()}
       />
     </div>
   );
@@ -1972,16 +1965,16 @@ function VariantSection({
   const effectiveVariantColor = variantColorSameAsTop ? topColor : variantColor;
 
   return (
-    <Section title="Alternate orthography">
+    <Section title={t("settings.variant.title")}>
       <VariantToggleRow
-        label="Video language"
+        label={t("settings.videoLang")}
         track={selectedTarget}
         variant={targetVariant}
         enabled={targetEnabled}
         onToggle={onTargetToggle}
       />
       <VariantToggleRow
-        label="User language"
+        label={t("settings.userLang")}
         track={selectedNative}
         variant={nativeVariant}
         enabled={nativeEnabled}
@@ -1989,7 +1982,9 @@ function VariantSection({
       />
       {anyEnabled && (
         <div style={layerStyleBlockStyle()}>
-          <div style={layerStyleHeaderStyle()}>Highlight &amp; colors</div>
+          <div style={layerStyleHeaderStyle()}>
+            {t("settings.variant.highlightColors")}
+          </div>
 
           <VariantPreview
             variantColor={effectiveVariantColor}
@@ -2001,12 +1996,12 @@ function VariantSection({
           <div style={layerStyleRowStyle()}>
             <div style={variantInlineLabelRowStyle()}>
               <span style={layerStyleRowLabelStyle()}>
-                Color-code differing chars
+                {t("settings.variant.colorCode")}
               </span>
               <Switch
                 on={highlightEnabled}
                 onToggle={onHighlightToggle}
-                ariaLabel="Color-code differing chars"
+                ariaLabel={t("settings.variant.colorCode")}
               />
             </div>
           </div>
@@ -2014,7 +2009,7 @@ function VariantSection({
           <div style={layerStyleRowStyle()}>
             <div style={variantInlineLabelRowStyle()}>
               <span style={layerStyleRowLabelStyle()}>
-                Simplified char: same as Top
+                {t("settings.variant.simpSameAsTop")}
               </span>
               <Switch
                 on={variantColorSameAsTop}
@@ -2025,7 +2020,7 @@ function VariantSection({
           </div>
 
           <div style={layerStyleRowStyle()}>
-            <span style={layerStyleRowLabelStyle()}>Simplified char color</span>
+            <span style={layerStyleRowLabelStyle()}>{t("settings.variant.simpColor")}</span>
             {variantColorSameAsTop ? (
               <span
                 style={{
@@ -2045,7 +2040,7 @@ function VariantSection({
                     border: "1px solid rgba(255,255,255,0.3)",
                   }}
                 />
-                matches Top
+                {t("settings.variant.matchesTop")}
               </span>
             ) : (
               <ColorRow
@@ -2060,13 +2055,13 @@ function VariantSection({
             <>
               <div style={layerStyleRowStyle()}>
                 <span style={layerStyleRowLabelStyle()}>
-                  Distinct char color
+                  {t("settings.variant.distinctColor")}
                 </span>
                 <ColorRow label="" value={cleanColor} onChange={onCleanColorChange} />
               </div>
               <div style={layerStyleRowStyle()}>
                 <span style={layerStyleRowLabelStyle()}>
-                  Merged char color
+                  {t("settings.variant.mergedColor")}
                 </span>
                 <ColorRow
                   label=""
@@ -2078,15 +2073,15 @@ function VariantSection({
           )}
 
           <p style={hintStyle()}>
-            <strong style={variantHintStrongStyle()}>Distinct:</strong> the
-            Traditional char has its own unique Simplified form
-            (語 → 语).  Someone reading the Simplified could tell which
-            Traditional was meant.
+            <strong style={variantHintStrongStyle()}>
+              {t("settings.variant.distinct")}:
+            </strong>{" "}
+            {t("settings.variant.distinctHint")}
             <br />
-            <strong style={variantHintStrongStyle()}>Merged:</strong> several
-            Traditional chars share the same Simplified form
-            (髮 and 發 both → 发).  The original is lost — that's where
-            simplification throws away information.
+            <strong style={variantHintStrongStyle()}>
+              {t("settings.variant.merged")}:
+            </strong>{" "}
+            {t("settings.variant.mergedHint")}
           </p>
         </div>
       )}
@@ -2120,10 +2115,10 @@ function VariantPreview({
 }: VariantPreviewProps) {
   return (
     <div style={variantPreviewStyle()}>
-      <span style={variantPreviewLabelStyle()}>Preview</span>
+      <span style={variantPreviewLabelStyle()}>{t("settings.variant.preview")}</span>
       <div style={variantPreviewContentStyle()}>
         <div style={variantPreviewColumnStyle()}>
-          <span style={variantPreviewCaseLabelStyle()}>Distinct</span>
+          <span style={variantPreviewCaseLabelStyle()}>{t("settings.variant.distinct")}</span>
           <ruby>
             <span style={{ color: highlightEnabled ? cleanColor : "#fff" }}>
               語
@@ -2141,7 +2136,7 @@ function VariantPreview({
           </ruby>
         </div>
         <div style={variantPreviewColumnStyle()}>
-          <span style={variantPreviewCaseLabelStyle()}>Merged</span>
+          <span style={variantPreviewCaseLabelStyle()}>{t("settings.variant.merged")}</span>
           <div style={variantPreviewMergeRowStyle()}>
             <ruby>
               <span style={{ color: highlightEnabled ? collapseColor : "#fff" }}>
@@ -2213,8 +2208,8 @@ function VariantToggleRow({
       ) : (
         <p style={hintStyle()}>
           {track
-            ? `${track.languageCode}: no orthography variant in this build. Today only Traditional Chinese (zh-Hant / zh-TW / zh-HK / zh-MO / yue) is supported.`
-            : "(pick a track first)"}
+            ? `${track.languageCode}: ${t("settings.variant.none")}`
+            : t("settings.chooseTrack")}
         </p>
       )}
     </div>
@@ -2248,10 +2243,10 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
   const items = buildPresetOptions(catalog);
   const currentLabel = (() => {
     if (activeId === LOOMINATE_DEFAULT_PRESET_ID) return LOOMINATE_DEFAULT_PRESET.label;
-    if (!activeId) return "(no preset — custom colors)";
+    if (!activeId) return t("settings.preset.noPreset");
     const found = items.find((it) => it.code === activeId);
     // Strip the "Group  ·  " banner prefix baked into first-of-group labels.
-    return found?.label.replace(/^.*·\s\s/, "") ?? "(custom)";
+    return found?.label.replace(/^.*·\s\s/, "") ?? t("settings.preset.custom");
   })();
 
   function pick(code: string): void {
@@ -2267,19 +2262,17 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
   if (!catalog) {
     return (
       <div style={presetPickerWrapperStyle()}>
-        <span style={layerStyleRowLabelStyle()}>Preset</span>
-        <div style={presetPickerPlaceholderStyle()}>Loading presets…</div>
+        <span style={layerStyleRowLabelStyle()}>{t("settings.preset.label")}</span>
+        <div style={presetPickerPlaceholderStyle()}>{t("settings.preset.loading")}</div>
       </div>
     );
   }
   if (items.length === 0) {
     return (
       <div style={presetPickerWrapperStyle()}>
-        <span style={layerStyleRowLabelStyle()}>Preset</span>
+        <span style={layerStyleRowLabelStyle()}>{t("settings.preset.label")}</span>
         <div style={presetPickerPlaceholderStyle()}>
-          No presets available — switch to a Chinese, Japanese, Korean, Thai,
-          or Russian track to see language-themed presets, or use Classic on
-          any track.
+          {t("settings.preset.none")}
         </div>
       </div>
     );
@@ -2288,7 +2281,7 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
   return (
     <div style={presetPickerWrapperStyle()}>
       <div style={presetPickerHeaderStyle()}>
-        <span style={layerStyleRowLabelStyle()}>Preset</span>
+        <span style={layerStyleRowLabelStyle()}>{t("settings.preset.label")}</span>
         <span style={presetPickerCurrentStyle()} title={currentLabel}>
           {currentLabel}
         </span>
@@ -2297,7 +2290,7 @@ function PresetPicker({ catalog, activeId, onApply }: PresetPickerProps) {
         value={activeId}
         onChange={pick}
         options={items}
-        emptyOption={{ label: "(no preset — custom colors)" }}
+        emptyOption={{ label: t("settings.preset.noPreset") }}
       />
     </div>
   );

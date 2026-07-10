@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getApiClient } from "@/lib/api-client";
 import { getDefineCapabilities } from "@/lib/annotate/capabilities";
+import { t } from "@/lib/i18n";
 import {
   normalizeDefineSourceLang,
   resolveGlossLang,
@@ -204,7 +205,7 @@ export function DefinitionCard({
       style={cardStyle(pos)}
       {...swallowPlayerEvents}
       role="dialog"
-      aria-label={`Definition of ${word}`}
+      aria-label={t("define.of", { word })}
     >
       <div style={headerStyle}>
         <span style={wordStyle}>{word}</span>
@@ -271,13 +272,13 @@ function HeaderReading({
 
 function Body({ state }: { state: FetchState }) {
   if (state.kind === "loading") {
-    return <div style={mutedStyle}>Looking up…</div>;
+    return <div style={mutedStyle}>{t("define.looking")}</div>;
   }
   if (state.kind === "error") {
-    return <div style={mutedStyle}>Couldn’t reach the dictionary.</div>;
+    return <div style={mutedStyle}>{t("define.unreachable")}</div>;
   }
   if (state.kind === "notfound") {
-    return <div style={mutedStyle}>No dictionary entry.</div>;
+    return <div style={mutedStyle}>{t("define.noEntry")}</div>;
   }
   const senses = (state.data.senses ?? []).slice(0, MAX_SENSES);
   if (senses.length > 0) {
@@ -300,7 +301,7 @@ function Body({ state }: { state: FetchState }) {
   if (parts.length > 0) {
     return (
       <div>
-        <div style={breakdownLabelStyle}>Breakdown</div>
+        <div style={breakdownLabelStyle}>{t("define.breakdown")}</div>
         <div style={breakdownListStyle}>
           {parts.map((p, i) => (
             <div key={i} style={partRowStyle}>
@@ -330,7 +331,7 @@ function Body({ state }: { state: FetchState }) {
       </div>
     );
   }
-  return <div style={mutedStyle}>No dictionary entry.</div>;
+  return <div style={mutedStyle}>{t("define.noEntry")}</div>;
 }
 
 // ---- positioning + styles --------------------------------------------------

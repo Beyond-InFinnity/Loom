@@ -59,6 +59,7 @@ export const ru: LocaleTable = {
   "define.unreachable": "Не удалось связаться со словарём.",
   "define.noEntry": "Нет статьи в словаре.",
   "define.breakdown": "Разбор",
+  "define.grammar": "Грамматика",
   "define.glossLanguage": "Язык словаря",
   "define.glossAuto": "Авто",
 

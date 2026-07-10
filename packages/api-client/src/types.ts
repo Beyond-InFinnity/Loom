@@ -1093,6 +1093,11 @@ export interface components {
              * @description Language the definitions should be written in (the user's language; usually the browser locale).  Falls back to English per-word when a word has no gloss in this language.  Defaults to English.
              */
             gloss_lang?: string | null;
+            /**
+             * Surfaces
+             * @description Optional per-word INFLECTED surface forms, aligned to `words` — the word as it appears in the caption (食べさせられた) vs its dictionary lemma (食べる).  Used to compute the `grammar` breakdown; when absent the primary key is analyzed instead.
+             */
+            surfaces?: string[] | null;
         };
         /** DefineResponse */
         DefineResponse: {
@@ -1140,6 +1145,8 @@ export interface components {
              * @description Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. 一顶 → 一 + 顶, or 玉葉様 → 様).  Empty on a direct hit.
              */
             parts?: components["schemas"]["DefinePart"][];
+            /** @description Grammar breakdown of the inflected SURFACE form (Japanese): its dictionary form + the ordered inflection features (causative / passive / past …).  Present only when the surface actually carries inflection to explain; null for a plain dictionary form or a language with no grammar analyzer. */
+            grammar?: components["schemas"]["GrammarBreakdown"] | null;
         };
         /** DefineSense */
         DefineSense: {
@@ -1272,6 +1279,42 @@ export interface components {
              * @default false
              */
             opt_in_training: boolean;
+        };
+        /**
+         * GrammarBreakdown
+         * @description A word's dictionary form + the grammar features stacked onto it,
+         *     inner→outer (食べる → causative → passive → past).
+         */
+        GrammarBreakdown: {
+            /**
+             * Dict Form
+             * @description Dictionary/plain form of the word.
+             */
+            dict_form: string;
+            /** Features */
+            features?: components["schemas"]["GrammarFeature"][];
+        };
+        /**
+         * GrammarFeature
+         * @description One step in a word's inflection chain (Japanese).
+         */
+        GrammarFeature: {
+            /**
+             * Code
+             * @description Stable feature id for client localization, e.g. 'causative'.
+             */
+            code: string;
+            /**
+             * Display
+             * @description English label, shown when the client has no localization for `code`.
+             */
+            display: string;
+            /**
+             * Surface
+             * @description The morpheme(s) carrying this feature, e.g. 'させ'.
+             * @default
+             */
+            surface: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

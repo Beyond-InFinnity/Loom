@@ -66,6 +66,7 @@ export const en = {
   "define.unreachable": "Couldn't reach the dictionary.",
   "define.noEntry": "No dictionary entry.",
   "define.breakdown": "Breakdown",
+  "define.grammar": "Grammar",
   "define.glossLanguage": "Dictionary language",
   "define.glossAuto": "Auto",
 

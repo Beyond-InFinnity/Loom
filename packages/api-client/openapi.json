@@ -2043,6 +2043,21 @@
             ],
             "title": "Gloss Lang",
             "description": "Language the definitions should be written in (the user's language; usually the browser locale).  Falls back to English per-word when a word has no gloss in this language.  Defaults to English."
+          },
+          "surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surfaces",
+            "description": "Optional per-word INFLECTED surface forms, aligned to `words` \u2014 the word as it appears in the caption (\u98df\u3079\u3055\u305b\u3089\u308c\u305f) vs its dictionary lemma (\u98df\u3079\u308b).  Used to compute the `grammar` breakdown; when absent the primary key is analyzed instead."
           }
         },
         "type": "object",
@@ -2143,6 +2158,17 @@
             "type": "array",
             "title": "Parts",
             "description": "Decomposition breakdown when `found` is false but the word splits into known sub-words (e.g. \u4e00\u9876 \u2192 \u4e00 + \u9876, or \u7389\u8449\u69d8 \u2192 \u69d8).  Empty on a direct hit."
+          },
+          "grammar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GrammarBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Grammar breakdown of the inflected SURFACE form (Japanese): its dictionary form + the ordered inflection features (causative / passive / past \u2026).  Present only when the surface actually carries inflection to explain; null for a plain dictionary form or a language with no grammar analyzer."
           }
         },
         "type": "object",
@@ -2408,6 +2434,55 @@
         ],
         "title": "GeneratePgsRequest",
         "description": "Client \u2192 server request for PGS generation. Async \u2014 returns a job ID.\n\nPGS rasterization takes 30s\u201310min depending on event count and\ncanvas resolution. Poll GET /jobs/{id} for progress. When ``state``\ntransitions to ``completed``, ``result_file_id`` resolves to the\ngenerated .sup via GET /files/{id}."
+      },
+      "GrammarBreakdown": {
+        "properties": {
+          "dict_form": {
+            "type": "string",
+            "title": "Dict Form",
+            "description": "Dictionary/plain form of the word."
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/GrammarFeature"
+            },
+            "type": "array",
+            "title": "Features"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dict_form"
+        ],
+        "title": "GrammarBreakdown",
+        "description": "A word's dictionary form + the grammar features stacked onto it,\ninner\u2192outer (\u98df\u3079\u308b \u2192 causative \u2192 passive \u2192 past)."
+      },
+      "GrammarFeature": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable feature id for client localization, e.g. 'causative'."
+          },
+          "display": {
+            "type": "string",
+            "title": "Display",
+            "description": "English label, shown when the client has no localization for `code`."
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface",
+            "description": "The morpheme(s) carrying this feature, e.g. '\u3055\u305b'.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "display"
+        ],
+        "title": "GrammarFeature",
+        "description": "One step in a word's inflection chain (Japanese)."
       },
       "HTTPValidationError": {
         "properties": {

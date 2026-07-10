@@ -59,6 +59,7 @@ export const ja: LocaleTable = {
   "define.unreachable": "辞書に接続できませんでした。",
   "define.noEntry": "辞書に項目がありません。",
   "define.breakdown": "内訳",
+  "define.grammar": "文法",
   "define.glossLanguage": "辞書の言語",
   "define.glossAuto": "自動",
 

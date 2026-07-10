@@ -22,6 +22,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from loom_core.romanize import hepburn_from_kana, is_token_supported
+from loom_core.grammar import analyze_grammar, grammar_supported
 
 from ..deps import get_dictionary_store
 
@@ -73,6 +74,15 @@ class DefineRequest(BaseModel):
             "word has no gloss in this language.  Defaults to English."
         ),
     )
+    surfaces: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Optional per-word INFLECTED surface forms, aligned to `words` — the "
+            "word as it appears in the caption (食べさせられた) vs its dictionary lemma "
+            "(食べる).  Used to compute the `grammar` breakdown; when absent the "
+            "primary key is analyzed instead."
+        ),
+    )
 
 
 class DefineSense(BaseModel):
@@ -92,6 +102,20 @@ class DefinePart(BaseModel):
     senses: List[DefineSense] = Field(default_factory=list)
 
 
+class GrammarFeature(BaseModel):
+    """One step in a word's inflection chain (Japanese)."""
+    code: str = Field(..., description="Stable feature id for client localization, e.g. 'causative'.")
+    display: str = Field(..., description="English label, shown when the client has no localization for `code`.")
+    surface: str = Field("", description="The morpheme(s) carrying this feature, e.g. 'させ'.")
+
+
+class GrammarBreakdown(BaseModel):
+    """A word's dictionary form + the grammar features stacked onto it,
+    inner→outer (食べる → causative → passive → past)."""
+    dict_form: str = Field(..., description="Dictionary/plain form of the word.")
+    features: List[GrammarFeature] = Field(default_factory=list)
+
+
 class DefineResult(BaseModel):
     word: str = Field(..., description="The requested word, echoed back.")
     found: bool = Field(..., description="True iff the word itself has a direct dictionary entry.")
@@ -109,6 +133,16 @@ class DefineResult(BaseModel):
             "Decomposition breakdown when `found` is false but the word splits "
             "into known sub-words (e.g. 一顶 → 一 + 顶, or 玉葉様 → 様).  Empty on "
             "a direct hit."
+        ),
+    )
+    grammar: Optional[GrammarBreakdown] = Field(
+        None,
+        description=(
+            "Grammar breakdown of the inflected SURFACE form (Japanese): its "
+            "dictionary form + the ordered inflection features (causative / "
+            "passive / past …).  Present only when the surface actually carries "
+            "inflection to explain; null for a plain dictionary form or a "
+            "language with no grammar analyzer."
         ),
     )
 
@@ -237,10 +271,16 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         disp_reading = ctx_reading or (chosen.reading if chosen else None)
         romaji, romaji_alt = _romaji_pair(lang, disp_reading)
 
+        # Grammar breakdown of the inflected SURFACE (the caption word), not the
+        # lemma — independent of whether the dictionary hit.
+        surface = req.surfaces[i] if req.surfaces and i < len(req.surfaces) and req.surfaces[i] else w
+        grammar = _grammar_model(surface, lang)
+
         if chosen is None:
             # Even a miss shows the reading + its Hepburn in the header.
             results.append(
-                DefineResult(word=w, found=False, romaji=romaji, romaji_alt=romaji_alt)
+                DefineResult(word=w, found=False, romaji=romaji, romaji_alt=romaji_alt,
+                             grammar=grammar)
             )
         else:
             results.append(
@@ -253,6 +293,29 @@ def define_batch(req: DefineRequest) -> DefineResponse:
                     senses=_senses(chosen.senses),
                     sources=list(chosen.sources),
                     parts=[_part_model(lang, p) for p in chosen.parts],
+                    grammar=grammar,
                 )
             )
     return DefineResponse(lang=lang, results=results)
+
+
+def _grammar_model(surface: str, lang: str) -> Optional[GrammarBreakdown]:
+    """Grammar breakdown of *surface* for *lang*, or None.  Only returned when
+    there's inflection to explain (a plain dictionary form → None) so the card
+    shows a grammar section only when it adds something.  Fail-soft — a MeCab
+    hiccup never breaks a definition lookup."""
+    if not grammar_supported(lang):
+        return None
+    try:
+        gb = analyze_grammar(surface, lang)
+    except Exception:
+        return None
+    if gb is None or not gb.features:
+        return None
+    return GrammarBreakdown(
+        dict_form=gb.dict_form,
+        features=[
+            GrammarFeature(code=f.code, display=f.display, surface=f.surface)
+            for f in gb.features
+        ],
+    )

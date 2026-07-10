@@ -793,6 +793,29 @@ def _make_zhuyin_romanizer(variant: str = None):
     return romanize
 
 
+_shared_ja_tagger = None
+_shared_ja_tagger_tried = False
+
+
+def get_shared_ja_tagger():
+    """Lazily build ONE module-level fugashi (MeCab) Tagger, shared by the
+    furigana/romaji pipeline and the grammar analyzer — MeCab is heavy (~tens of
+    MB), so a single instance per process is worth it.  Returns None if
+    fugashi/unidic-lite isn't installed (callers degrade gracefully)."""
+    global _shared_ja_tagger, _shared_ja_tagger_tried
+    if _shared_ja_tagger is not None:
+        return _shared_ja_tagger
+    if _shared_ja_tagger_tried:
+        return None
+    _shared_ja_tagger_tried = True
+    try:
+        import fugashi  # lazy import
+        _shared_ja_tagger = fugashi.Tagger()
+    except Exception:
+        _shared_ja_tagger = None
+    return _shared_ja_tagger
+
+
 def _make_japanese_pipeline():
     """Shared Japanese pipeline — one MeCab tagger instance, two consumers.
 
@@ -822,9 +845,11 @@ def _make_japanese_pipeline():
     Imported lazily so users who never select a Japanese track are not affected
     by a missing fugashi/unidic-lite installation.
     """
-    import fugashi  # lazy import
+    import fugashi  # lazy import (kept so a missing dep raises here as before)
 
-    tagger = fugashi.Tagger()  # single instance captured by closure
+    # Share the process-wide tagger with the grammar analyzer; fall back to a
+    # fresh instance if the shared accessor somehow returns None.
+    tagger = get_shared_ja_tagger() or fugashi.Tagger()
 
     # Closure state: merge metadata populated by resolve_spans, consumed by
     # spans_to_romaji.  Always read before the next resolve_spans overwrites.

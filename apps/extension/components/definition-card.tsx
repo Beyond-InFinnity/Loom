@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { getApiClient } from "@/lib/api-client";
 import { getDefineCapabilities } from "@/lib/annotate/capabilities";
@@ -34,6 +41,18 @@ interface DefinePart {
   senses?: DefineSense[];
 }
 
+interface GrammarFeature {
+  code: string;
+  /** English label; shown as-is (client localizes known codes later). */
+  display: string;
+  surface?: string;
+}
+
+interface GrammarBreakdown {
+  dict_form: string;
+  features: GrammarFeature[];
+}
+
 interface DefinitionData {
   word: string;
   found: boolean;
@@ -48,6 +67,9 @@ interface DefinitionData {
   /** Decomposition breakdown when the word itself isn't a headword
       (e.g. 一顶 → 一 + 顶, 玉葉様 → 様).  Present only when `found` is false. */
   parts?: DefinePart[];
+  /** Grammar breakdown of the inflected surface (Japanese): dictionary form +
+      ordered inflection features.  Present only when there's inflection. */
+  grammar?: GrammarBreakdown | null;
 }
 
 type FetchState =
@@ -166,6 +188,7 @@ export function DefinitionCard({
             words: [lemma],
             alt_keys: [[word]],
             readings: [reading ?? ""],
+            surfaces: [word],
           },
         });
         if (cancelled) return;
@@ -228,6 +251,10 @@ export function DefinitionCard({
         <span style={wordStyle}>{word}</span>
         <HeaderReading {...readingBits(reading, state)} />
       </div>
+      {(state.kind === "ok" || state.kind === "notfound") &&
+      state.data?.grammar ? (
+        <GrammarSection grammar={state.data.grammar} />
+      ) : null}
       <Body state={state} />
       <Footer
         sources={
@@ -329,6 +356,31 @@ function HeaderReading({
         </>
       ) : null}
     </span>
+  );
+}
+
+/** Grammar breakdown: the dictionary form followed by the inflection chain it
+    was run through (食べる → causative → passive → past).  Feature labels are the
+    server's English `display` for now; the `code` is carried for later
+    localization.  `surface` (the morpheme) is a hover title. */
+function GrammarSection({ grammar }: { grammar: GrammarBreakdown }) {
+  return (
+    <div style={grammarSectionStyle}>
+      <div style={grammarLabelStyle}>{t("define.grammar")}</div>
+      <div style={grammarChainStyle}>
+        <span style={grammarDictFormStyle}>{grammar.dict_form}</span>
+        {grammar.features.map((f, i) => (
+          <Fragment key={i}>
+            <span style={grammarArrowStyle} aria-hidden="true">
+              →
+            </span>
+            <span style={grammarFeatureStyle} title={f.surface || undefined}>
+              {f.display}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -490,6 +542,50 @@ const posStyle: React.CSSProperties = {
 const mutedStyle: React.CSSProperties = {
   color: "#aab4c2",
   fontSize: 13,
+};
+
+const grammarSectionStyle: React.CSSProperties = {
+  marginBottom: 6,
+  paddingBottom: 6,
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+};
+
+const grammarLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: "#8ea0b6",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  marginBottom: 3,
+};
+
+const grammarChainStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "3px 5px",
+  lineHeight: 1.3,
+};
+
+const grammarDictFormStyle: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 600,
+  color: "#e6ebf2",
+};
+
+const grammarArrowStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#6f7d90",
+};
+
+// Each inflection step as a subtle pill so the chain reads as discrete features.
+const grammarFeatureStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#bcd2ea",
+  background: "rgba(120,150,190,0.16)",
+  border: "1px solid rgba(140,170,210,0.22)",
+  borderRadius: 4,
+  padding: "1px 6px",
+  whiteSpace: "nowrap",
 };
 
 const footerStyle: React.CSSProperties = {

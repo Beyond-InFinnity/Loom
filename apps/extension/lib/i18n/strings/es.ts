@@ -59,6 +59,7 @@ export const es: LocaleTable = {
   "define.unreachable": "No se pudo acceder al diccionario.",
   "define.noEntry": "Sin entrada en el diccionario.",
   "define.breakdown": "Desglose",
+  "define.grammar": "Gramática",
   "define.glossLanguage": "Idioma del diccionario",
   "define.glossAuto": "Automático",
 

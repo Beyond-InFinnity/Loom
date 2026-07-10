@@ -359,6 +359,35 @@ definable. That decision — and which language definitions are written in — i
     ingest --krdict <dir-of-chunks>` (idempotent per source).
   Prior NOTE stands: Phase 3 is a NET-NEW language, not a fix for the JA issues — decided on its own
   merits (K-drama / K-content audience; Korean had zero word-level lookup before this).
+- **Phase 4 — generic multilingual expansion (space-delimited langs):** ✅ Spanish 2026-07-09;
+  **fr/de/it/pt/sv/nl 2026-07-10** (backend live; rides the next extension build for user visibility).
+  The insight: for space-delimited languages the tokenizer is trivial (letter-run regex) and the only
+  real work is LEMMATIZATION (comieron→comer) so the click resolves to a dictionary headword. That's
+  **simplemma** (one light dep, ~50 languages, non-contextual, fail-soft to the surface form) behind a
+  `_generic_tokens` fallback in `build_word_tokens` — reached ONLY for langs with no bespoke analyzer
+  (custom ja/zh/ko always win). Enabled PER language via `GENERIC_TOKEN_PRIMARIES`, and only after
+  `scripts/dict_quality_check.py` clears the bar on REAL text.
+  - **The gate is a corpus quality harness**: tokenize a Tatoeba sample through the production generic
+    path, measure what fraction of content tokens resolve (lemma OR surface hits a kaikki Wiktextract
+    headword/form). Tier-1 batch results (~15k Tatoeba sentences each): **de 98.5% · pt 98.5% ·
+    sv 98.5% · nl 98.3% · it 97.0% · fr 94.4%** — every residual miss a proper noun (John/Kyoto/
+    Tatoeba) except fr/it apostrophe elisions. All clear the ~96% JA baseline.
+  - **Romance elision split** (`_split_elision`): fr/it/ca/oc elide a proclitic before a vowel
+    (l'école, d'un, j'ai) — orthographically the apostrophe is a word boundary but the regex kept
+    "l'école" whole so it never hit the dict (it was the ENTIRE fr/it miss list). Peel a LEADING
+    clitic only when ≤2 letters → every elided clitic separates while genuine apostrophe-lexemes stay
+    whole (aujourd'hui, quelqu'un, presqu'île — stems >2). Lifts fr/it content words miss→hit.
+  - **Dictionaries**: kaikki **English Wiktextract** per-language JSONL (X→English, CC-BY-SA + GFDL),
+    `parse_wiktextract` (keeps "form of" inflection senses as a lemmatizer-miss fallback; first IPA →
+    reading). Ingested to prod: fr 400,741 · de 367,157 · it 622,231 · pt 427,927 · sv 310,953 ·
+    nl 144,815 (+ es 804,263 from Phase 4's Spanish). `dictionary_entry` now ≈ 4.2M rows across 10
+    source langs. Attribution added to `/privacy` ("Other languages — Wiktionary via kaikki").
+  - **No client change needed**: definability is `is_token_supported ∩ SELECT DISTINCT lang`, resolved
+    per-request by the capability endpoint (§6.1) — ingesting a dictionary + opting the lang into
+    `GENERIC_TOKEN_PRIMARIES` lights it up server-side. `ENGINE_VERSIONS` es/fr/de/it/pt/sv/nl→2 (were
+    [] tokens at the default v1). Tests: +3 elision, opt-in probe moved to pl. **Adding the NEXT
+    space-delimited language = run the harness, ingest if it passes, add one line to
+    `GENERIC_TOKEN_PRIMARIES` — no extension release.**
 
 ## 9. Open decisions
 

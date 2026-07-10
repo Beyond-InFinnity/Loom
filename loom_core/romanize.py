@@ -87,10 +87,20 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       surface (は… → は), so the token's word/start/length can change.
     #   ko v2: Korean word tokens added (Phase 3, kiwipiepy) — was [] at the
     #       default v1, so old ko cache rows must be invalidated.
+    #   generic v2: es/fr/de/it/pt/sv/nl word tokens added (simplemma path +
+    #       Romance elision split) — each was [] at the default v1, so any old
+    #       annotate cache row for these langs must be invalidated too.
     "ja": 4,
     "zh": 3,
     "yue": 3,
     "ko": 2,
+    "es": 2,
+    "fr": 2,
+    "de": 2,
+    "it": 2,
+    "pt": 2,
+    "sv": 2,
+    "nl": 2,
 }
 
 

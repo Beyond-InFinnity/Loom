@@ -388,6 +388,28 @@ definable. That decision — and which language definitions are written in — i
     [] tokens at the default v1). Tests: +3 elision, opt-in probe moved to pl. **Adding the NEXT
     space-delimited language = run the harness, ingest if it passes, add one line to
     `GENERIC_TOKEN_PRIMARIES` — no extension release.**
+  - **Tier-2 batch — ru/pl/ro/da/cs/uk/hi/tr/id 2026-07-10** (backend live; rides the next build).
+    Harness over ~15k Tatoeba/lang: **pl 98.6 · ru 98.2 · ro 97.8 · da 96.6 · cs 96.2 · uk 94.9 ·
+    tr 94.8 · id 94.0** useful — the absolute numbers are DEPRESSED by Tatoeba's Tom/Mary
+    over-representation (every miss list is proper-noun-topped: Tom appears 220× in tr, 1492× in hi),
+    so real-content useful is ~96%+. Ingested to prod (ru 441,543 · pl 194,149 · ro 130,161 ·
+    da 57,333 · cs 71,547 · uk 58,458 · hi 38,054 · tr 44,494 · id 38,450); `dictionary_entry` ≈ 5.26M
+    rows / **19 source langs**.
+  - **Brahmic-safe tokenization (the load-bearing fix here).** Python's stdlib `\w` / `str.isalnum()`
+    is FALSE for a combining mark, so `_GENERIC_WORD_RE = [^\W\d_]+` dropped Devanagari dependent
+    vowel signs (matras): करना → करन, and EVERY Devanagari word missed the dict (Hindi measured 88.5%,
+    misses were truncated fragments). Fix: the **`regex` module's `\p{L}\p{M}`** (letters + combining
+    marks) keeps marks in-word — one change that fixes all Brahmic + Arabic/Hebrew scripts at once
+    (`requirements.txt` += `regex`; stdlib fallback if absent, correct for Latin/Cyrillic which is all
+    we enable without it). Hindi → 93.8% (real ~96%), misses now real words. **Unlocks every future
+    Indic language** with no further tokenizer work; hi also has aksharamukha ruby, so it gets ruby +
+    clickable definitions together. Tests: +2 (matras kept in-word + offset reconstruction; Cyrillic).
+  - **Deferred / caveats.** **Norwegian**: kaikki serves it as the macrolanguage `no`; simplemma has
+    `nb`/`nn` but no `no` lemmatizer, so it needs a `no→nb` map + a harness pass before enabling.
+    **Turkish**: sentence-initial İ-words (İyi/İki) miss because Python's default lowercasing of İ
+    yields `i̇` (dotted) ≠ dictionary `iyi` — a Turkish-locale casefold fix, filed as a follow-up.
+    **Indonesian**: enclitics (-kah/-lah/-ku/-mu/-nya) aren't peeled (Bisakah, padaku) — a clitic-split
+    like the Romance elision handling would close it. Both ship now (proper-noun-dominated, ~94%).
 
 ## 9. Open decisions
 

@@ -11,6 +11,7 @@
 // documented in lib/owner-key.ts.
 
 import { registerLoomHost } from "@loom/player-ui/host";
+import { setDebugLogger } from "@loom/player-ui/log";
 import type {
   ApiConfig,
   PlayerAdapter,
@@ -23,7 +24,7 @@ import {
   pausedPlayhead,
   scaleSource,
 } from "./host-dom/media-sources";
-import { API_BASE_URL } from "./env";
+import { API_BASE_URL, logDev } from "./env";
 
 /** browser.storage.local behind the StorageAdapter seam.  Semantics are
     1:1 — same keys, same JSON envelope, cross-context onChanged — so
@@ -86,6 +87,8 @@ export const api: ApiConfig = {
     return typeof value === "string" && value.length > 0 ? value : null;
   },
 };
+
+setDebugLogger(logDev);
 
 registerLoomHost({
   storage,

@@ -4,6 +4,9 @@ use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
+mod mpv;
+use mpv::{mpv_command, mpv_start, mpv_stop, mpv_stop_inner, MpvState};
+
 struct SidecarHandle(Mutex<Option<Child>>);
 
 /// Paths into the bundled `resources/` tree populated by
@@ -140,6 +143,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(SidecarHandle(Mutex::new(None)))
+        .manage(MpvState(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![mpv_start, mpv_command, mpv_stop])
         .setup(|app| {
             let bundle = app.path().resource_dir().ok()
                 .map(|d| BundlePaths::from_resource_dir(&d));
@@ -151,6 +156,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
                 kill_sidecar(&window.state::<SidecarHandle>());
+                mpv_stop_inner(&window.state::<MpvState>());
             }
         })
         .build(tauri::generate_context!())
@@ -158,6 +164,7 @@ pub fn run() {
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
                 kill_sidecar(&app_handle.state::<SidecarHandle>());
+                mpv_stop_inner(&app_handle.state::<MpvState>());
             }
         });
 }

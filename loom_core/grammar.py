@@ -28,6 +28,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -462,6 +463,123 @@ def analyze_korean_grammar(
         i += consumed
 
     return GrammarBreakdown(dict_form=dict_form, features=features)
+
+
+# --------------------------------------------------------------------------- #
+# Wiktionary form-of tags → grammar (Hindi, Spanish, French, German, Russian, …)
+# --------------------------------------------------------------------------- #
+#
+# Fusional/inflectional languages (unlike agglutinative ja/ko) don't get a
+# morpheme-chain walk — but we don't need one.  Wiktionary already analysed every
+# inflected form: kaikki Wiktextract marks it "form-of" and carries structured
+# grammatical `tags` (करते → habitual/masculine/plural; comieron → preterite/
+# third-person/plural), plus the lemma in the gloss ("... of करना (karnā)").  So a
+# single tag→feature map turns that into a GrammarBreakdown for ~15 languages at
+# once, no per-language engineering and no heavy NLP dependency.  The dictionary
+# store keeps the tags in each sense's `misc`; the /define route follows the
+# form-of gloss to the lemma for the real definition and calls grammar_from_tags.
+
+# Marker tags that aren't grammatical FEATURES (dropped from the breakdown).
+_WIKT_SKIP_TAGS = frozenset({
+    "form-of", "form of", "inflection", "alternative", "romanization",
+    "abbreviation", "obsolete", "archaic", "rare", "dialectal", "nonstandard",
+    "colloquial", "informal-spelling", "misspelling", "combining-form", "error",
+})
+
+# Canonical DISPLAY order (voice → aspect → tense → mood → verb-form → person →
+# number → gender → case → politeness → degree → definiteness).  Only tags listed
+# here surface, in this order; anything else is dropped as noise.
+_WIKT_TAG_ORDER: tuple[str, ...] = (
+    "causative", "passive", "active", "middle",
+    "perfective", "imperfective", "habitual", "progressive", "continuous",
+    "aorist", "preterite", "imperfect", "pluperfect", "perfect",
+    "present", "past", "future", "future-i", "future-ii",
+    "indicative", "subjunctive", "imperative", "conditional", "presumptive",
+    "optative", "jussive", "cohortative", "potential",
+    "participle", "infinitive", "gerund", "supine", "converb", "verbal-noun",
+    "transgressive", "gerundive",
+    "first-person", "second-person", "third-person", "impersonal",
+    "singular", "dual", "plural",
+    "masculine", "feminine", "neuter", "common-gender",
+    "direct", "oblique", "nominative", "accusative", "dative", "genitive",
+    "vocative", "ergative", "locative", "instrumental", "ablative",
+    "prepositional", "partitive", "essive", "translative",
+    "formal", "informal", "familiar", "polite", "intimate", "honorific",
+    "positive", "comparative", "superlative",
+    "definite", "indefinite",
+)
+_WIKT_TAG_RANK = {t: i for i, t in enumerate(_WIKT_TAG_ORDER)}
+
+# Nicer English display for a few tags (else the tag text is shown verbatim).
+_WIKT_TAG_DISPLAY: dict[str, str] = {
+    "first-person": "1st person", "second-person": "2nd person",
+    "third-person": "3rd person",
+    "direct": "direct case", "oblique": "oblique case",
+    "verbal-noun": "verbal noun", "common-gender": "common gender",
+    "future-i": "future I", "future-ii": "future II",
+}
+
+
+def grammar_from_tags(
+    tags, dict_form: str
+) -> Optional[GrammarBreakdown]:
+    """Build a GrammarBreakdown from a Wiktionary form-of entry's grammatical
+    `tags` (kaikki `senses[].tags`, stored in the dictionary sense's `misc`) and
+    the resolved lemma *dict_form*.  Returns None when no recognised grammatical
+    feature is present (so a non-inflectional 'alternative form of' shows no
+    grammar section).  Language-agnostic: the tag vocabulary is shared across all
+    Wiktextract languages."""
+    if not dict_form:
+        return None
+    seen: set[str] = set()
+    feats: list[str] = []
+    for raw in tags or []:
+        t = (raw or "").strip().lower()
+        if t in _WIKT_SKIP_TAGS or t in seen or t not in _WIKT_TAG_RANK:
+            continue
+        seen.add(t)
+        feats.append(t)
+    if not feats:
+        return None
+    feats.sort(key=lambda t: _WIKT_TAG_RANK[t])
+    return GrammarBreakdown(
+        dict_form=dict_form,
+        features=[
+            GrammarFeature(code=t, display=_WIKT_TAG_DISPLAY.get(t, t))
+            for t in feats
+        ],
+    )
+
+
+# Wiktionary form-of glosses are "FEATURES of LEMMA(  (translit))(:)":
+#   "oblique plural of घटना (ghaṭnā)"  ·  "past participle of manger"
+#   "inflection of करना (karnā):"      ·  "plural of niño"
+# The lemma is the run after the LAST " of ", minus a trailing "(translit)"/":".
+_FORM_OF_SPLIT = re.compile(r"\bof\s+", re.IGNORECASE)
+
+
+def extract_form_of_lemma(gloss: str) -> Optional[str]:
+    """Pull the lemma out of a Wiktionary form-of gloss, or None if it doesn't
+    look like one.  Handles the parenthetical transliteration and trailing colon;
+    the lemma keeps its own script (Devanagari / Latin / Cyrillic)."""
+    if not gloss:
+        return None
+    parts = _FORM_OF_SPLIT.split(gloss)
+    if len(parts) < 2:
+        return None
+    tail = parts[-1].strip()
+    # Drop a trailing "(romanization)" and any terminal punctuation/colon.
+    tail = re.sub(r"\s*\([^)]*\)\s*$", "", tail).strip()
+    tail = tail.rstrip(":;,. ").strip()
+    # Strip pedagogical stress accents (Russian чита́ть → читать) so the lemma
+    # re-lookup matches the plain dictionary headword.  These combining acute/
+    # grave marks aren't lexical in the languages we serve (Spanish etc. use
+    # PRECOMPOSED accented letters, untouched here).
+    tail = tail.replace("́", "").replace("̀", "").strip()
+    # A lemma is a single token (no spaces); guard against odd glosses.
+    if not tail or " " in tail:
+        return tail.split()[0] if tail else None
+    return tail or None
 
 
 # --------------------------------------------------------------------------- #

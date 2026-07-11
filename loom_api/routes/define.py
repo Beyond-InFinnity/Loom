@@ -22,7 +22,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from loom_core.romanize import hepburn_from_kana, is_token_supported
-from loom_core.grammar import analyze_grammar, grammar_supported
+from loom_core.grammar import (
+    analyze_grammar,
+    extract_form_of_lemma,
+    grammar_from_tags,
+    grammar_supported,
+)
 
 from ..deps import get_dictionary_store
 
@@ -265,25 +270,64 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         for i, w in enumerate(req.words)
     ]
     union = sorted({c for cands in cand_lists for c in cands})
-    found = get_dictionary_store().lookup(lang, union, gloss_lang) if union else {}
+    store = get_dictionary_store()
+    found = store.lookup(lang, union, gloss_lang) if union else {}
 
-    results: List[DefineResult] = []
-    for i, (w, cands) in enumerate(zip(req.words, cand_lists)):
-        # Prefer a direct hit (has senses); fall back to a decomposition-only
-        # entry (parts but no senses); try the primary key before its alts.
+    # Form-of resolution (Wiktextract inflected forms): a chosen entry that is
+    # only an "inflection of LEMMA" carries the meaning one hop away.  Collect the
+    # target lemmas and do ONE more batched lookup so the card can show the real
+    # definition + a grammar breakdown built from the entry's tags — this is how
+    # Hindi / Spanish / French / German / Russian / … inflected words get handled.
+    chosens: list = []
+    fo_targets: list = []  # per word: (lemma, tags) or None
+    lemma_keys: set = set()
+    for w, cands in zip(req.words, cand_lists):
         direct = next((found[c] for c in cands if found.get(c) and found[c].senses), None)
         chosen = direct or next(
             (found[c] for c in cands if found.get(c) and found[c].parts), None
         )
+        chosens.append(chosen)
+        fo = _form_of(chosen)
+        fo_targets.append(fo)
+        if fo:
+            lemma_keys.add(key(fo[0]))
+    lemma_found = (
+        store.lookup(lang, sorted(lemma_keys), gloss_lang) if lemma_keys else {}
+    )
+
+    results: List[DefineResult] = []
+    for i, (w, cands) in enumerate(zip(req.words, cand_lists)):
+        chosen = chosens[i]
         # Romaji tracks the DISPLAYED reading: the client's contextual reading
         # (は→わ, inflected 見た) if it sent one, else the dictionary reading.
         ctx_reading = req.readings[i] if req.readings and i < len(req.readings) else None
         disp_reading = ctx_reading or (chosen.reading if chosen else None)
         romaji, romaji_alt = _romaji_pair(lang, disp_reading)
 
-        # Grammar breakdown of the inflected SURFACE (the caption word), not the
-        # lemma — independent of whether the dictionary hit.  A continuation (the
-        # next cue's lead) recovers a predicate split across events (finding ③).
+        # Grammar breakdown.  Two sources, in priority order:
+        #  1. Wiktextract form-of: the clicked word is an inflected form; follow it
+        #     to the lemma for the REAL senses and build grammar from its tags.
+        #  2. Surface morphology (ja/ko): analyze the caption word directly; a
+        #     continuation (next cue's lead) recovers a split predicate (finding ③).
+        fo = fo_targets[i]
+        resolved = lemma_found.get(key(fo[0])) if fo else None
+        if fo and resolved and resolved.senses:
+            lemma, tags = fo
+            grammar = _to_grammar_model(grammar_from_tags(tags, lemma))
+            results.append(
+                DefineResult(
+                    word=w,
+                    found=True,          # meaning recovered via the lemma
+                    reading=chosen.reading if chosen else None,
+                    romaji=romaji,
+                    romaji_alt=romaji_alt,
+                    senses=_senses(resolved.senses),
+                    sources=list(resolved.sources),
+                    grammar=grammar,
+                )
+            )
+            continue
+
         surface = req.surfaces[i] if req.surfaces and i < len(req.surfaces) and req.surfaces[i] else w
         cont = req.surface_continuations[i] if (
             req.surface_continuations and i < len(req.surface_continuations)
@@ -313,6 +357,37 @@ def define_batch(req: DefineRequest) -> DefineResponse:
     return DefineResponse(lang=lang, results=results)
 
 
+def _form_of(defn) -> Optional[tuple]:
+    """If *defn*'s first sense is a Wiktionary inflected form ("form-of"), return
+    (lemma, tags) so the route can resolve the real definition + grammar; else
+    None.  Guards against a form-of entry whose lemma can't be parsed."""
+    if defn is None or not defn.senses:
+        return None
+    s0 = defn.senses[0]
+    misc = [m.lower() for m in (s0.misc or [])]
+    if "form-of" not in misc and "form of" not in misc:
+        return None
+    gloss = s0.gloss[0] if s0.gloss else ""
+    lemma = extract_form_of_lemma(gloss)
+    if not lemma:
+        return None
+    return (lemma, s0.misc)
+
+
+def _to_grammar_model(gb) -> Optional[GrammarBreakdown]:
+    """Convert a loom_core.grammar.GrammarBreakdown (dataclass) to the wire model,
+    or None when there's nothing to show (no breakdown / no features)."""
+    if gb is None or not gb.features:
+        return None
+    return GrammarBreakdown(
+        dict_form=gb.dict_form,
+        features=[
+            GrammarFeature(code=f.code, display=f.display, surface=f.surface)
+            for f in gb.features
+        ],
+    )
+
+
 def _grammar_model(
     surface: str, lang: str, continuation: str = ""
 ) -> Optional[GrammarBreakdown]:
@@ -327,12 +402,4 @@ def _grammar_model(
         gb = analyze_grammar(surface, lang, continuation)
     except Exception:
         return None
-    if gb is None or not gb.features:
-        return None
-    return GrammarBreakdown(
-        dict_form=gb.dict_form,
-        features=[
-            GrammarFeature(code=f.code, display=f.display, surface=f.surface)
-            for f in gb.features
-        ],
-    )
+    return _to_grammar_model(gb)

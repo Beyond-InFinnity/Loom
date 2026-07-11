@@ -31,17 +31,17 @@ import type { AnnotateMap, AnnotateTokenMap } from "@/lib/annotate/types";
 import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
 import type { Preset, PresetCatalog, PresetLayerColors } from "@/lib/presets/types";
-import { getPlatform } from "@/lib/captions/platform";
-import { storage } from "../lib/host";
+import { player, storage } from "../lib/host";
 
-// Native-caption suppression is platform-resolved (5h-3): YouTube hides
-// `.ytp-caption-window-container`, Netflix hides `.player-timedtext`.
-// Resolve lazily per call so a null platform (unsupported host) no-ops.
+// Native-caption suppression goes through the PlayerAdapter seam (7b):
+// YouTube hides `.ytp-caption-window-container`, Netflix hides
+// `.player-timedtext`; a null platform (unsupported host) no-ops inside
+// the adapter.
 function hideNativeCaptions(): void {
-  getPlatform()?.hideNativeCaptions();
+  player.hideNativeCaptions();
 }
 function restoreNativeCaptions(): void {
-  getPlatform()?.restoreNativeCaptions();
+  player.restoreNativeCaptions();
 }
 
 // Color + position preferences live in caption-context (not discover.ts)
@@ -146,7 +146,7 @@ const DEFAULT_CAPTION_SIZE_PCT = 100;
 
 /** Identifier for the current site's per-platform size bucket. */
 function currentPlatformId(): string {
-  return getPlatform()?.id ?? "unknown";
+  return player.id;
 }
 
 /** Per-platform position prefs, stored under one map keyed by platform id.

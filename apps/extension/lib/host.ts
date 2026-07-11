@@ -18,6 +18,11 @@ import type {
   StorageChange,
 } from "@loom/player-ui/seams";
 import { getPlatform } from "./captions/platform";
+import {
+  acquirePlayhead,
+  pausedPlayhead,
+  scaleSource,
+} from "./host-dom/media-sources";
 import { API_BASE_URL } from "./env";
 
 /** browser.storage.local behind the StorageAdapter seam.  Semantics are
@@ -69,9 +74,10 @@ export const api: ApiConfig = {
   baseUrl: API_BASE_URL,
   clientVersion: (() => {
     try {
-      return `extension/${browser.runtime.getManifest().version}`;
+      return browser.runtime.getManifest().version ?? null;
     } catch {
-      return "extension/unknown";
+      // Outside a real extension context (vitest) there is no `browser`.
+      return null;
     }
   })(),
   async ownerKey(): Promise<string | null> {
@@ -81,4 +87,11 @@ export const api: ApiConfig = {
   },
 };
 
-registerLoomHost({ storage, player, api });
+registerLoomHost({
+  storage,
+  player,
+  api,
+  acquirePlayhead,
+  playhead: () => pausedPlayhead,
+  scale: scaleSource,
+});

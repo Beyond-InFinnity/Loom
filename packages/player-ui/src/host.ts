@@ -25,11 +25,16 @@ export interface LoomHost {
   storage: StorageAdapter;
   player: PlayerAdapter;
   api: ApiConfig;
-  /** Playhead/scale are resolved per-mount (the video surface can change
-      identity — Prime's preview→episode migration); hosts return the
-      CURRENT source.  Optional until 7c: the extension registers them in
-      7b, but package modules must tolerate their absence. */
+  /** Wait for the media surface and return a source bound to it (the
+      extension resolves the platform <video>; a native shell resolves
+      immediately over its bridge).  Null on timeout/abort. */
+  acquirePlayhead?: (signal: AbortSignal) => Promise<PlayheadSource | null>;
+  /** The pause-gate playhead: follows the CURRENTLY tracked media (the
+      video surface can change identity — Prime's preview→episode
+      migration), so it's a getter, not a bound instance. */
   playhead?: () => PlayheadSource | null;
+  /** Scale source over the current player root; null when no player is in
+      the DOM at call time. */
   scale?: () => ScaleSource | null;
   /** Track ingestion — registered by native players (7c).  The extension
       keeps its discover.ts flow until that flow itself moves behind this. */

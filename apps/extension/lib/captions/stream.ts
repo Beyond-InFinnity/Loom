@@ -1,6 +1,7 @@
 import { logDev } from "../env";
-import { getPlatform } from "./platform";
+import { acquirePlayhead } from "../host-dom/media-sources";
 
+import type { PlayheadSource } from "@loom/player-ui/seams";
 import type {
   CaptionEvent,
   StreamChangeDetail,
@@ -10,19 +11,11 @@ import type {
 // CaptionStream — playhead-driven active-caption emitter.
 //
 // MAIN-world bridge does all discovery + fetch + parse.  This class
-// just receives a `(targetEvents, nativeEvents)` pair, hooks
-// <video>.timeupdate, and emits "active caption changed" via direct
-// callbacks.
-//
-// The <video> selector is platform-resolved (5h-3): YouTube's
-// "video.html5-main-video", Netflix's "#appMountPoint video".  Both
-// fire native HTML5 `timeupdate` (~4×/s), which is the same cadence
-// YouTube has always used — so Netflix reuses this path verbatim rather
-// than the rAF poll the recon tentatively sketched.  (If live testing
-// shows Netflix's timeupdate is too coarse, the seam to switch is here.)
-
-const FALLBACK_VIDEO_SELECTOR = "video.html5-main-video";
-const VIDEO_WAIT_TIMEOUT_MS = 10_000;
+// just receives a `(targetEvents, nativeEvents)` pair, subscribes to the
+// host's PlayheadSource (7b seam — the extension impl waits for the
+// platform <video> and wraps its `timeupdate`, ~4×/s; a native player
+// feeds libmpv time-pos instead), and emits "active caption changed" via
+// direct callbacks.
 
 export interface CaptionStreamCallbacks {
   onStatusChange?: (status: StreamStatus) => void;
@@ -45,7 +38,8 @@ export class CaptionStream {
   #currentTargets: CaptionEvent[] = [];
   #currentNatives: CaptionEvent[] = [];
   #abort: AbortController | null = null;
-  #video: HTMLVideoElement | null = null;
+  #playhead: PlayheadSource | null = null;
+  #unsubscribeTick: (() => void) | null = null;
   #callbacks: CaptionStreamCallbacks;
 
   constructor(callbacks: CaptionStreamCallbacks = {}) {
@@ -101,24 +95,22 @@ export class CaptionStream {
         })),
       );
 
-      const video = await this.#waitForVideo(signal);
+      const playhead = await acquirePlayhead(signal);
       if (signal.aborted) return;
-      if (!video) {
+      if (!playhead) {
         this.#setStatus({
           kind: "error",
           message: "video element not found within 10s",
         });
         return;
       }
-      this.#video = video;
-      video.addEventListener("timeupdate", this.#onTimeUpdate);
+      this.#playhead = playhead;
+      this.#unsubscribeTick = playhead.onTick((ms) => this.#tick(ms));
       logDev(
-        "[Loom Stream] timeupdate listener attached; video currentTime=",
-        video.currentTime,
+        "[Loom Stream] playhead tick subscribed; currentTimeMs=",
+        playhead.currentTimeMs(),
         "paused=",
-        video.paused,
-        "duration=",
-        video.duration,
+        playhead.paused(),
       );
 
       this.#setStatus({
@@ -127,7 +119,7 @@ export class CaptionStream {
         nativeLang: payload.nativeLang,
       });
 
-      this.#tick(video.currentTime);
+      this.#tick(playhead.currentTimeMs());
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       const message = e instanceof Error ? e.message : String(e);
@@ -150,10 +142,9 @@ export class CaptionStream {
   async stop(): Promise<void> {
     this.#abort?.abort();
     this.#abort = null;
-    if (this.#video) {
-      this.#video.removeEventListener("timeupdate", this.#onTimeUpdate);
-      this.#video = null;
-    }
+    this.#unsubscribeTick?.();
+    this.#unsubscribeTick = null;
+    this.#playhead = null;
     this.#targetEvents = [];
     this.#nativeEvents = [];
     if (
@@ -185,14 +176,8 @@ export class CaptionStream {
     this.#callbacks.onActiveChange?.(detail);
   }
 
-  #onTimeUpdate = (): void => {
-    if (this.#video) {
-      this.#tick(this.#video.currentTime);
-    }
-  };
-
-  #tick(currentTimeSeconds: number): void {
-    const t = currentTimeSeconds * 1000;
+  #tick(currentTimeMs: number): void {
+    const t = currentTimeMs;
     // ALL concurrently-active cues per side (a scene can show a bottom
     // dialogue line + a positioned/vertical side cue at once).
     const nextTargets = findActiveAll(this.#targetEvents, t);
@@ -214,44 +199,6 @@ export class CaptionStream {
     this.#emitChange();
   }
 
-  async #waitForVideo(signal: AbortSignal): Promise<HTMLVideoElement | null> {
-    const platform = getPlatform();
-    const selector = platform?.videoSelector ?? FALLBACK_VIDEO_SELECTOR;
-    // A platform may supply a custom resolver (Prime: the largest real
-    // player surface's <video>, not a hidden preview placeholder).  Falls
-    // back to the first selector match for platforms without one.
-    const resolveVideo = (): HTMLVideoElement | null =>
-      platform?.resolveVideo?.() ??
-      document.querySelector<HTMLVideoElement>(selector);
-    const existing = resolveVideo();
-    if (existing) return existing;
-
-    return new Promise<HTMLVideoElement | null>((resolve) => {
-      const observer = new MutationObserver(() => {
-        const video = resolveVideo();
-        if (video) {
-          observer.disconnect();
-          clearTimeout(timeoutId);
-          signal.removeEventListener("abort", abortHandler);
-          resolve(video);
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      const timeoutId = setTimeout(() => {
-        observer.disconnect();
-        signal.removeEventListener("abort", abortHandler);
-        resolve(null);
-      }, VIDEO_WAIT_TIMEOUT_MS);
-
-      const abortHandler = () => {
-        observer.disconnect();
-        clearTimeout(timeoutId);
-        resolve(null);
-      };
-      signal.addEventListener("abort", abortHandler);
-    });
-  }
 }
 
 /** Every event overlapping the playhead, in track order. */

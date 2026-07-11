@@ -7,10 +7,10 @@
 // the flag's width, and the right edge below the flag is reliably empty
 // (the bottom control bar + the back button are the only other chrome).
 //
-// Platform-resolved rather than a prop so both pill components stay dumb;
-// getPlatform() is constant per page (memoized off the hostname).
+// Platform-resolved (via the PlayerAdapter seam, 7b) rather than a prop so
+// both pill components stay dumb; the id is constant per page.
 
-import { getPlatform } from "../captions/platform";
+import { player } from "../host";
 
 export interface PillAnchor {
   /** Distance from the player's top edge, in CSS px. */
@@ -23,5 +23,5 @@ const DEFAULT_ANCHOR: PillAnchor = { top: 16, right: 16 };
 const NETFLIX_ANCHOR: PillAnchor = { top: 56, right: 16 };
 
 export function getPillAnchor(): PillAnchor {
-  return getPlatform()?.id === "netflix" ? NETFLIX_ANCHOR : DEFAULT_ANCHOR;
+  return player.id === "netflix" ? NETFLIX_ANCHOR : DEFAULT_ANCHOR;
 }

@@ -1,61 +1,25 @@
 import { useEffect, useState } from "react";
 
-import { getPlatform } from "@/lib/captions/platform";
+import { pausedPlayhead } from "../host-dom/media-sources";
 
 // usePaused — true when the tracked streaming <video> is paused.
 //
 // Per-word vocab lookup (VOCAB_LOOKUP.md Phase 2) activates ONLY while
-// paused, so the whole feature hangs off this one boolean.  Capture-phase
-// play/pause listeners on `document` catch whichever <video> fired: `pause`
-// doesn't bubble but DOES traverse the capture phase from document down, so
-// one capturing listener covers the video without per-element rebinding
-// (same technique as lib/overlay/caption-probe.ts).
+// paused, so the whole feature hangs off this one boolean.  The DOM
+// mechanics (capture-phase document listeners, tracked-video identity
+// filter, 1s element-swap resync) live in the PlayheadSource impl
+// (lib/host-dom/media-sources.ts, 7b); this hook is a dumb subscriber.
 //
-// Perf-safe: state flips only on the play↔pause EDGE (never per frame /
-// per timeupdate).  A 1s resync covers <video> element swaps (Netflix MSE
-// reuse, Prime surface migration) whose current state we haven't observed;
-// setState with an unchanged value is a no-op re-render in React.
-
-function resolveVideo(): HTMLVideoElement | null {
-  const platform = getPlatform();
-  const resolved = platform?.resolveVideo?.();
-  if (resolved) return resolved;
-  const sel = platform?.videoSelector ?? "video";
-  return document.querySelector<HTMLVideoElement>(sel);
-}
+// Perf-safe: the source may call back with unchanged values (the resync);
+// setState with an unchanged value is a no-op re-render in React, so state
+// still flips only on the play↔pause EDGE.
 
 export function usePaused(): boolean {
-  const [paused, setPaused] = useState<boolean>(
-    () => resolveVideo()?.paused ?? false,
-  );
+  const [paused, setPaused] = useState<boolean>(() => pausedPlayhead.paused());
 
   useEffect(() => {
-    const sync = () => {
-      const v = resolveVideo();
-      setPaused(v ? v.paused : false);
-    };
-    sync(); // video may have mounted after first render
-
-    // Only react to the TRACKED video — a page can have other <video>s
-    // (Netflix home previews, Prime's autoplay trailer surface) whose
-    // play/pause must not flip our gate.  The resync is the backstop.
-    const onPause = (e: Event) => {
-      if (e.target === resolveVideo()) setPaused(true);
-    };
-    const onPlay = (e: Event) => {
-      if (e.target === resolveVideo()) setPaused(false);
-    };
-    document.addEventListener("pause", onPause, true);
-    document.addEventListener("play", onPlay, true);
-    document.addEventListener("playing", onPlay, true);
-    const id = window.setInterval(sync, 1000);
-
-    return () => {
-      document.removeEventListener("pause", onPause, true);
-      document.removeEventListener("play", onPlay, true);
-      document.removeEventListener("playing", onPlay, true);
-      window.clearInterval(id);
-    };
+    setPaused(pausedPlayhead.paused()); // video may have mounted after first render
+    return pausedPlayhead.onPausedChange(setPaused);
   }, []);
 
   return paused;

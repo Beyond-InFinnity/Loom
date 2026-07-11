@@ -66,22 +66,27 @@ export async function initMpvEvents(): Promise<void> {
   });
 }
 
-export async function startMpv(
-  mediaPath: string,
-  wid?: number,
-): Promise<void> {
+/** Reparent this window's webview over a GtkGLArea + wire the libmpv
+    render context (single-window engine).  Call once, from the player
+    window, before loading media. */
+export async function attachPlayer(): Promise<void> {
+  await invoke("player_attach");
+}
+
+export async function startMpv(mediaPath: string): Promise<void> {
   timeMs = 0;
   durationMs = 0;
   eof = false;
-  await invoke("mpv_start", { mediaPath, extraArgs: [], wid: wid ?? null });
+  await invoke("player_load", { path: mediaPath });
 }
 
 export async function mpvCommand(command: unknown[]): Promise<void> {
-  await invoke("mpv_command", { command });
+  // The render engine takes a string[] (mirrors the mpv command array).
+  await invoke("player_command", { command: command.map((c) => String(c)) });
 }
 
 export async function stopMpv(): Promise<void> {
-  await invoke("mpv_stop");
+  await invoke("player_stop");
 }
 
 export async function setPause(value: boolean): Promise<void> {

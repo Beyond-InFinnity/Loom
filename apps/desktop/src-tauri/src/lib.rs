@@ -5,11 +5,14 @@ use std::sync::Mutex;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 mod mpv;
+mod mpv_ffi;
+mod mpv_render;
 mod video_windows;
 use mpv::{mpv_command, mpv_start, mpv_stop, mpv_stop_inner, MpvState};
 use video_windows::{
     close_player_windows, set_overlay_interactive, setup_player_windows, sync_overlay,
 };
+use mpv_render::{player_attach, player_command, player_load, player_stop, RenderEngine};
 
 struct SidecarHandle(Mutex<Option<Child>>);
 
@@ -148,9 +151,11 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(SidecarHandle(Mutex::new(None)))
         .manage(MpvState(Mutex::new(None)))
+        .manage(RenderEngine::default())
         .invoke_handler(tauri::generate_handler![
             mpv_start, mpv_command, mpv_stop,
-            setup_player_windows, set_overlay_interactive, close_player_windows
+            setup_player_windows, set_overlay_interactive, close_player_windows,
+            player_attach, player_load, player_command, player_stop
         ])
         .setup(|app| {
             let bundle = app.path().resource_dir().ok()

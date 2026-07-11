@@ -2,10 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Loom Player — Overlay</title>
+    <title>Loom Player</title>
     <style>
-      /* Transparent window over the video window — the DOM caption stack
-         (MOBILE_ROADMAP.md §5: .ass is never the Player's core renderer). */
+      /* Transparent so the libmpv-rendered video (GtkGLArea behind this
+         webview) shows through everywhere the DOM isn't painted. */
       html,
       body,
       #root {
@@ -13,11 +13,12 @@
         height: 100%;
         background: transparent;
         overflow: hidden;
+        font-family: sans-serif;
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/overlay/main.tsx"></script>
+    <script type="module" src="/src/player-window/main.tsx"></script>
   </body>
 </html>

@@ -14,8 +14,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: "index.html",
-        video: "video.html",
-        overlay: "overlay.html",
+        player: "player.html",
       },
     },
   },

@@ -94,26 +94,37 @@ function formatDuration(seconds: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
-import { PlayerView } from "./player/PlayerView";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-type AppMode = "generate" | "player";
-
-// Last-used mode persists (a player user reopens into the player); the
-// VITE_LOOM_START_MODE env override exists for dev/testing.
-function initialMode(): AppMode {
-  const forced = import.meta.env.VITE_LOOM_START_MODE;
-  if (forced === "player" || forced === "generate") return forced;
-  return localStorage.getItem("loom_desktop_mode") === "player"
-    ? "player"
-    : "generate";
+// Open (or focus) the single-window Loom Player — a separate transparent
+// window whose webview is the caption/transport UI, with libmpv rendering
+// the video behind it (MOBILE_ROADMAP.md §5a).  The module-level guard makes
+// concurrent calls (React StrictMode's double-invoke) create ONE window, not
+// two racing ones.
+let openingPlayer = false;
+async function openPlayer(): Promise<void> {
+  if (openingPlayer) return; // set BEFORE the first await → dedupes the race
+  openingPlayer = true;
+  try {
+    const existing = await WebviewWindow.getByLabel("loom-player");
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+    const w = new WebviewWindow("loom-player", {
+      url: "player.html",
+      title: "Loom Player",
+      width: 1280,
+      height: 720,
+      transparent: true,
+    });
+    w.once("tauri://error", (e) => console.error("[Loom] player window:", e));
+  } finally {
+    openingPlayer = false;
+  }
 }
 
 function App() {
-  const [mode, setModeState] = useState<AppMode>(initialMode);
-  const setMode = (m: AppMode) => {
-    localStorage.setItem("loom_desktop_mode", m);
-    setModeState(m);
-  };
   const [sidecar, setSidecar] = useState<SidecarState>({ kind: "starting" });
   const [attempt, setAttempt] = useState(0);
   const [slots, setSlots] = useState<Slots>({});
@@ -329,25 +340,11 @@ function App() {
   const scanBusy = scan.kind === "scanning";
   const canScan = !!slots.video && !disabled && !scanBusy;
 
-  if (mode === "player") {
-    return (
-      <main className="container" style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <h1 style={{ marginBottom: 4 }}>Loom Player</h1>
-          <button onClick={() => setMode("generate")} style={{ fontSize: "0.85em" }}>
-            ← Subtitle generator
-          </button>
-        </div>
-        <PlayerView />
-      </main>
-    );
-  }
-
   return (
     <main className="container" style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
         <h1 style={{ marginBottom: 4 }}>Loom</h1>
-        <button onClick={() => setMode("player")} style={{ fontSize: "0.85em" }}>
+        <button onClick={() => void openPlayer()} style={{ fontSize: "0.85em" }}>
           ▶ Player
         </button>
       </div>

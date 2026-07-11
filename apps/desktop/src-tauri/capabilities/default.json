@@ -2,19 +2,36 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main + Player video/overlay windows",
-  "windows": ["main", "loom-video", "loom-overlay"],
+  "windows": [
+    "main",
+    "loom-video",
+    "loom-overlay",
+    "loom-player"
+  ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-focus",
+    "core:webview:allow-create-webview-window",
     "dialog:allow-open",
     "dialog:allow-save",
     {
       "identifier": "fs:allow-write-file",
       "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DOWNLOAD/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$VIDEO/**" }
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$DOWNLOAD/**"
+        },
+        {
+          "path": "$DESKTOP/**"
+        },
+        {
+          "path": "$DOCUMENT/**"
+        },
+        {
+          "path": "$VIDEO/**"
+        }
       ]
     }
   ]

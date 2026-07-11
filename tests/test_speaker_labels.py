@@ -167,3 +167,57 @@ def test_zh_multi_speaker_both_labels_dropped_dialogue_kept():
 def test_ja_multi_speaker_dashes_dropped():
     _spans, words = _words("ja", "- 何\n- そうです")
     assert "何" in words and "です" in words
+
+
+# --------------------------------------------------------------------------- #
+# Latin generics (es/fr/de/en) — codepoint-offset token path (①+② extension)
+# --------------------------------------------------------------------------- #
+
+def _generic_available() -> bool:
+    try:
+        import simplemma  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+generic = pytest.mark.skipif(not _generic_available(), reason="simplemma unavailable")
+
+
+def _latin_words(lang, text):
+    # Latin generics have no annotation_func → spans == [], codepoint-offset tokens.
+    func = get_annotation_func(lang)
+    spans = func(text) if func else []
+    return [t[0] for t in build_word_tokens(text, lang, spans, func)]
+
+
+@generic
+def test_es_bracket_label_dropped():
+    words = _latin_words("es", "(HOMBRE) ¡Quieto o disparo!")
+    assert "HOMBRE" not in words and "Hombre" not in words
+    assert "disparo" in words
+
+
+@generic
+def test_es_multi_speaker_dashes_dropped_dialogue_kept():
+    words = _latin_words("es", "-Vamos ya\n-Espera")
+    assert "Vamos" in words and "Espera" in words
+
+
+@generic
+def test_en_sfx_label_dropped():
+    words = _latin_words("en", "[male voice] Blue Goose, this is Dispatch")
+    assert "male" not in words and "voice" not in words
+    assert "Dispatch" in words
+
+
+@generic
+def test_latin_plain_line_unaffected():
+    words = _latin_words("en", "That's what I'm talking about")
+    assert "talking" in words and "about" in words
+
+
+@generic
+def test_latin_whole_cue_label_kept():
+    # A bare SFX cue "(Risas)" has no dialogue body — its one token stays.
+    assert _latin_words("es", "(Risas)") == ["Risas"]

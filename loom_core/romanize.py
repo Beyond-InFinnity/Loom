@@ -107,27 +107,34 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       markers — the mid-cue dashes/labels of a multi-speaker cue
     #       (-[名]…\n-[名]…) are now dropped too, so tokens + romaji change again for
     #       multi-speaker lines → the ① (v5/…) cache rows must be re-invalidated.
+    #   GENERIC LATIN v3 (es/fr/de/it/pt/sv/nl/pl/ro/da/cs/tr/id/en): speaker markup
+    #       (①+② labels/dashes) now drops clickable tokens on the Latin path too
+    #       (_drop_speaker_markup_tokens_cp) — es/fr especially (10%+ each) — a NEW
+    #       token-output change, so bump v2→v3.
+    #   BRAHMIC/CYRILLIC v4 (hi/ru/uk): ①/② applied the span-path drop to these
+    #       WITHOUT a version bump when it shipped; bump now (v3→v4) to flush any
+    #       stale pre-①/② token/romaji rows for their labelled/multi-speaker lines.
     "ja": 6,
     "zh": 5,
     "yue": 5,
     "ko": 4,
-    "es": 2,
-    "fr": 2,
-    "de": 2,
-    "it": 2,
-    "pt": 2,
-    "sv": 2,
-    "nl": 2,
-    "ru": 3,
-    "pl": 2,
-    "ro": 2,
-    "da": 2,
-    "cs": 2,
-    "uk": 3,
-    "hi": 3,
-    "tr": 2,
-    "id": 2,
-    "en": 2,
+    "es": 3,
+    "fr": 3,
+    "de": 3,
+    "it": 3,
+    "pt": 3,
+    "sv": 3,
+    "nl": 3,
+    "ru": 4,
+    "pl": 3,
+    "ro": 3,
+    "da": 3,
+    "cs": 3,
+    "uk": 4,
+    "hi": 4,
+    "tr": 3,
+    "id": 3,
+    "en": 3,
 }
 
 
@@ -3540,6 +3547,27 @@ def _drop_speaker_markup_tokens(tokens: list, spans: list) -> list:
     return [t for t in tokens if t[4] not in drop]
 
 
+def _drop_speaker_markup_tokens_cp(tokens: list, text: str) -> list:
+    """Codepoint-offset variant for the generic (Latin) path, where tokens carry
+    CHAR offsets over _strip_ass(text) and there are no annotation spans.  Drops a
+    token whose start codepoint falls within a speaker-turn marker — so a Spanish
+    (HOMBRE) label or a French/English "- A\\n- B" turn name isn't a clickable
+    dead-end.  Markers spanning the WHOLE cue are kept (a bare SFX line, e.g.
+    "(Risas)", has no dialogue body to prefer)."""
+    if not tokens or not text:
+        return tokens
+    clean = _strip_ass(text)
+    n = len(clean)
+    ranges = [
+        (m.start(), m.end())
+        for m in _SPEAKER_TURN_MARKER.finditer(clean)
+        if m.end() > m.start() and not (m.start() == 0 and m.end() >= n)
+    ]
+    if not ranges:
+        return tokens
+    return [t for t in tokens if not any(a <= t[4] < b for a, b in ranges)]
+
+
 def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -> list:
     """Word-level tokens over the annotation `spans` (VOCAB_LOOKUP.md Phase 0).
 
@@ -3569,7 +3597,7 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
         if spans:
             return _drop_speaker_markup_tokens(
                 _remap_char_offsets_to_spans(tokens, spans), spans)
-        return tokens
+        return _drop_speaker_markup_tokens_cp(tokens, text)
     return []
 
 

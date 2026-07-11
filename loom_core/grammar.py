@@ -12,9 +12,10 @@ turns the auxiliary / inflection sequence into an ordered list of readable
 grammar FEATURES, each a stable code (for the client to localize) plus an
 English display string (so an unknown code still renders).
 
-Japanese only for now (the core audience + the richest morphology); Korean
-(kiwipiepy) and the Romance/Slavic features are the next legs, feeding the same
-GrammarBreakdown shape.
+Japanese + Korean (both agglutinative — a predicate stem with a stackable ending
+chain — so the same walk-the-suffix approach analyses both).  Romance/Slavic
+features are the next leg (they need a real morphological analyzer, not just the
+simplemma lemmatizer), feeding the same GrammarBreakdown shape.
 
 Design notes:
 - Feature CODES are stable identifiers ("causative", "past", …); the server also
@@ -259,8 +260,216 @@ def _cform_feature(cform: str) -> Optional[tuple[str, str]]:
 
 
 # --------------------------------------------------------------------------- #
+# Korean (kiwipiepy)
+# --------------------------------------------------------------------------- #
+#
+# Korean agglutinates endings onto a predicate stem exactly the way Japanese
+# does, and kiwipiepy already tags every morpheme (Sejong tagset) while we
+# tokenise for the KRDict lookup — so the same walk-the-suffix-chain approach
+# applies.  The differences from JA: negation adverbs (안/못) come BEFORE the
+# stem; aspect/modality are 연결어미 + 보조용언 constructions (고 있다, 고 싶다,
+# 어야 하다) that need a lookahead; and the 종결어미 (EF) fuses mood + politeness.
+
+# Predicate-head tags (stem + 다 = dict form) and derivational-predicate tags.
+_KO_PRED_TAGS = frozenset({"VV", "VA", "VX", "VCN"})
+_KO_DERIV_TAGS = frozenset({"XSV", "XSA"})
+# A NEW word starts here → stop a stitched-continuation walk (finding ③).
+_KO_BOUNDARY_TAGS = frozenset({
+    "NNG", "NNP", "NNB", "NP", "NR", "VV", "VA", "VCN",
+    "MAG", "MAJ", "MM", "IC",
+})
+
+# 선어말어미 (EP) — prefinal endings, matched on the normalized morpheme form.
+_KO_EP_FEATURE: dict[str, tuple[str, str]] = {
+    "았": ("past", "past"), "었": ("past", "past"), "였": ("past", "past"),
+    "시": ("honorific", "subject honorific"),
+    "으시": ("honorific", "subject honorific"),
+    "겠": ("presumptive", "presumptive / intention (-gess)"),
+}
+# Negation adverbs (MAG) that precede the stem.
+_KO_NEG_ADV: dict[str, tuple[str, str]] = {
+    "안": ("negative", "negative"),
+    "못": ("inability", "inability (cannot, -mot)"),
+}
+# 고 + 보조용언.
+_KO_GO_AUX: dict[str, tuple[str, str]] = {
+    "있": ("progressive", "progressive (-go itda)"),
+    "계시": ("progressive", "progressive (honorific)"),
+    "싶": ("desiderative", "desiderative (want to, -go sipda)"),
+}
+# 어/아 + 보조용언 (infinitive connector).
+_KO_INF_AUX: dict[str, tuple[str, str]] = {
+    "주": ("benefactive", "benefactive (-a juda)"),
+    "드리": ("benefactive", "benefactive (humble)"),
+    "보": ("attemptive", "attemptive (-a boda)"),
+    "버리": ("completive", "completive (-a beorida)"),
+    "있": ("resultative", "resultative (-a itda)"),
+    "놓": ("preparatory", "preparatory (-a nota)"),
+    "두": ("preparatory", "preparatory (-a duda)"),
+}
+# 어야/아야 + 하/되 → obligation.
+_KO_OBLIG_AUX = frozenset({"하", "되"})
+# 지 + 보조용언 → negation / prohibition.
+_KO_JI_AUX: dict[str, tuple[str, str]] = {
+    "않": ("negative", "negative (-ji anta)"),
+    "못하": ("inability", "inability (-ji mothada)"),
+    "말": ("prohibitive", "prohibitive (don't, -ji malda)"),
+}
+# 연결어미 (EC) that are plain connectives (no 보조용언 lookahead).
+_KO_EC_FEATURE: dict[str, tuple[str, str]] = {
+    "으면": ("conditional", "conditional (if, -myeon)"),
+    "면": ("conditional", "conditional (if, -myeon)"),
+    "어서": ("connective_cause", "and-so / because (-seo)"),
+    "아서": ("connective_cause", "and-so / because (-seo)"),
+    "여서": ("connective_cause", "and-so / because (-seo)"),
+    "지만": ("connective_but", "but (-jiman)"),
+    "는데": ("connective_background", "background / but (-nde)"),
+    "은데": ("connective_background", "background / but (-nde)"),
+    "ㄴ데": ("connective_background", "background / but (-nde)"),
+    "고": ("connective_and", "and (-go)"),
+}
+
+
+def _ko_ef_feature(form: str) -> Optional[tuple[str, str]]:
+    """Map a 종결어미 (final ending) to its mood/politeness feature.  Plain
+    declaratives (다/ㄴ다/는다) carry no feature (≈ dictionary form)."""
+    if "니까" in form:
+        return ("formal_polite_q", "formal polite (question, -mnikka)")
+    if "니다" in form:
+        return ("formal_polite", "formal polite (-mnida)")
+    if "요" in form:
+        return ("polite", "polite (-yo)")
+    if form.endswith("라") or form.endswith("아라") or form.endswith("어라"):
+        return ("imperative", "imperative")
+    if form == "자":
+        return ("propositive", "propositive (let's)")
+    return None
+
+
+def _ko_morphs(text: str):
+    """Light morpheme list (form, base_tag) for *text* via the shared kiwipiepy
+    analyzer; [] when kiwipiepy is unavailable."""
+    from .romanize import _get_kiwi  # lazy — heavy model, shared singleton
+
+    kiwi = _get_kiwi()
+    if kiwi is None:
+        return []
+    return [(m.form, m.tag.split("-", 1)[0]) for m in kiwi.tokenize(text)]
+
+
+def analyze_korean_grammar(
+    surface: str, continuation: str = ""
+) -> Optional[GrammarBreakdown]:
+    """Break a Korean predicate *surface* into its dictionary (다) form + ordered
+    grammar features, mirroring analyze_japanese_grammar.  Returns None for a
+    bare noun / particle (no predicate) or empty input.  *continuation* stitches
+    the next cue's lead for a predicate split across events (finding ③)."""
+    if not surface or not surface.strip():
+        return None
+    surface = surface.strip()
+    cont = ""
+    if continuation and continuation.strip():
+        from .romanize import strip_leading_speaker_label
+        cont = strip_leading_speaker_label(continuation.strip())[:12]
+    stop_at_boundary = bool(cont)
+    ms = _ko_morphs(surface + cont)
+    if not ms:
+        return None
+
+    features: List[GrammarFeature] = []
+
+    # 1) Leading negation adverb (안/못) precedes the stem.
+    neg: Optional[GrammarFeature] = None
+    idx = 0
+    while idx < len(ms) and ms[idx][1] in ("MAG", "MAJ"):
+        code_disp = _KO_NEG_ADV.get(ms[idx][0])
+        if code_disp:
+            neg = GrammarFeature(*code_disp, surface=ms[idx][0])
+        idx += 1
+
+    # 2) Find the predicate head: a real stem (VV/VA/VCN), a 하/되-derived
+    #    predicate (noun+XSV/XSA), or a copula (noun+VCP).
+    head = None
+    for i in range(idx, len(ms)):
+        form, tag = ms[i]
+        if tag in ("VV", "VA", "VCN"):
+            head = (i, form, tag, "")
+            break
+        if tag in _KO_DERIV_TAGS:            # 공부+하 → 공부하다
+            noun = ms[i - 1][0] if i > 0 else ""
+            head = (i, noun, "DERIV", form)
+            break
+        if tag == "VCP":                      # 학생+이(다) copula
+            noun = ms[i - 1][0] if i > 0 else ""
+            head = (i, noun, "VCP", "")
+            break
+    if head is None:
+        return None
+
+    hi, hform, htag, deriv = head
+    if htag == "DERIV":
+        dict_form = (hform + deriv + "다")
+    elif htag == "VCP":
+        dict_form = hform + "이다"
+        features.append(GrammarFeature("copula", "copula (-ida)", surface="이"))
+    else:
+        dict_form = hform + "다"
+
+    if neg is not None:
+        features.append(neg)
+
+    # 3) Walk the ending chain after the head.
+    i = hi + 1
+    while i < len(ms):
+        form, tag = ms[i]
+        consumed = 1
+        if tag == "EP":
+            cd = _KO_EP_FEATURE.get(form)
+            if cd:
+                features.append(GrammarFeature(*cd, surface=form))
+        elif tag == "EC":
+            nxt = ms[i + 1] if i + 1 < len(ms) else None
+            if form == "고" and nxt and nxt[1] in ("VX", "VV", "VA") and nxt[0] in _KO_GO_AUX:
+                features.append(GrammarFeature(*_KO_GO_AUX[nxt[0]], surface=form + nxt[0]))
+                consumed = 2
+            elif form in ("어", "아", "여") and nxt and nxt[1] in ("VX", "VV", "VA") and nxt[0] in _KO_INF_AUX:
+                features.append(GrammarFeature(*_KO_INF_AUX[nxt[0]], surface=form + nxt[0]))
+                consumed = 2
+            elif form in ("어야", "아야", "여야") and nxt and nxt[0] in _KO_OBLIG_AUX:
+                features.append(GrammarFeature("obligation", "obligation (must, -aya hada)", surface=form + nxt[0]))
+                consumed = 2
+            elif form == "지" and nxt and nxt[0] in _KO_JI_AUX:
+                features.append(GrammarFeature(*_KO_JI_AUX[nxt[0]], surface=form + nxt[0]))
+                consumed = 2
+            elif form in _KO_EC_FEATURE:
+                features.append(GrammarFeature(*_KO_EC_FEATURE[form], surface=form))
+            # else: an unmapped connective → skipped
+        elif tag == "EF":
+            cd = _ko_ef_feature(form)
+            if cd:
+                features.append(GrammarFeature(*cd, surface=form))
+        elif tag == "ETM" and form in ("을", "ㄹ", "를"):
+            # 을 수 있다/없다 → potential.  ETM 을 + NNB 수 + VA/VX 있/없.
+            if (i + 2 < len(ms) and ms[i + 1][0] == "수"
+                    and ms[i + 2][0] in ("있", "없")):
+                if ms[i + 2][0] == "있":
+                    features.append(GrammarFeature("potential", "can (-l su itda)", surface="을 수 있"))
+                else:
+                    features.append(GrammarFeature("potential_negative", "cannot (-l su eopda)", surface="을 수 없"))
+                consumed = 3
+        elif stop_at_boundary and tag in _KO_BOUNDARY_TAGS:
+            break
+        i += consumed
+
+    return GrammarBreakdown(dict_form=dict_form, features=features)
+
+
+# --------------------------------------------------------------------------- #
 # Dispatch
 # --------------------------------------------------------------------------- #
+
+_GRAMMAR_LANGS = frozenset({"ja", "ko"})
+
 
 def analyze_grammar(
     surface: str, lang_code: str, continuation: str = ""
@@ -268,14 +477,16 @@ def analyze_grammar(
     """Grammar breakdown for *surface* in *lang_code*, or None when the language
     has no grammar analyzer (Chinese is analytic — no inflection — so it returns
     None by design) or nothing to analyze.  *continuation* stitches the next
-    cue's lead for a predicate split across events (finding ③, Japanese)."""
+    cue's lead for a predicate split across events (finding ③; ja + ko)."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
         return analyze_japanese_grammar(surface, continuation)
+    if primary == "ko":
+        return analyze_korean_grammar(surface, continuation)
     return None
 
 
 def grammar_supported(lang_code: str) -> bool:
     """Whether analyze_grammar can produce a breakdown for this language."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
-    return primary == "ja"
+    return primary in _GRAMMAR_LANGS

@@ -159,7 +159,7 @@ def test_chinese_has_no_grammar_analyzer():
 def test_grammar_supported_flags_japanese():
     assert grammar_supported("ja") is True
     assert grammar_supported("ja-JP") is True
-    assert grammar_supported("ko") is False
+    assert grammar_supported("zh") is False
 
 
 @ja
@@ -253,3 +253,124 @@ def test_define_route_threads_continuation():
     assert g is not None
     assert g.dict_form == "利用する"
     assert [f.code for f in g.features] == ["te_form"]
+
+
+# --------------------------------------------------------------------------- #
+# Korean (kiwipiepy) — same GrammarBreakdown shape, agglutinative ending chain
+# --------------------------------------------------------------------------- #
+
+def _kiwi_available() -> bool:
+    try:
+        from loom_core.romanize import _get_kiwi
+        return _get_kiwi() is not None
+    except Exception:
+        return False
+
+
+ko = pytest.mark.skipif(not _kiwi_available(), reason="kiwipiepy unavailable")
+
+
+def _kcodes(surface, continuation=""):
+    from loom_core.grammar import analyze_korean_grammar
+    b = analyze_korean_grammar(surface, continuation)
+    return (b.dict_form, [f.code for f in b.features]) if b else None
+
+
+@ko
+def test_ko_plain_dict_form_has_no_features():
+    assert _kcodes("먹다") == ("먹다", [])
+
+
+@ko
+def test_ko_past_polite():
+    assert _kcodes("먹었어요") == ("먹다", ["past", "polite"])
+
+
+@ko
+def test_ko_formal_polite():
+    assert _kcodes("먹습니다") == ("먹다", ["formal_polite"])
+
+
+@ko
+def test_ko_honorific_past_polite_stack():
+    # 가셨어요 — honorific 시 + past 었 + polite 요, inner→outer.
+    assert _kcodes("가셨어요") == ("가다", ["honorific", "past", "polite"])
+
+
+@ko
+def test_ko_negative_adverb_and_long_negative():
+    assert _kcodes("안 먹어요") == ("먹다", ["negative", "polite"])
+    assert _kcodes("먹지 않아요") == ("먹다", ["negative", "polite"])
+
+
+@ko
+def test_ko_inability():
+    assert _kcodes("못 먹어요") == ("먹다", ["inability", "polite"])
+
+
+@ko
+def test_ko_progressive_and_desiderative():
+    assert _kcodes("먹고 있어요") == ("먹다", ["progressive", "polite"])
+    assert _kcodes("먹고 싶어요") == ("먹다", ["desiderative", "polite"])
+
+
+@ko
+def test_ko_obligation_and_potential():
+    assert _kcodes("먹어야 해요") == ("먹다", ["obligation", "polite"])
+    assert _kcodes("먹을 수 있어요") == ("먹다", ["potential", "polite"])
+
+
+@ko
+def test_ko_presumptive():
+    assert _kcodes("먹겠어요") == ("먹다", ["presumptive", "polite"])
+
+
+@ko
+def test_ko_suru_style_hada_verb_dict_form():
+    # 공부했어요 → the dict form recovers the full 하다-verb 공부하다, not bare 하다.
+    assert _kcodes("공부했어요") == ("공부하다", ["past", "polite"])
+
+
+@ko
+def test_ko_adjective_and_copula():
+    assert _kcodes("깨끗해요") == ("깨끗하다", ["polite"])
+    assert _kcodes("학생이에요") == ("학생이다", ["copula", "polite"])
+
+
+@ko
+def test_ko_imperative_and_propositive():
+    assert _kcodes("먹어라") == ("먹다", ["imperative"])
+    assert _kcodes("먹자") == ("먹다", ["propositive"])
+
+
+@ko
+def test_ko_bare_noun_returns_none():
+    from loom_core.grammar import analyze_korean_grammar
+    assert analyze_korean_grammar("사람") is None
+
+
+@ko
+def test_ko_continuation_recovers_construction_across_split():
+    # 먹 | 고 있어요 → 먹다[progressive], the aspectual stitched from the next cue.
+    assert _kcodes("먹", "고 있어요") == ("먹다", ["progressive", "polite"])
+
+
+@ko
+def test_ko_continuation_does_not_absorb_next_verb():
+    # 먹 | 어서 자요 → 먹다[connective_cause]; must NOT pull 자다's polite ending.
+    assert _kcodes("먹", "어서 자요") == ("먹다", ["connective_cause"])
+
+
+def test_grammar_supported_now_includes_korean():
+    from loom_core.grammar import grammar_supported
+    assert grammar_supported("ko") is True
+    assert grammar_supported("ko-KR") is True
+
+
+@ko
+def test_define_route_attaches_korean_grammar():
+    from loom_api.routes.define import define_batch, DefineRequest
+    req = DefineRequest(lang="ko", words=["먹다"], surfaces=["먹었어요"])
+    g = define_batch(req).results[0].grammar
+    assert g is not None and g.dict_form == "먹다"
+    assert [f.code for f in g.features] == ["past", "polite"]

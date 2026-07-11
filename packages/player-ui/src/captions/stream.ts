@@ -1,7 +1,6 @@
 import { loomHost } from "../host";
 import { logDebug } from "../log";
 
-import type { PlayheadSource } from "../seams";
 import type {
   CaptionEvent,
   StreamChangeDetail,
@@ -38,7 +37,6 @@ export class CaptionStream {
   #currentTargets: CaptionEvent[] = [];
   #currentNatives: CaptionEvent[] = [];
   #abort: AbortController | null = null;
-  #playhead: PlayheadSource | null = null;
   #unsubscribeTick: (() => void) | null = null;
   #callbacks: CaptionStreamCallbacks;
 
@@ -105,7 +103,6 @@ export class CaptionStream {
         });
         return;
       }
-      this.#playhead = playhead;
       this.#unsubscribeTick = playhead.onTick((ms) => this.#tick(ms));
       logDebug(
         "[Loom Stream] playhead tick subscribed; currentTimeMs=",
@@ -145,7 +142,6 @@ export class CaptionStream {
     this.#abort = null;
     this.#unsubscribeTick?.();
     this.#unsubscribeTick = null;
-    this.#playhead = null;
     this.#targetEvents = [];
     this.#nativeEvents = [];
     if (

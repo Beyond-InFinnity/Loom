@@ -48,6 +48,17 @@ export function setUiLocaleProvider(
   uiLocaleProvider = provider;
 }
 
+/** The host's RAW BCP-47 UI language (e.g. "de-AT"), unmapped — for consumers
+    whose language space is broader than the 12 chrome locales (the dictionary
+    gloss default).  Null when unregistered/unavailable. */
+export function hostLocaleRaw(): string | null {
+  try {
+    return uiLocaleProvider() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve a BCP-47 code (e.g. the browser UI language) to one of our UI
     locales.  Unknown/unsupported languages fall back to English.  Pass an
     explicit code, or omit to read the host's registered locale provider

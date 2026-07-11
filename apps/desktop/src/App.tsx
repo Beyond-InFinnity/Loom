@@ -94,7 +94,26 @@ function formatDuration(seconds: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
+import { PlayerView } from "./player/PlayerView";
+
+type AppMode = "generate" | "player";
+
+// Last-used mode persists (a player user reopens into the player); the
+// VITE_LOOM_START_MODE env override exists for dev/testing.
+function initialMode(): AppMode {
+  const forced = import.meta.env.VITE_LOOM_START_MODE;
+  if (forced === "player" || forced === "generate") return forced;
+  return localStorage.getItem("loom_desktop_mode") === "player"
+    ? "player"
+    : "generate";
+}
+
 function App() {
+  const [mode, setModeState] = useState<AppMode>(initialMode);
+  const setMode = (m: AppMode) => {
+    localStorage.setItem("loom_desktop_mode", m);
+    setModeState(m);
+  };
   const [sidecar, setSidecar] = useState<SidecarState>({ kind: "starting" });
   const [attempt, setAttempt] = useState(0);
   const [slots, setSlots] = useState<Slots>({});
@@ -310,9 +329,28 @@ function App() {
   const scanBusy = scan.kind === "scanning";
   const canScan = !!slots.video && !disabled && !scanBusy;
 
+  if (mode === "player") {
+    return (
+      <main className="container" style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+          <h1 style={{ marginBottom: 4 }}>Loom Player</h1>
+          <button onClick={() => setMode("generate")} style={{ fontSize: "0.85em" }}>
+            ← Subtitle generator
+          </button>
+        </div>
+        <PlayerView />
+      </main>
+    );
+  }
+
   return (
     <main className="container" style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px" }}>
-      <h1 style={{ marginBottom: 4 }}>Loom</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <h1 style={{ marginBottom: 4 }}>Loom</h1>
+        <button onClick={() => setMode("player")} style={{ fontSize: "0.85em" }}>
+          ▶ Player
+        </button>
+      </div>
       <p style={{ opacity: 0.6, fontSize: "0.9em", marginTop: 0 }}>
         Step 3b · file picker + scan
       </p>

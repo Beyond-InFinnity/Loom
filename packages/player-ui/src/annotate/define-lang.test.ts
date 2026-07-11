@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { setUiLocaleProvider } from "../i18n/resolve";
 
 import {
   baseLang,
@@ -76,9 +77,10 @@ describe("isDefinable", () => {
 });
 
 describe("resolveGlossLang", () => {
+  // Host locale via the LocaleProvider seam (the extension registers
+  // browser.i18n.getUILanguage; tests stub the provider directly).
   const uiLang = (code: string) => {
-    // @ts-expect-error test shim for the WebExtension global
-    globalThis.browser = { i18n: { getUILanguage: () => code } };
+    setUiLocaleProvider(() => code);
   };
 
   it("prefers an explicit override the server offers", () => {
@@ -101,10 +103,11 @@ describe("resolveGlossLang", () => {
     expect(resolveGlossLang(caps, "de")).toBe("en");
   });
 
-  it("survives browser.i18n throwing", () => {
+  it("survives the locale provider throwing", () => {
     const caps: DefineCapabilities = mkCaps({ sourceLangs: new Set(["ja"]), glossLangs: ["en"] });
-    // @ts-expect-error test shim
-    globalThis.browser = { i18n: { getUILanguage: () => { throw new Error("no i18n"); } } };
+    setUiLocaleProvider(() => {
+      throw new Error("no i18n");
+    });
     expect(resolveGlossLang(caps)).toBe("en");
   });
 

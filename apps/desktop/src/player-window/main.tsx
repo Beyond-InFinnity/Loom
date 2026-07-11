@@ -40,15 +40,25 @@ import {
   mpvPlayhead,
   onMpvState,
   seekToMs,
+  isMutedPersisted,
+  setAudioLang,
+  setMute,
   setPause,
   startMpv,
   stopMpv,
 } from "../player/mpv";
 import {
+  audioLangAliases,
   fetchTrackEvents,
   loadMedia,
+  selectStudyTracks,
   type LoadedMedia,
 } from "../player/tracks";
+
+// The language the user is studying (Top line + furigana/romaji + audio).
+// Persisted; default Japanese.  (A picker for this is a future setting.)
+const STUDY_LANG =
+  localStorage.getItem("loom_player_study_lang") || "ja";
 
 const GLOSS_OVERRIDE_KEY = "loom_dictionary_gloss_lang";
 const TEXT_SHADOW =
@@ -96,6 +106,11 @@ function PlayerWindow() {
   const [card, setCard] = useState<CardState | null>(null);
   const [definable, setDefinable] = useState(false);
   const [glossOverride, setGlossOverride] = useState<string | null>(readGloss);
+  // Muted by default; the SOURCE OF TRUTH is the engine's persisted pref
+  // (player_is_muted), seeded on mount.  The engine also starts muted at the
+  // mpv-option level before any audio can play — this state just mirrors it
+  // and drives the toolbar toggle.  Safe default true until the seed lands.
+  const [muted, setMuted] = useState<boolean>(true);
 
   const streamRef = useRef<CaptionStream | null>(null);
   if (!streamRef.current) streamRef.current = new CaptionStream();
@@ -123,6 +138,17 @@ function PlayerWindow() {
       void streamRef.current?.stop();
     };
   }, []);
+
+  // Seed the toggle from the engine's persisted truth once attached.
+  useEffect(() => {
+    if (attached) void isMutedPersisted().then(setMuted);
+  }, [attached]);
+
+  // Apply + persist mute whenever it changes or a new file loads (the engine
+  // already starts muted; this keeps it in sync after user toggles / loads).
+  useEffect(() => {
+    if (attached) void setMute(muted);
+  }, [muted, attached, media]);
 
   useEffect(() => {
     streamRef.current?.setCallbacks({
@@ -152,9 +178,14 @@ function PlayerWindow() {
       setBusy("Scanning subtitle tracks…");
       const loaded = await loadMedia(picked);
       setMedia(loaded);
-      const picks = autoPick(loaded.tracks.map((t) => t.caption), userLang);
-      setTargetId(picks.target?.id ?? loaded.tracks[0]?.caption.id ?? null);
-      setNativeId(picks.native?.id ?? null);
+      // Prefer the study language (JA) for Top + the user's language for
+      // Bottom; fall back to generic auto-pick when neither is present.
+      const study = selectStudyTracks(loaded.tracks, STUDY_LANG, userLang);
+      const fallback = autoPick(loaded.tracks.map((t) => t.caption), userLang);
+      setTargetId(
+        study.targetId ?? fallback.target?.id ?? loaded.tracks[0]?.caption.id ?? null,
+      );
+      setNativeId(study.nativeId ?? fallback.native?.id ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -215,14 +246,24 @@ function PlayerWindow() {
           targetLang: targetTrack.caption.languageCode,
           nativeLang: nativeTrack?.caption.languageCode ?? "",
         });
-        const texts = targetEvents.map((e) => e.text);
         const lang = targetTrack.caption.languageCode;
-        void buildAnnotateMap(texts, { langCode: lang }).then((r) => {
-          if (!cancelled) setAnnotate(r);
-        });
-        void buildRomanizeMap(texts, { langCode: lang }).then((r) => {
-          if (!cancelled) setRomanize(r);
-        });
+        // Play the audio in the language being studied (matches the Top
+        // subs) — multi-dub files list English first, so we pick explicitly.
+        void setAudioLang(audioLangAliases(lang));
+        const texts = targetEvents.map((e) => e.text);
+        // Pinyin is the default phonetic for Traditional Chinese (Zhuyin is
+        // deprecated); other languages use their engine default.
+        const phoneticSystem = lang === "zh-Hant" ? "pinyin" : undefined;
+        void buildAnnotateMap(texts, { langCode: lang, phoneticSystem }).then(
+          (r) => {
+            if (!cancelled) setAnnotate(r);
+          },
+        );
+        void buildRomanizeMap(texts, { langCode: lang, phoneticSystem }).then(
+          (r) => {
+            if (!cancelled) setRomanize(r);
+          },
+        );
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -295,6 +336,12 @@ function PlayerWindow() {
       >
         <button onClick={() => void pickFile()} disabled={!attached}>
           Open video…
+        </button>
+        <button
+          onClick={() => setMuted((m) => !m)}
+          title={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? "🔇" : "🔊"}
         </button>
         {media && (
           <>

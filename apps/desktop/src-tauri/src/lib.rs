@@ -12,7 +12,10 @@ use mpv::{mpv_command, mpv_start, mpv_stop, mpv_stop_inner, MpvState};
 use video_windows::{
     close_player_windows, set_overlay_interactive, setup_player_windows, sync_overlay,
 };
-use mpv_render::{player_attach, player_command, player_load, player_stop, RenderEngine};
+use mpv_render::{
+    player_attach, player_command, player_is_muted, player_load, player_set_mute,
+    player_stop, RenderEngine,
+};
 
 struct SidecarHandle(Mutex<Option<Child>>);
 
@@ -155,7 +158,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             mpv_start, mpv_command, mpv_stop,
             setup_player_windows, set_overlay_interactive, close_player_windows,
-            player_attach, player_load, player_command, player_stop
+            player_attach, player_load, player_command, player_stop,
+            player_set_mute, player_is_muted
         ])
         .setup(|app| {
             let bundle = app.path().resource_dir().ok()

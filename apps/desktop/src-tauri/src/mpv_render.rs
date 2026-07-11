@@ -68,6 +68,36 @@ fn set_opt(mpv: *mut mpv_handle, name: &str, val: &str) {
     unsafe { mpv_set_option_string(mpv, n.as_ptr(), v.as_ptr()) };
 }
 
+// ---- persisted mute (engine-level, survives restarts) -------------------
+//
+// The mute preference lives in a FILE, not just the webview's localStorage,
+// and it is applied as an mpv OPTION before initialize (read_persisted_
+// unmuted above) so the engine is born in the persisted state — audio can
+// never leak on load.  Default (no file) = MUTED.
+
+fn mute_pref_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(std::path::PathBuf::from(home).join(".config/loom/player_muted"))
+}
+
+/// True only if the user has explicitly, persistently UNMUTED.  Absent file
+/// (fresh install) or any read error → false → engine starts muted.
+fn read_persisted_unmuted() -> bool {
+    mute_pref_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| s.trim() == "unmuted")
+        .unwrap_or(false)
+}
+
+fn write_mute_pref(muted: bool) {
+    if let Some(p) = mute_pref_path() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(p, if muted { "muted" } else { "unmuted" });
+    }
+}
+
 /// One-time epoxy load so GL symbols resolve for both mpv and our FBO query.
 fn ensure_epoxy() {
     use std::sync::Once;
@@ -113,6 +143,12 @@ pub fn player_attach(app: AppHandle, window: tauri::WebviewWindow) -> Result<(),
     set_opt(mpv, "hwdec", "no");
     set_opt(mpv, "terminal", "no");
     set_opt(mpv, "sid", "no"); // captions are Loom's DOM overlay, not libass
+    // BULLETPROOF MUTE: set as an OPTION before initialize so mpv is born
+    // muted — audio can NEVER play on load before a React effect catches up.
+    // Unmute is an explicit, persisted user action (player_set_mute); the
+    // engine's default is always silent.  The persisted pref is read by the
+    // frontend and re-applied, but the floor is: muted until told otherwise.
+    set_opt(mpv, "mute", if read_persisted_unmuted() { "no" } else { "yes" });
     if unsafe { mpv_initialize(mpv) } < 0 {
         unsafe { mpv_terminate_destroy(mpv) };
         return Err("mpv_initialize failed".into());
@@ -333,6 +369,27 @@ pub fn player_command(app: AppHandle, command: Vec<String>) -> Result<(), String
         argv.push(ptr::null());
         unsafe { mpv_command(mpv, argv.as_mut_ptr()) };
     })
+}
+
+/// Set + PERSIST the mute state (writes the pref file the engine reads at
+/// startup).  The single source of truth for mute — the frontend calls this,
+/// not the generic command channel, so mute survives restarts engine-side.
+#[tauri::command]
+pub fn player_set_mute(app: AppHandle, muted: bool) -> Result<(), String> {
+    write_mute_pref(muted);
+    let state: State<RenderEngine> = app.state();
+    with_mpv(&state, |mpv| {
+        let name = CString::new("mute").unwrap();
+        let val = CString::new(if muted { "yes" } else { "no" }).unwrap();
+        unsafe { mpv_set_property_string(mpv, name.as_ptr(), val.as_ptr()) };
+    })
+}
+
+/// Read the persisted mute state (default muted) — the frontend seeds its UI
+/// from this so the toggle reflects the engine truth.
+#[tauri::command]
+pub fn player_is_muted() -> bool {
+    !read_persisted_unmuted()
 }
 
 #[tauri::command]

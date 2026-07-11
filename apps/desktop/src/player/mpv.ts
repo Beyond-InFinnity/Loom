@@ -93,6 +93,24 @@ export async function setPause(value: boolean): Promise<void> {
   await mpvCommand(["set_property", "pause", value]);
 }
 
+/** Set + PERSIST mute at the engine level (writes the pref file the engine
+    reads at startup, so mute survives restarts and the video can never start
+    unmuted).  Use this, not a raw set_property command. */
+export async function setMute(value: boolean): Promise<void> {
+  await invoke("player_set_mute", { muted: value });
+}
+
+/** The engine's persisted mute truth (default true) — seed the UI from it. */
+export async function isMutedPersisted(): Promise<boolean> {
+  return (await invoke("player_is_muted")) as boolean;
+}
+
+export async function setAudioLang(lang: string): Promise<void> {
+  // mpv picks the first audio track whose language matches (ISO-639, e.g.
+  // "jpn,ja").  A no-op if the file has one audio track.
+  await mpvCommand(["set_property", "alang", lang]);
+}
+
 export async function seekToMs(ms: number): Promise<void> {
   await mpvCommand(["set_property", "time-pos", ms / 1000]);
 }

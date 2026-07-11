@@ -12,10 +12,23 @@ turns the auxiliary / inflection sequence into an ordered list of readable
 grammar FEATURES, each a stable code (for the client to localize) plus an
 English display string (so an unknown code still renders).
 
-Japanese + Korean (both agglutinative — a predicate stem with a stackable ending
-chain — so the same walk-the-suffix approach analyses both).  Romance/Slavic
-features are the next leg (they need a real morphological analyzer, not just the
-simplemma lemmatizer), feeding the same GrammarBreakdown shape.
+TWO engine families, both feeding the same GrammarBreakdown shape:
+
+1. Live morphology — Japanese + Korean ONLY (both agglutinative: a predicate stem
+   with a stackable ending chain, so one walk-the-suffix approach analyses both).
+   `analyze_japanese_grammar` / `analyze_korean_grammar` read the MeCab / kiwipiepy
+   morpheme chain we already compute for furigana + tokens.
+
+2. Dictionary-driven form-of — ~15 Wiktextract languages (hi, es, fr, de, it, pt,
+   ru, uk, …) with NO analyzer.  A morphological analyzer (stanza/spaCy, ~1 GB) is
+   the wrong dependency for the $5/mo box, and it turns out we don't need one: the
+   ingested Wiktextract data ALREADY encodes the morphology.  An inflected form is
+   a "form-of" entry whose gloss names its lemma and whose grammatical `tags` we
+   already store in the sense `misc`.  `extract_form_of_lemma(gloss)` recovers the
+   lemma (the /define route re-looks-it-up for the real meaning) and
+   `grammar_from_tags(tags, lemma)` orders + humanizes the tags into features.  So
+   the "Romance/Slavic leg" that was thought to need an analyzer needs none —
+   Wiktionary's editors did the analysis; we just read it.  (`ef1dd3e`.)
 
 Design notes:
 - Feature CODES are stable identifiers ("causative", "past", …); the server also

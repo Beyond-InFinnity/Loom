@@ -251,6 +251,60 @@ definable. That decision — and which language definitions are written in — i
   (with `gloss_lang`), and — if it's a NEW source language — ensure a tokenizer exists so
   `is_token_supported` returns true for it. Then it lights up on the next page load everywhere.
 
+### 6.2 Grammar-aware breakdown — SHIPPED 2026-07-11 (`31ddb7c` JA, `8fe2f02` KO, `ef1dd3e` form-of)
+
+The dictionary says what a word MEANS; this says what it's DOING. Clicking an inflected word
+returns, above the senses, its **dictionary form + an ordered inflection chain**
+(食べさせられた → 食べる · causative · passive · past). All of it rides the existing `/define/batch`
+call — no new endpoint, computed per-click so the batch never bloats.
+
+- **Wire shape (additive to §6):**
+  ```
+  request:  { …, surfaces?: [str], surface_continuations?: [str] }   # aligned 1:1 with words
+  response: { …, results: [ { …, grammar?: { dict_form, features:[{ code, display, surface }] } } ] }
+  ```
+  `surfaces[i]` = the inflected caption word (vs `words[i]` = the lemma the client already
+  computed); grammar is analyzed from the SURFACE, independent of whether the dict hit. Each
+  feature carries a stable `code` (client-localizable later) + an English `display` shown now →
+  **release-proof**. `surface_continuations[i]` = the next cue's lead text for the LAST token
+  (finding ③ cross-cue stitching); server-accepted, **client doesn't send it yet** (deferred to
+  a later build).
+
+- **Two engine families, one `GrammarBreakdown` shape (`loom_core/grammar.py`):**
+  1. **Live morphology — ja + ko only.** `analyze_japanese_grammar` walks the MeCab (fugashi/unidic)
+     morpheme chain — causative / passive / potential / desiderative / past / polite / negative /
+     volitional / imperative / te-form + -te aspectuals / conditionals / copula; suru-verbs recover
+     the full dict form (勉強しました → 勉強する). `analyze_korean_grammar` walks the kiwipiepy
+     morpheme chain the same way (agglutinative endings: past 았/었, honorific 시, presumptive 겠,
+     progressive 고 있다, desiderative, benefactive, obligation, potential, EF mood/politeness,
+     copula). Both share `get_shared_ja_tagger` / the KRDict tokenizer already spun up for reading.
+  2. **Dictionary-driven form-of — ~15 Wiktextract languages, NO analyzer.** hi / es / fr / de / it /
+     pt / ru / uk / … don't get a morphological engine (stanza/spaCy ~1 GB is wrong for the $5/mo
+     box). Instead the ingested Wiktextract data ALREADY encodes morphology: an inflected form
+     (करते, comieron, Kinder) is a **`form-of` entry** whose gloss names its lemma and whose
+     structured `tags` list is stored in the sense `misc`. `/define` detects a form-of first-sense
+     (`_form_of`), follows `extract_form_of_lemma(gloss)` to the lemma, does a SECOND batched
+     `store.lookup` for the real senses, and turns the tags into a `GrammarBreakdown` via
+     `grammar_from_tags(tags, lemma)` (drops `form-of`/unknown markers; orders
+     voice→aspect→tense→mood→verbform→person→number→gender→case→politeness→degree via
+     `_WIKT_TAG_ORDER`; humanizes via `_WIKT_TAG_DISPLAY`). So the card shows करते → करना ·
+     habitual · participle · plural · masculine with NO per-language code and NO new dependency —
+     Wiktionary's editors already did the analysis. This is the "Romance/Slavic leg" that was
+     thought to need an analyzer; it didn't.
+
+- **`grammar_supported(lang)`** = ja ∪ ko (live morphology) ∪ any lang whose dict rows carry
+  form-of tags (resolved at request time, not a static set). `_to_grammar_model` bridges the
+  loom_core dataclass → the pydantic response model. Fail-soft: unparseable surface / no
+  recognized feature → `grammar` omitted, senses still return.
+
+- **DEPENDENCY on the dictionary data:** form-of grammar REQUIRES the `form-of` inflection rows
+  to stay in `dictionary_entry`. Do NOT drop them to save space (see `DICTIONARY_SOURCES.md` —
+  that footprint-trim idea is now disallowed for any language we want grammar on).
+
+- Client: the card renders a "Grammar" section (dict form → feature pills); **rides the next store
+  build** (the LIVE 0.4.0 has no grammar UI). Tests: `tests/test_grammar.py`,
+  `tests/test_form_of.py` (19).
+
 ## 7. Extension UX
 
 - **Pause-gated.** Lookup mode activates only while the `<video>` is paused (aligns with the

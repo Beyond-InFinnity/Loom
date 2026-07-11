@@ -245,9 +245,12 @@ already covers native editions.
    data). Relieved by dropping the `dictionary_entry_source_lang_gloss` index (70 MB, recreated by
    `_SCHEMA` on next ingest) + VACUUM → DB back to 3.25 GB and writable. **Decision owed (Connor):**
    (a) EXPAND the Railway volume (dashboard → Postgres → Volume; clean, ~billing) — then zh + future
-   columns fit; or (b) TRIM footprint — DROP "form of" inflection rows (~70% of Wiktextract; our
-   tokenizers lemmatize so the base headword usually hits — small recall cost, roughly HALVES the
-   Wiktextract footprint, freeing room for zh + more); or (c) zh **diagonal-only** (keep_langs=zh,ja,ko)
+   columns fit; or (b) ~~TRIM footprint — DROP "form of" inflection rows~~ **⚠️ NO LONGER SAFE (2026-07-11).**
+   The form-of inflection rows now POWER the grammar-breakdown feature for ~15 languages
+   (`ef1dd3e`; `VOCAB_LOOKUP.md §6.2`) — `/define` follows a form-of entry to its lemma AND reads
+   its `tags` for the inflection chain (करते → करना · habitual · plural). Dropping them kills
+   grammar for every non-ja/ko language and re-breaks inflected-word lookups. Do NOT trim them;
+   or (c) zh **diagonal-only** (keep_langs=zh,ja,ko)
    to shrink the zh ingest. Until then zh definitions come from CC-CEDICT (en) + the zh column is deferred.
 4. **fr / de / ru editions, then pt / it / pl / nl …** — the same loop, gated on the disk decision.
 

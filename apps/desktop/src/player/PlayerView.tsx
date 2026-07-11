@@ -27,8 +27,8 @@ import { DefinitionCard } from "@loom/player-ui/components/definition-card";
 import type { AnnotateResult } from "@loom/player-ui/annotate/types";
 import type { CaptionEvent } from "@loom/player-ui/captions/types";
 
-import { generateAss, type GenerateAssResponse } from "../api";
-import { defaultStyleConfig } from "../styles";
+import { fetchLanguageConfig, generateAss, type GenerateAssResponse } from "../api";
+import { defaultStyleConfig, phoneticOptions, type StyleConfig } from "../styles";
 import {
   addLoomSubs,
   getMpvState,
@@ -44,6 +44,27 @@ import {
 import { fetchTrackEvents, fileUrl, loadMedia, type LoadedMedia } from "./tracks";
 
 const GLOSS_OVERRIDE_KEY = "loom_dictionary_gloss_lang";
+
+/** Language-aware generation styles — the same defaults the generator UI
+    applies on track selection (App.tsx lang-defaults effect): annotation
+    layer on/off per language (the desktop factory default is OFF — this is
+    why furigana was missing from the player's first frames), the language's
+    default font on Top/Annotation, and its first phonetic system.  Fail-soft
+    to the factory config if the sidecar lookup hiccups. */
+async function playerStyleConfig(targetLang: string): Promise<StyleConfig> {
+  const cfg = defaultStyleConfig();
+  try {
+    const meta = await fetchLanguageConfig(targetLang);
+    cfg.annotation.enabled = meta.annotation_default_enabled;
+    cfg.top.fontname = meta.default_font;
+    cfg.annotation.fontname = meta.default_font;
+    const opts = phoneticOptions(targetLang);
+    cfg.annotation.phonetic_system = opts.length ? opts[0].value : null;
+  } catch {
+    // Non-fatal: factory defaults still produce a valid 3-layer file.
+  }
+  return cfg;
+}
 
 type SubsStatus =
   | { kind: "none" }
@@ -229,11 +250,15 @@ export function PlayerView() {
         if (nativeTrack) {
           setSubsStatus({ kind: "generating" });
           try {
+            const styles = await playerStyleConfig(
+              targetTrack.caption.languageCode,
+            );
+            if (cancelled) return;
             const res: GenerateAssResponse = await generateAss({
               native_file_id: nativeTrack.info.file_id!,
               target_file_id: targetTrack.info.file_id!,
               target_lang_code: targetTrack.caption.languageCode,
-              styles: defaultStyleConfig(),
+              styles,
               include_annotations: true,
               opt_in_training: false,
             });

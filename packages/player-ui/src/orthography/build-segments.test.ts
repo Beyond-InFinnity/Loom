@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getVariantById, type OrthographyTable } from "@loom/orthography-tables";
 import { buildRichSegments } from "./build-segments";
-import type { AnnotateSpan } from "@/lib/annotate/types";
+import type { AnnotateSpan } from "../annotate/types";
 
 const ZH_TABLE: OrthographyTable = getVariantById("zh-hant-to-hans").table;
 

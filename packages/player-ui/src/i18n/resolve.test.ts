@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { resolveUiLocale } from "./resolve";
+import { resolveUiLocale, setUiLocaleProvider } from "./resolve";
 
 describe("resolveUiLocale", () => {
+  // The host registers how to read the UI language (LocaleProvider seam);
+  // in the extension that's browser.i18n.getUILanguage() — here we stub the
+  // provider directly.
   const uiLang = (code: string) => {
-    // @ts-expect-error test shim for the WebExtension global
-    globalThis.browser = { i18n: { getUILanguage: () => code } };
+    setUiLocaleProvider(() => code);
   };
 
   it("maps an explicit code's primary subtag to a supported locale", () => {
@@ -41,14 +43,17 @@ describe("resolveUiLocale", () => {
     expect(resolveUiLocale("")).toBe("en");
   });
 
-  it("reads the browser UI language when no code is passed", () => {
+  it("reads the host locale provider when no code is passed", () => {
     uiLang("fr-FR");
     expect(resolveUiLocale()).toBe("fr");
   });
 
-  it("survives browser.i18n being unavailable", () => {
-    // @ts-expect-error test shim
-    globalThis.browser = { i18n: { getUILanguage: () => { throw new Error("no i18n"); } } };
+  it("survives the locale provider being unavailable or throwing", () => {
+    setUiLocaleProvider(() => {
+      throw new Error("no i18n");
+    });
+    expect(resolveUiLocale()).toBe("en");
+    setUiLocaleProvider(() => null);
     expect(resolveUiLocale()).toBe("en");
   });
 });

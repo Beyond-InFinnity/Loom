@@ -5,7 +5,11 @@ use std::sync::Mutex;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 mod mpv;
+mod video_windows;
 use mpv::{mpv_command, mpv_start, mpv_stop, mpv_stop_inner, MpvState};
+use video_windows::{
+    close_player_windows, set_overlay_interactive, setup_player_windows, sync_overlay,
+};
 
 struct SidecarHandle(Mutex<Option<Child>>);
 
@@ -144,7 +148,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(SidecarHandle(Mutex::new(None)))
         .manage(MpvState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![mpv_start, mpv_command, mpv_stop])
+        .invoke_handler(tauri::generate_handler![
+            mpv_start, mpv_command, mpv_stop,
+            setup_player_windows, set_overlay_interactive, close_player_windows
+        ])
         .setup(|app| {
             let bundle = app.path().resource_dir().ok()
                 .map(|d| BundlePaths::from_resource_dir(&d));
@@ -154,9 +161,29 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
-                kill_sidecar(&window.state::<SidecarHandle>());
-                mpv_stop_inner(&window.state::<MpvState>());
+            match event {
+                WindowEvent::CloseRequested { .. } => {
+                    // Only the MAIN window's close tears the app down; the
+                    // video/overlay pair closes without killing the sidecar.
+                    if window.label() == "main" {
+                        kill_sidecar(&window.state::<SidecarHandle>());
+                        mpv_stop_inner(&window.state::<MpvState>());
+                    } else if window.label() == video_windows::VIDEO_LABEL {
+                        mpv_stop_inner(&window.state::<MpvState>());
+                        if let Some(o) = window
+                            .app_handle()
+                            .get_webview_window(video_windows::OVERLAY_LABEL)
+                        {
+                            let _ = o.close();
+                        }
+                    }
+                }
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    if window.label() == video_windows::VIDEO_LABEL {
+                        sync_overlay(window.app_handle());
+                    }
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())

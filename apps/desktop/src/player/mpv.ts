@@ -66,11 +66,14 @@ export async function initMpvEvents(): Promise<void> {
   });
 }
 
-export async function startMpv(mediaPath: string): Promise<void> {
+export async function startMpv(
+  mediaPath: string,
+  wid?: number,
+): Promise<void> {
   timeMs = 0;
   durationMs = 0;
   eof = false;
-  await invoke("mpv_start", { mediaPath, extraArgs: [] });
+  await invoke("mpv_start", { mediaPath, extraArgs: [], wid: wid ?? null });
 }
 
 export async function mpvCommand(command: unknown[]): Promise<void> {

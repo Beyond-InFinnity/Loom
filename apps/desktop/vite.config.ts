@@ -8,6 +8,18 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // Multi-page: the main app + the Player's video/overlay windows
+  // (dual-window architecture, MOBILE_ROADMAP.md §5).
+  build: {
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        video: "video.html",
+        overlay: "overlay.html",
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

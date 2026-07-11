@@ -13,6 +13,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 
 import "./host"; // registers the desktop LoomHost (module side effect)
 
@@ -21,19 +23,17 @@ import { autoPick } from "@loom/player-ui/captions/auto-pick";
 import { baseLang, isDefinable, normalizeDefineSourceLang } from "@loom/player-ui/annotate/define-lang";
 import { getDefineCapabilities } from "@loom/player-ui/annotate/capabilities";
 import { buildAnnotateMap } from "@loom/player-ui/annotate/build-map";
+import { buildRomanizeMap } from "@loom/player-ui/romanize/build-map";
+import type { RomanizeMap } from "@loom/player-ui/romanize/types";
 import { buildRichSegments } from "@loom/player-ui/orthography/build-segments";
 import { AnnotatedText } from "@loom/player-ui/components/annotated-text";
 import { DefinitionCard } from "@loom/player-ui/components/definition-card";
 import type { AnnotateResult } from "@loom/player-ui/annotate/types";
 import type { CaptionEvent } from "@loom/player-ui/captions/types";
 
-import { fetchLanguageConfig, generateAss, type GenerateAssResponse } from "../api";
-import { defaultStyleConfig, phoneticOptions, type StyleConfig } from "../styles";
 import {
-  addLoomSubs,
   getMpvState,
   initMpvEvents,
-  mpvCommand,
   mpvPlayhead,
   onMpvState,
   seekToMs,
@@ -41,36 +41,9 @@ import {
   startMpv,
   stopMpv,
 } from "./mpv";
-import { fetchTrackEvents, fileUrl, loadMedia, type LoadedMedia } from "./tracks";
+import { fetchTrackEvents, loadMedia, type LoadedMedia } from "./tracks";
 
 const GLOSS_OVERRIDE_KEY = "loom_dictionary_gloss_lang";
-
-/** Language-aware generation styles — the same defaults the generator UI
-    applies on track selection (App.tsx lang-defaults effect): annotation
-    layer on/off per language (the desktop factory default is OFF — this is
-    why furigana was missing from the player's first frames), the language's
-    default font on Top/Annotation, and its first phonetic system.  Fail-soft
-    to the factory config if the sidecar lookup hiccups. */
-async function playerStyleConfig(targetLang: string): Promise<StyleConfig> {
-  const cfg = defaultStyleConfig();
-  try {
-    const meta = await fetchLanguageConfig(targetLang);
-    cfg.annotation.enabled = meta.annotation_default_enabled;
-    cfg.top.fontname = meta.default_font;
-    cfg.annotation.fontname = meta.default_font;
-    const opts = phoneticOptions(targetLang);
-    cfg.annotation.phonetic_system = opts.length ? opts[0].value : null;
-  } catch {
-    // Non-fatal: factory defaults still produce a valid 3-layer file.
-  }
-  return cfg;
-}
-
-type SubsStatus =
-  | { kind: "none" }
-  | { kind: "generating" }
-  | { kind: "loom" }
-  | { kind: "raw-fallback"; message: string };
 
 interface CardState {
   word: string;
@@ -104,8 +77,8 @@ export function PlayerView() {
   const [busy, setBusy] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [nativeId, setNativeId] = useState<string | null>(null);
-  const [subsStatus, setSubsStatus] = useState<SubsStatus>({ kind: "none" });
   const [annotate, setAnnotate] = useState<AnnotateResult | null>(null);
+  const [romanize, setRomanize] = useState<RomanizeMap | null>(null);
   const [currentTarget, setCurrentTarget] = useState<CaptionEvent | null>(null);
   const [currentNative, setCurrentNative] = useState<CaptionEvent | null>(null);
   const [paused, setPaused] = useState(false);
@@ -132,6 +105,7 @@ export function PlayerView() {
       offPause();
       void stopMpv();
       void streamRef.current?.stop();
+      void invoke("close_player_windows").catch(() => {});
     };
   }, []);
 
@@ -164,12 +138,15 @@ export function PlayerView() {
     setTargetId(null);
     setNativeId(null);
     setAnnotate(null);
-    setSubsStatus({ kind: "none" });
+    setRomanize(null);
     setCard(null);
     try {
-      // Playback starts immediately; scanning runs while the first frames
-      // roll.
-      await startMpv(picked);
+      // Dual-window architecture (MOBILE_ROADMAP.md §5): mpv renders into
+      // the Loom-owned video window (--wid); the transparent overlay
+      // window above it carries the DOM caption stack.  Playback starts
+      // immediately; scanning runs while the first frames roll.
+      const xid = await invoke<number>("setup_player_windows");
+      await startMpv(picked, xid);
       setBusy("Scanning subtitle tracks…");
       const loaded = await loadMedia(picked);
       setMedia(loaded);
@@ -234,52 +211,17 @@ export function PlayerView() {
           nativeLang: nativeTrack?.caption.languageCode ?? "",
         });
 
-        // Annotate tokens (word grouping for the gloss) fetch in the
-        // background; the line renders plain until they land.
-        void buildAnnotateMap(
-          targetEvents.map((e) => e.text),
-          { langCode: targetTrack.caption.languageCode },
-        ).then((result) => {
+        // Annotate spans+tokens (ruby + word grouping) and the romaji line
+        // fetch in the background; the overlay renders plain text until
+        // they land.  Same batch endpoints/cadence as the extension.
+        const texts = targetEvents.map((e) => e.text);
+        const lang = targetTrack.caption.languageCode;
+        void buildAnnotateMap(texts, { langCode: lang }).then((result) => {
           if (!cancelled) setAnnotate(result);
         });
-
-        // Loom 4-layer .ass into mpv.  Needs BOTH sides; single-track
-        // media falls back to the raw extracted target track (mpv renders
-        // it natively — still styled by libass defaults).
-        await mpvCommand(["sub-remove"]).catch(() => {});
-        if (nativeTrack) {
-          setSubsStatus({ kind: "generating" });
-          try {
-            const styles = await playerStyleConfig(
-              targetTrack.caption.languageCode,
-            );
-            if (cancelled) return;
-            const res: GenerateAssResponse = await generateAss({
-              native_file_id: nativeTrack.info.file_id!,
-              target_file_id: targetTrack.info.file_id!,
-              target_lang_code: targetTrack.caption.languageCode,
-              styles,
-              include_annotations: true,
-              opt_in_training: false,
-            });
-            if (cancelled) return;
-            await addLoomSubs(fileUrl(res.file_id));
-            setSubsStatus({ kind: "loom" });
-          } catch (e) {
-            if (cancelled) return;
-            await addLoomSubs(fileUrl(targetTrack.info.file_id!));
-            setSubsStatus({
-              kind: "raw-fallback",
-              message: e instanceof Error ? e.message : String(e),
-            });
-          }
-        } else {
-          await addLoomSubs(fileUrl(targetTrack.info.file_id!));
-          setSubsStatus({
-            kind: "raw-fallback",
-            message: "no native-language track — showing the original track",
-          });
-        }
+        void buildRomanizeMap(texts, { langCode: lang }).then((result) => {
+          if (!cancelled) setRomanize(result);
+        });
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
@@ -293,6 +235,31 @@ export function PlayerView() {
       cancelled = true;
     };
   }, [media, targetTrack, nativeTrack]);
+
+  // Push render-ready state to the overlay window (dumb renderer) on every
+  // cue / pause / data-map change.  Cue changes are ~one per 2-4s; maps land
+  // once per track — trivial event volume.
+  useEffect(() => {
+    const text = currentTarget?.text.trim() ?? null;
+    void emit("loom-overlay-state", {
+      targetText: currentTarget?.text ?? null,
+      nativeText: currentNative?.text ?? null,
+      spans: text ? annotate?.spans.get(text) ?? null : null,
+      tokens: text ? annotate?.tokens.get(text) ?? null : null,
+      romaji: text ? romanize?.get(text) ?? null : null,
+      paused,
+      definable,
+      targetLang,
+    }).catch(() => {});
+  }, [currentTarget, currentNative, annotate, romanize, paused, definable, targetLang]);
+
+  // Pointer flip: the overlay is click-through while playing, interactive
+  // on pause (words clickable ON the video).
+  useEffect(() => {
+    void invoke("set_overlay_interactive", { interactive: paused }).catch(
+      () => {},
+    );
+  }, [paused]);
 
   const onGlossLangChange = useCallback((code: string | null) => {
     setGlossOverride(code);
@@ -388,12 +355,6 @@ export function PlayerView() {
                 ))}
               </select>
             </label>
-            <span style={{ opacity: 0.7 }}>
-              {subsStatus.kind === "generating" && "Generating Loom subtitles…"}
-              {subsStatus.kind === "loom" && "Loom 4-layer subtitles on"}
-              {subsStatus.kind === "raw-fallback" &&
-                `Original track (${subsStatus.message})`}
-            </span>
           </div>
 
           <div

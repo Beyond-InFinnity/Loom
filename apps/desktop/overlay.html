@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Loom Player — Overlay</title>
+    <style>
+      /* Transparent window over the video window — the DOM caption stack
+         (MOBILE_ROADMAP.md §5: .ass is never the Player's core renderer). */
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/overlay/main.tsx"></script>
+  </body>
+</html>

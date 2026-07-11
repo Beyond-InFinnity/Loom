@@ -69,6 +69,7 @@ pub fn mpv_start(
     state: State<MpvState>,
     media_path: String,
     extra_args: Vec<String>,
+    wid: Option<u64>,
 ) -> Result<(), String> {
     #[cfg(not(unix))]
     {
@@ -90,17 +91,24 @@ pub fn mpv_start(
 
         let mut cmd = Command::new("mpv");
         cmd.arg(format!("--input-ipc-server={}", sock_path))
-            // Keep the window up at EOF so the playhead/gloss stay usable
+            // Keep playback up at EOF so the playhead/gloss stay usable
             // over the last line; the user closes via Loom or the window.
             .arg("--keep-open=yes")
             .arg("--force-window=yes")
-            // Loom draws its own subtitle track (the generated 4-layer
-            // .ass via sub-add); native embedded tracks stay unselected.
+            // The caption stack is Loom's DOM overlay (MOBILE_ROADMAP.md §5
+            // — .ass is never the core render path); the media's own
+            // subtitle tracks stay unselected.
             .arg("--sid=no")
             .args(&extra_args)
             .arg(&media_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if let Some(xid) = wid {
+            // Dual-window embed: render into the Loom-owned video window
+            // (video_windows.rs).  mpv must not grab keyboard focus games;
+            // input stays with the Loom windows.
+            cmd.arg(format!("--wid={}", xid));
+        }
 
         let child = cmd
             .spawn()

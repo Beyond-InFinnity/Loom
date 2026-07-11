@@ -73,6 +73,20 @@ Full audit detail lives in the session notes; summary of verdicts:
 
 The 7c "native libass render" path is downgraded to the fallback/testing role per this decision.
 
+### 5a. DECISION (Connor, 2026-07-12): SINGLE-WINDOW integration via the libmpv render API (not dual-window)
+
+The dual-window build (§5) is two OS windows — not the VLC experience. Connor's call: build the **true single-window integrated player** (video + captions + controls in one window, like VLC). Architecture:
+
+- **libmpv render API** (`MPV_RENDER_API_TYPE_OPENGL`) — link libmpv directly (not IPC to system mpv); mpv renders each frame into an FBO we own, into a **`GtkGLArea`**.
+- **`GtkOverlay`**: `GtkGLArea` (video) as base + the **transparent `WebKitWebView`** (the existing DOM caption/UI payload) as the overlay child. One window.
+- In Tauri (Linux = GTK3 + webkit2gtk-4.1), reparent the Tauri window's WebKitWebView into a `GtkOverlay` behind which the `GtkGLArea` renders; drive `mpv_render_context_render()` from the GLArea `render` signal (bound FBO), pumped by mpv's `update` callback.
+
+**✅ COMPOSITING SPIKED + PASSED (2026-07-12).** The load-bearing unknown — does a transparent webkit2gtk view composite OVER a `GtkGLArea` in one `GtkOverlay` window (the thing `--wid` could never do, because that was a *foreign* X window; GTK-native siblings alpha-blend fine) — was proven live on this X11 session (Python GTK/WebKit2-4.0 harness: magenta GLArea showed through the transparent webview everywhere, caption text + a semi-opaque UI panel composited on top; screenshot captured). **Single-window on Linux is viable.**
+
+**⛔ HARD BLOCKER (needs Connor):** libmpv is NOT installed on this machine — the system `mpv` binary is statically linked (no `libmpv.so` anywhere), and neither `libmpv1` nor `libmpv-dev` is present. The render-API rewrite links libmpv, so it can't build/verify until: **`sudo apt install libmpv-dev`** (pulls `libmpv1`; Ubuntu jammy ships 0.34.1 = libmpv client API 1.x). **Crate choice:** the maintained `libmpv2` crate needs mpv ≥0.35 (libmpv.so.2) → won't work with 0.34.1 → **hand-write the render-API FFI subset** (~15 fns: `mpv_create`/`initialize`/`render_context_create`/`render`/`set_update_callback`/`command`/`set_option`/`observe_property`/`wait_event`) against libmpv.so.1 — the render API is stable across versions. (Alt: a PPA for a newer libmpv → libmpv2 crate, but more install friction + a system mpv bump; stock 0.34.1 + hand FFI is lower-friction and recommended.)
+
+**Build plan once libmpv-dev lands:** Rust `mpv_render.rs` (hand FFI + render loop) replacing the IPC engine for the Player; reparent Tauri's webview into `GtkOverlay(GtkGLArea + webview)`; the overlay payload (`src/overlay/main.tsx`) and PlayheadSource (now fed by libmpv `time-pos` property observation instead of IPC) are REUSED unchanged — the seam architecture means the caption stack doesn't care how video reaches the screen. Windows/macOS get single-window embedding via the plugins' native path later; the payload is identical.
+
 ## 6. What mobile explicitly does NOT cover
 
 Netflix/Prime/iQIYI/WeTV on mobile — apps are closed, no injection surface. The only streaming-on-mobile play is the Firefox-Android extension probe (R1), and only for sites whose *web* players work in mobile Firefox (YouTube yes; Netflix mobile-web playback is doubtful — that's what the recon is for).

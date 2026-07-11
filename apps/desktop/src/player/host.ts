@@ -2,7 +2,12 @@
 // after the extension, and the proof of the seam architecture: same
 // package UI, different plumbing.
 //
-//   storage  — webview localStorage (per-app persistent; same loom_* keys)
+//   storage  — SHARED cross-window store (settings_store.rs) so the main
+//              window's settings UI and the player window stay in sync,
+//              like the extension's cross-context browser.storage.local.
+//              A synchronous warm cache (loaded by initDesktopStorage) backs
+//              reads; writes persist + broadcast a "loom-settings-changed"
+//              event that updates every window's cache and fires onChanged.
 //   player   — fixed id "player"; native-caption hiding is mpv's --sid=no
 //   api      — the PROD text API (dictionary/annotate live there; the
 //              local sidecar has no dictionary DB).  clientVersion null →
@@ -10,9 +15,11 @@
 //   playhead — mpv IPC (./mpv.ts)
 //   locale   — navigator.language
 //
-// Import this module ONCE from the Player entry; registration happens at
-// module evaluation, same contract as the extension's lib/host.ts.
+// Import this module ONCE from each window entry, then AWAIT
+// initDesktopStorage() before mounting so settings reads are warm.
 
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { registerLoomHost } from "@loom/player-ui/host";
 import { setDebugLogger } from "@loom/player-ui/log";
 import { initUiLocale, setUiLocaleProvider } from "@loom/player-ui";
@@ -26,46 +33,58 @@ import { acquireMpvPlayhead, mpvPlayhead } from "./mpv";
 
 export const TEXT_API_BASE = "https://api.loom.nerv-analytic.ai";
 
+// Synchronous warm cache over the shared Rust store (values are JSON).
+const cache = new Map<string, unknown>();
 const changeSubs = new Set<(c: Record<string, StorageChange>) => void>();
+let initialized = false;
 
-const storage: StorageAdapter = {
+/** Load the shared store into the cache + subscribe to cross-window changes.
+    Await this in each window entry before rendering. */
+export async function initDesktopStorage(): Promise<void> {
+  if (initialized) return;
+  initialized = true;
+  const all = (await invoke("settings_get_all")) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(all ?? {})) cache.set(k, v);
+  await listen<Record<string, StorageChange>>("loom-settings-changed", (e) => {
+    const changes = e.payload ?? {};
+    for (const [k, c] of Object.entries(changes)) {
+      if ("newValue" in c) cache.set(k, (c as StorageChange).newValue);
+      else cache.delete(k);
+    }
+    changeSubs.forEach((f) => f(changes));
+  });
+}
+
+export const storage: StorageAdapter = {
   async get(keys) {
     const list = Array.isArray(keys) ? keys : [keys];
     const out: Record<string, unknown> = {};
     for (const k of list) {
-      const raw = localStorage.getItem(k);
-      if (raw !== null) {
-        try {
-          out[k] = JSON.parse(raw);
-        } catch {
-          out[k] = raw;
-        }
-      }
+      if (cache.has(k)) out[k] = cache.get(k);
     }
     return out;
   },
   async set(items) {
-    const changes: Record<string, StorageChange> = {};
-    for (const [k, v] of Object.entries(items)) {
-      changes[k] = { newValue: v };
-      localStorage.setItem(k, JSON.stringify(v));
-    }
-    changeSubs.forEach((f) => f(changes));
+    for (const [k, v] of Object.entries(items)) cache.set(k, v);
+    // Persist + broadcast; THIS window's onChanged fires via the event too,
+    // so don't double-notify locally.
+    await invoke("settings_set", { items });
   },
   async remove(keys) {
     const list = Array.isArray(keys) ? keys : [keys];
-    const changes: Record<string, StorageChange> = {};
-    for (const k of list) {
-      changes[k] = {};
-      localStorage.removeItem(k);
-    }
-    changeSubs.forEach((f) => f(changes));
+    for (const k of list) cache.delete(k);
+    await invoke("settings_remove", { keys: list });
   },
   onChanged(cb) {
     changeSubs.add(cb);
     return () => changeSubs.delete(cb);
   },
 };
+
+/** Synchronous cache read for warm-init call sites (settings defaults). */
+export function readCached<T>(key: string, fallback: T): T {
+  return cache.has(key) ? (cache.get(key) as T) : fallback;
+}
 
 const player: PlayerAdapter = {
   id: "player",
@@ -79,14 +98,8 @@ const api: ApiConfig = {
   baseUrl: TEXT_API_BASE,
   clientVersion: null,
   async ownerKey() {
-    const raw = localStorage.getItem("loom_owner_key");
-    if (!raw) return null;
-    try {
-      const v = JSON.parse(raw);
-      return typeof v === "string" && v.length > 0 ? v : null;
-    } catch {
-      return raw;
-    }
+    const v = readCached<unknown>("loom_owner_key", null);
+    return typeof v === "string" && v.length > 0 ? v : null;
   },
 };
 

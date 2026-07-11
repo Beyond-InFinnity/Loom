@@ -95,6 +95,7 @@ function formatDuration(seconds: number): string {
 }
 
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { SettingsPanel } from "./settings/SettingsPanel";
 
 // Open (or focus) the single-window Loom Player — a separate transparent
 // window whose webview is the caption/transport UI, with libmpv rendering
@@ -125,6 +126,7 @@ async function openPlayer(): Promise<void> {
 }
 
 function App() {
+  const [showPlayerSettings, setShowPlayerSettings] = useState(false);
   const [sidecar, setSidecar] = useState<SidecarState>({ kind: "starting" });
   const [attempt, setAttempt] = useState(0);
   const [slots, setSlots] = useState<Slots>({});
@@ -347,7 +349,18 @@ function App() {
         <button onClick={() => void openPlayer()} style={{ fontSize: "0.85em" }}>
           ▶ Player
         </button>
+        <button
+          onClick={() => setShowPlayerSettings((v) => !v)}
+          style={{ fontSize: "0.85em" }}
+        >
+          {showPlayerSettings ? "Hide settings" : "Player settings"}
+        </button>
       </div>
+      {showPlayerSettings && (
+        <div style={{ marginTop: 16, marginBottom: 8 }}>
+          <SettingsPanel />
+        </div>
+      )}
       <p style={{ opacity: 0.6, fontSize: "0.9em", marginTop: 0 }}>
         Step 3b · file picker + scan
       </p>

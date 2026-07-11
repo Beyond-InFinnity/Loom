@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import "../player/host"; // registers the desktop LoomHost
+import { initDesktopStorage } from "../player/host"; // registers the desktop LoomHost
 
 import { CaptionStream } from "@loom/player-ui/captions/stream";
 import { autoPick } from "@loom/player-ui/captions/auto-pick";
@@ -54,6 +54,7 @@ import {
   selectStudyTracks,
   type LoadedMedia,
 } from "../player/tracks";
+import { usePlayerStyles } from "../settings/model";
 
 // The language the user is studying (Top line + furigana/romaji + audio).
 // Persisted; default Japanese.  (A picker for this is a future setting.)
@@ -61,8 +62,6 @@ const STUDY_LANG =
   localStorage.getItem("loom_player_study_lang") || "ja";
 
 const GLOSS_OVERRIDE_KEY = "loom_dictionary_gloss_lang";
-const TEXT_SHADOW =
-  "0 0 3px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85), 2px 2px 3px rgba(0,0,0,0.9)";
 
 interface CardState {
   word: string;
@@ -111,6 +110,10 @@ function PlayerWindow() {
   // mpv-option level before any audio can play — this state just mirrors it
   // and drives the toolbar toggle.  Safe default true until the seed lands.
   const [muted, setMuted] = useState<boolean>(true);
+
+  // Settings-driven styles from the shared store (adjusted in the main
+  // window's SettingsPanel; live across windows).
+  const styles = usePlayerStyles();
 
   const streamRef = useRef<CaptionStream | null>(null);
   if (!streamRef.current) streamRef.current = new CaptionStream();
@@ -251,19 +254,22 @@ function PlayerWindow() {
         // subs) — multi-dub files list English first, so we pick explicitly.
         void setAudioLang(audioLangAliases(lang));
         const texts = targetEvents.map((e) => e.text);
-        // Pinyin is the default phonetic for Traditional Chinese (Zhuyin is
-        // deprecated); other languages use their engine default.
-        const phoneticSystem = lang === "zh-Hant" ? "pinyin" : undefined;
+        // Phonetic system: the user's setting wins; else pinyin for
+        // Traditional Chinese (Zhuyin deprecated); else the engine default.
+        const phoneticSystem =
+          styles.phoneticSystem ?? (lang === "zh-Hant" ? "pinyin" : undefined);
         void buildAnnotateMap(texts, { langCode: lang, phoneticSystem }).then(
           (r) => {
             if (!cancelled) setAnnotate(r);
           },
         );
-        void buildRomanizeMap(texts, { langCode: lang, phoneticSystem }).then(
-          (r) => {
-            if (!cancelled) setRomanize(r);
-          },
-        );
+        void buildRomanizeMap(texts, {
+          langCode: lang,
+          phoneticSystem,
+          longVowelMode: styles.longVowelMode,
+        }).then((r) => {
+          if (!cancelled) setRomanize(r);
+        });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -273,7 +279,7 @@ function PlayerWindow() {
     return () => {
       cancelled = true;
     };
-  }, [media, targetTrack, nativeTrack]);
+  }, [media, targetTrack, nativeTrack, styles.phoneticSystem, styles.longVowelMode]);
 
   const onGlossLangChange = useCallback((code: string | null) => {
     setGlossOverride(code);
@@ -299,16 +305,26 @@ function PlayerWindow() {
     : null;
   const wordInteractive = interactive && !!tokens && tokens.length > 0;
 
+  // Annotation toggle: when off, strip ruby (spans) but keep word grouping
+  // for the gloss (tokens still drive the clickable words).
+  const renderSpans = styles.annotateEnabled ? spans : null;
   const segments = useMemo(() => {
     const text = currentTarget?.text.trim();
     if (!text) return null;
     return buildRichSegments({
-      spans,
+      spans: renderSpans,
       rawText: text,
       variantTable: null,
       coalescePlain: !wordInteractive,
     });
-  }, [currentTarget, spans, wordInteractive]);
+  }, [currentTarget, renderSpans, wordInteractive]);
+
+  const scale = styles.captionScale;
+  const showRomaji = styles.romanizeEnabled && romaji;
+
+  // Target (Top) + native (Bottom) render into their configured slots.
+  const targetAtTop = styles.topSlot.startsWith("top");
+  const nativeAtTop = styles.nativeSlot.startsWith("top");
 
   return (
     <div
@@ -388,69 +404,91 @@ function PlayerWindow() {
         {error && <span style={{ color: "#f88" }}>{error}</span>}
       </div>
 
-      {/* Caption stack over the video. */}
-      <div
-        style={{
-          textAlign: "center",
-          paddingBottom: "3.5%",
-          position: "relative",
-        }}
-      >
-        {romaji && (
-          <div
-            style={{
-              color: "#f5f0e8",
-              fontSize: 22,
-              fontStyle: "italic",
-              textShadow: TEXT_SHADOW,
-              marginBottom: 8,
-            }}
-          >
-            {romaji}
+      {/* Caption zones (top / bottom) — target + native render into their
+          configured slots, styled from the shared settings. */}
+      {(() => {
+        const targetBlock = styles.topLineEnabled && segments && (
+          <div style={{ textAlign: "center" }}>
+            {showRomaji && (
+              <div
+                style={{
+                  color: styles.romanization.color,
+                  opacity: styles.romanization.opacity,
+                  fontSize: styles.topFontSizePx * styles.romanizationFontRatio * scale,
+                  fontStyle: "italic",
+                  textShadow: styles.romanization.shadow,
+                  marginBottom: 6,
+                }}
+              >
+                {romaji}
+              </div>
+            )}
+            <div
+              style={{
+                color: styles.annotation.color,
+                fontSize: styles.topFontSizePx * scale,
+                lineHeight: 2.1,
+                textShadow: styles.top.shadow,
+                opacity: styles.top.opacity,
+                pointerEvents: wordInteractive ? "auto" : "none",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              <AnnotatedText
+                segments={segments}
+                baseFontPxScaled={styles.topFontSizePx * scale}
+                annotationRatio={styles.annotationFontRatio}
+                color={styles.top.color}
+                fontFamily="'Noto Sans CJK JP','Noto Sans JP','Noto Sans SC','Noto Sans KR',sans-serif"
+                variantColor={styles.top.color}
+                variantFontFamily="inherit"
+                highlightEnabled={false}
+                cleanHighlightColor="transparent"
+                collapseHighlightColor="transparent"
+                tokens={tokens}
+                interactive={wordInteractive}
+                onWordClick={onWordClick}
+              />
+            </div>
           </div>
-        )}
-        {segments && (
+        );
+        const nativeBlock = styles.bottomLineEnabled && currentNative && (
           <div
             style={{
-              color: "#fff",
-              fontSize: 38,
-              lineHeight: 2.1,
-              textShadow: TEXT_SHADOW,
-              pointerEvents: wordInteractive ? "auto" : "none",
+              textAlign: "center",
+              color: styles.bottom.color,
+              opacity: styles.bottom.opacity,
+              fontSize: styles.bottomFontSizePx * scale,
+              textShadow: styles.bottom.shadow,
               whiteSpace: "pre-wrap",
-            }}
-          >
-            <AnnotatedText
-              segments={segments}
-              baseFontPxScaled={38}
-              annotationRatio={0.5}
-              color="#ffffff"
-              fontFamily="'Noto Sans CJK JP','Noto Sans JP','Noto Sans SC','Noto Sans KR',sans-serif"
-              variantColor="#ffffff"
-              variantFontFamily="inherit"
-              highlightEnabled={false}
-              cleanHighlightColor="transparent"
-              collapseHighlightColor="transparent"
-              tokens={tokens}
-              interactive={wordInteractive}
-              onWordClick={onWordClick}
-            />
-          </div>
-        )}
-        {currentNative && (
-          <div
-            style={{
-              color: "#fff",
-              fontSize: 30,
-              textShadow: TEXT_SHADOW,
-              marginTop: 8,
-              whiteSpace: "pre-wrap",
+              marginTop: styles.lineSpacingPx,
             }}
           >
             {currentNative.text}
           </div>
-        )}
-      </div>
+        );
+        return (
+          <div
+            style={{
+              flex: 1,
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              padding: "2.5% 4% 3.5%",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: styles.lineSpacingPx }}>
+              {targetAtTop && targetBlock}
+              {nativeAtTop && nativeBlock}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: styles.lineSpacingPx }}>
+              {!targetAtTop && targetBlock}
+              {!nativeAtTop && nativeBlock}
+            </div>
+          </div>
+        );
+      })()}
 
       {card && targetLang && (
         <div style={{ pointerEvents: "auto" }}>
@@ -476,4 +514,6 @@ function PlayerWindow() {
 // terminate mpv mid-setup and race commands on the freed handle (segfault
 // in mpv_command).  The main launcher window keeps StrictMode; this one
 // can't.
-ReactDOM.createRoot(document.getElementById("root")!).render(<PlayerWindow />);
+void initDesktopStorage().then(() => {
+  ReactDOM.createRoot(document.getElementById("root")!).render(<PlayerWindow />);
+});

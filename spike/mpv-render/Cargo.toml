@@ -1,0 +1,21 @@
+[package]
+name = "mpv-render-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone de-risking spike for the Loom Player render-API rewrite
+# (MOBILE_ROADMAP.md §5a): prove hand-written libmpv render FFI renders
+# video into a GtkGLArea before wiring any of it into Tauri.  NOT part of
+# the workspace build.
+
+[dependencies]
+gtk = { version = "0.18", package = "gtk" }
+glib = "0.18"
+epoxy = "0.1"
+libloading = "0.8"
+libc = "0.2"
+
+[[bin]]
+name = "mpv-render-spike"
+path = "src/main.rs"

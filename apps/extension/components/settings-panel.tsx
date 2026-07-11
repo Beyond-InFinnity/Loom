@@ -33,6 +33,7 @@ import { IS_DEV } from "@/lib/env";
 import { t, languageName } from "@/lib/i18n";
 import { getDefineCapabilities } from "@/lib/annotate/capabilities";
 import { glossLangsForSource, isDefinable } from "@/lib/annotate/define-lang";
+import { storage } from "../lib/host";
 
 // Settings panel — anchored below the pill, top-right of player.
 //
@@ -268,7 +269,7 @@ let cachedCollapsed: Record<string, boolean> | null = null;
 
 function readCollapsedFromStorage(): Promise<Record<string, boolean>> {
   try {
-    return browser.storage.local
+    return storage
       .get(COLLAPSE_STORAGE_KEY)
       .then((r) => {
         const stored = r?.[COLLAPSE_STORAGE_KEY];
@@ -293,7 +294,7 @@ void readCollapsedFromStorage();
 function persistCollapsed(next: Record<string, boolean>): void {
   cachedCollapsed = next;
   try {
-    void browser.storage.local.set({ [COLLAPSE_STORAGE_KEY]: next });
+    void storage.set({ [COLLAPSE_STORAGE_KEY]: next });
   } catch {
     /* storage unavailable — in-memory state still updates for this session */
   }

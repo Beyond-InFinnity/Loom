@@ -9,6 +9,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./i18n": "./src/i18n/index.ts",
+    "./seams": "./src/seams/index.ts",
+    "./host": "./src/host.ts",
     "./components/annotated-text": "./src/components/annotated-text.tsx",
     "./*": "./src/*.ts"
   },

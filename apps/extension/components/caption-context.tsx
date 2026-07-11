@@ -32,6 +32,7 @@ import type { RomanizeMap } from "@/lib/romanize/types";
 import { fetchPresetCatalog } from "@/lib/presets/fetch";
 import type { Preset, PresetCatalog, PresetLayerColors } from "@/lib/presets/types";
 import { getPlatform } from "@/lib/captions/platform";
+import { storage } from "../lib/host";
 
 // Native-caption suppression is platform-resolved (5h-3): YouTube hides
 // `.ytp-caption-window-container`, Netflix hides `.player-timedtext`.
@@ -301,7 +302,7 @@ interface CaptionContextValue {
   /** Base BCP-47 lang code used for native auto-pick. */
   nativeLangPref: string;
 
-  /** Per-layer text color (hex).  Persisted to browser.storage.local. */
+  /** Per-layer text color (hex).  Persisted to storage. */
   topColor: string;
   bottomColor: string;
   /** Color of the annotation reading (<rt> in ruby).  Distinct from
@@ -773,7 +774,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        const result = await browser.storage.local.get([
+        const result = await storage.get([
           STORAGE_KEY_TOP_COLOR,
           STORAGE_KEY_BOTTOM_COLOR,
           STORAGE_KEY_ANNOTATION_COLOR,
@@ -999,7 +1000,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
 
   const setActivePresetId = useCallback((id: string) => {
     setActivePresetIdState(id);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ACTIVE_PRESET]: id })
       .catch((e) => console.warn("[Loom] persist activePresetId:", e));
   }, []);
@@ -1034,13 +1035,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       const lc = preset.layers[layerKey];
       if (!lc) return;
       colorSetter(lc.color);
-      void browser.storage.local.set({ [colorStorageKey]: lc.color }).catch(() => {});
+      void storage.set({ [colorStorageKey]: lc.color }).catch(() => {});
       alphaSetter(lc.opacity);
-      void browser.storage.local.set({ [alphaStorageKey]: lc.opacity }).catch(() => {});
+      void storage.set({ [alphaStorageKey]: lc.opacity }).catch(() => {});
       outlineColorSetter(lc.outline_color);
-      void browser.storage.local.set({ [outlineColorStorageKey]: lc.outline_color }).catch(() => {});
+      void storage.set({ [outlineColorStorageKey]: lc.outline_color }).catch(() => {});
       outlineAlphaSetter(lc.outline_opacity);
-      void browser.storage.local.set({ [outlineAlphaStorageKey]: lc.outline_opacity }).catch(() => {});
+      void storage.set({ [outlineAlphaStorageKey]: lc.outline_opacity }).catch(() => {});
       // Glow is OPTIONAL on a preset; null means "preset doesn't
       // touch glow, leave whatever the user had."  When the preset
       // DOES specify glow, default radius to a visible 8px since
@@ -1048,17 +1049,17 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       // radius — matches desktop convention.
       if (lc.glow_color !== null && lc.glow_opacity !== null) {
         glowRadiusSetter(8);
-        void browser.storage.local.set({ [glowRadiusStorageKey]: 8 }).catch(() => {});
+        void storage.set({ [glowRadiusStorageKey]: 8 }).catch(() => {});
         glowColorSetter(lc.glow_color);
-        void browser.storage.local.set({ [glowColorStorageKey]: lc.glow_color }).catch(() => {});
+        void storage.set({ [glowColorStorageKey]: lc.glow_color }).catch(() => {});
         glowAlphaSetter(lc.glow_opacity);
-        void browser.storage.local.set({ [glowAlphaStorageKey]: lc.glow_opacity }).catch(() => {});
+        void storage.set({ [glowAlphaStorageKey]: lc.glow_opacity }).catch(() => {});
       } else {
         // Preset doesn't carry glow — turn it off explicitly so a
         // previously-applied glowy preset doesn't bleed visual state
         // into the new one.
         glowRadiusSetter(0);
-        void browser.storage.local.set({ [glowRadiusStorageKey]: 0 }).catch(() => {});
+        void storage.set({ [glowRadiusStorageKey]: 0 }).catch(() => {});
       }
     };
     applyLayer(
@@ -1092,7 +1093,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setAnnotationGlowAlphaState, STORAGE_KEY_ANNOTATION_GLOW_ALPHA,
     );
     setActivePresetIdState(preset.id);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ACTIVE_PRESET]: preset.id })
       .catch(() => {});
   }, []);
@@ -1114,19 +1115,19 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   }, []);
   const setTopColor = useCallback((hex: string) => {
     setTopColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TOP_COLOR]: hex })
       .catch((e) => console.warn("[Loom] failed to persist topColor:", e));
   }, []);
   const setBottomColor = useCallback((hex: string) => {
     setBottomColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_BOTTOM_COLOR]: hex })
       .catch((e) => console.warn("[Loom] failed to persist bottomColor:", e));
   }, []);
   const setAnnotationColor = useCallback((hex: string) => {
     setAnnotationColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ANNOTATION_COLOR]: hex })
       .catch((e) =>
         console.warn("[Loom] failed to persist annotationColor:", e),
@@ -1134,19 +1135,19 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   }, []);
   const setTopFontFamily = useCallback((family: string) => {
     setTopFontFamilyState(family);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TOP_FONT_FAMILY]: family })
       .catch((e) => console.warn("[Loom] persist topFontFamily:", e));
   }, []);
   const setBottomFontFamily = useCallback((family: string) => {
     setBottomFontFamilyState(family);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_BOTTOM_FONT_FAMILY]: family })
       .catch((e) => console.warn("[Loom] persist bottomFontFamily:", e));
   }, []);
   const setAnnotationFontFamily = useCallback((family: string) => {
     setAnnotationFontFamilyState(family);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ANNOTATION_FONT_FAMILY]: family })
       .catch((e) => console.warn("[Loom] persist annotationFontFamily:", e));
   }, []);
@@ -1155,14 +1156,14 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     // setState from a custom integration shouldn't break layout.
     const clamped = Math.max(12, Math.min(120, px));
     setTopFontSizePxState(clamped);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TOP_FONT_SIZE]: clamped })
       .catch((e) => console.warn("[Loom] persist topFontSizePx:", e));
   }, []);
   const setBottomFontSizePx = useCallback((px: number) => {
     const clamped = Math.max(12, Math.min(120, px));
     setBottomFontSizePxState(clamped);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_BOTTOM_FONT_SIZE]: clamped })
       .catch((e) => console.warn("[Loom] persist bottomFontSizePx:", e));
   }, []);
@@ -1171,7 +1172,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     setCaptionSizePctState(clamped);
     const map = { ...cachedSizeByPlatform, [currentPlatformId()]: clamped };
     cachedSizeByPlatform = map;
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_CAPTION_SIZE_PCT]: map })
       .catch((e) => console.warn("[Loom] persist captionSizePct:", e));
   }, []);
@@ -1180,7 +1181,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     const prev = cachedPositionByPlatform[id] ?? { ...DEFAULT_POSITION_PREFS };
     const map = { ...cachedPositionByPlatform, [id]: { ...prev, ...patch } };
     cachedPositionByPlatform = map;
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_POSITION_BY_PLATFORM]: map })
       .catch((e) => console.warn("[Loom] persist position prefs:", e));
   }, []);
@@ -1211,19 +1212,19 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const setAnnotationFontRatio = useCallback((ratio: number) => {
     const clamped = Math.max(0.2, Math.min(1.0, ratio));
     setAnnotationFontRatioState(clamped);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ANNOTATION_FONT_RATIO]: clamped })
       .catch((e) => console.warn("[Loom] persist annotationFontRatio:", e));
   }, []);
   const setRomanizationColor = useCallback((hex: string) => {
     setRomanizationColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ROMANIZATION_COLOR]: hex })
       .catch((e) => console.warn("[Loom] persist romanizationColor:", e));
   }, []);
   const setRomanizationFontFamily = useCallback((family: string) => {
     setRomanizationFontFamilyState(family);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ROMANIZATION_FONT_FAMILY]: family })
       .catch((e) =>
         console.warn("[Loom] persist romanizationFontFamily:", e),
@@ -1232,7 +1233,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   const setRomanizationFontRatio = useCallback((ratio: number) => {
     const clamped = Math.max(0.2, Math.min(1.0, ratio));
     setRomanizationFontRatioState(clamped);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_ROMANIZATION_FONT_RATIO]: clamped })
       .catch((e) => console.warn("[Loom] persist romanizationFontRatio:", e));
   }, []);
@@ -1246,14 +1247,14 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     setTargetPositionState((prevTarget) => {
       setNativePositionState((prevNative) => {
         const next = prevNative === pos ? prevTarget : prevNative;
-        void browser.storage.local
+        void storage
           .set({ [STORAGE_KEY_NATIVE_POSITION]: next })
           .catch((e) =>
             console.warn("[Loom] failed to persist nativePosition:", e),
           );
         return next;
       });
-      void browser.storage.local
+      void storage
         .set({ [STORAGE_KEY_TARGET_POSITION]: pos })
         .catch((e) =>
           console.warn("[Loom] failed to persist targetPosition:", e),
@@ -1274,7 +1275,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     (v: number) => {
       const clamped = Math.max(min, Math.min(max, v));
       setter(clamped);
-      void browser.storage.local.set({ [key]: clamped }).catch(() => {});
+      void storage.set({ [key]: clamped }).catch(() => {});
     };
   const makeHexSetter = (
     setter: React.Dispatch<React.SetStateAction<string>>,
@@ -1282,7 +1283,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   ) =>
     (v: string) => {
       setter(v);
-      void browser.storage.local.set({ [key]: v }).catch(() => {});
+      void storage.set({ [key]: v }).catch(() => {});
     };
   const setTopAlpha = useCallback(
     makeNumberSetter(setTopAlphaState, STORAGE_KEY_TOP_ALPHA, 0, 100),
@@ -1307,19 +1308,19 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
   );
   const setTopGroupOpacityLinked = useCallback((v: boolean) => {
     setTopGroupOpacityLinkedState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TOP_GROUP_OPACITY_LINKED]: v })
       .catch((e) => console.warn("[Loom] persist topGroupOpacityLinked:", e));
   }, []);
   const setTopLineEnabled = useCallback((v: boolean) => {
     setTopLineEnabledState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TOP_LINE_ENABLED]: v })
       .catch((e) => console.warn("[Loom] persist topLineEnabled:", e));
   }, []);
   const setBottomLineEnabled = useCallback((v: boolean) => {
     setBottomLineEnabledState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_BOTTOM_LINE_ENABLED]: v })
       .catch((e) => console.warn("[Loom] persist bottomLineEnabled:", e));
   }, []);
@@ -1386,43 +1387,43 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
 
   const setTargetVariantEnabled = useCallback((v: boolean) => {
     setTargetVariantEnabledState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_TARGET_VARIANT_ENABLED]: v })
       .catch((e) => console.warn("[Loom] persist targetVariantEnabled:", e));
   }, []);
   const setNativeVariantEnabled = useCallback((v: boolean) => {
     setNativeVariantEnabledState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_NATIVE_VARIANT_ENABLED]: v })
       .catch((e) => console.warn("[Loom] persist nativeVariantEnabled:", e));
   }, []);
   const setVariantHighlightEnabled = useCallback((v: boolean) => {
     setVariantHighlightEnabledState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_VARIANT_HIGHLIGHT]: v })
       .catch((e) => console.warn("[Loom] persist variantHighlightEnabled:", e));
   }, []);
   const setVariantColor = useCallback((hex: string) => {
     setVariantColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_VARIANT_COLOR]: hex })
       .catch((e) => console.warn("[Loom] persist variantColor:", e));
   }, []);
   const setVariantCleanColor = useCallback((hex: string) => {
     setVariantCleanColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_VARIANT_CLEAN_COLOR]: hex })
       .catch((e) => console.warn("[Loom] persist variantCleanColor:", e));
   }, []);
   const setVariantCollapseColor = useCallback((hex: string) => {
     setVariantCollapseColorState(hex);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_VARIANT_COLLAPSE_COLOR]: hex })
       .catch((e) => console.warn("[Loom] persist variantCollapseColor:", e));
   }, []);
   const setVariantColorSameAsTop = useCallback((v: boolean) => {
     setVariantColorSameAsTopState(v);
-    void browser.storage.local
+    void storage
       .set({ [STORAGE_KEY_VARIANT_COLOR_SAME_AS_TOP]: v })
       .catch((e) => console.warn("[Loom] persist variantColorSameAsTop:", e));
   }, []);
@@ -1459,14 +1460,14 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     setNativePositionState((prevNative) => {
       setTargetPositionState((prevTarget) => {
         const next = prevTarget === pos ? prevNative : prevTarget;
-        void browser.storage.local
+        void storage
           .set({ [STORAGE_KEY_TARGET_POSITION]: next })
           .catch((e) =>
             console.warn("[Loom] failed to persist targetPosition:", e),
           );
         return next;
       });
-      void browser.storage.local
+      void storage
         .set({ [STORAGE_KEY_NATIVE_POSITION]: pos })
         .catch((e) =>
           console.warn("[Loom] failed to persist nativePosition:", e),

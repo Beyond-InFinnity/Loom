@@ -24,6 +24,7 @@
 // user action before collection; sources pinned in CORPUS_WIRING.md §1a.
 
 import { IS_DEV } from "../env";
+import { storage } from "../host";
 
 export const STORAGE_KEY_CORPUS_OPT_IN = "loom_corpus_opt_in";
 export const STORAGE_KEY_CORPUS_ASKED = "loom_corpus_asked";
@@ -50,23 +51,20 @@ let watching = false;
 function ensureWatcher(): void {
   if (watching) return;
   watching = true;
-  browser.storage.onChanged.addListener(
-    (changes: Record<string, { newValue?: unknown }>, areaName: string) => {
-      if (areaName !== "local") return;
-      if (STORAGE_KEY_CORPUS_OPT_IN in changes) {
-        consentCache = coerceConsent(changes[STORAGE_KEY_CORPUS_OPT_IN]?.newValue);
-      }
-      if (STORAGE_KEY_CORPUS_ASKED in changes) {
-        askedCache = changes[STORAGE_KEY_CORPUS_ASKED]?.newValue === true;
-      }
-    },
-  );
+  storage.onChanged((changes) => {
+    if (STORAGE_KEY_CORPUS_OPT_IN in changes) {
+      consentCache = coerceConsent(changes[STORAGE_KEY_CORPUS_OPT_IN]?.newValue);
+    }
+    if (STORAGE_KEY_CORPUS_ASKED in changes) {
+      askedCache = changes[STORAGE_KEY_CORPUS_ASKED]?.newValue === true;
+    }
+  });
 }
 
 export async function getCorpusConsent(): Promise<CorpusConsent> {
   ensureWatcher();
   if (consentCache === undefined) {
-    const result = await browser.storage.local.get(STORAGE_KEY_CORPUS_OPT_IN);
+    const result = await storage.get(STORAGE_KEY_CORPUS_OPT_IN);
     consentCache = coerceConsent(result[STORAGE_KEY_CORPUS_OPT_IN]);
   }
   return consentCache;
@@ -77,7 +75,7 @@ export async function setCorpusConsent(value: boolean): Promise<void> {
   ensureWatcher();
   consentCache = value;
   askedCache = true;
-  await browser.storage.local.set({
+  await storage.set({
     [STORAGE_KEY_CORPUS_OPT_IN]: value,
     [STORAGE_KEY_CORPUS_ASKED]: true,
   });
@@ -86,7 +84,7 @@ export async function setCorpusConsent(value: boolean): Promise<void> {
 export async function getCorpusAsked(): Promise<boolean> {
   ensureWatcher();
   if (askedCache === undefined) {
-    const result = await browser.storage.local.get(STORAGE_KEY_CORPUS_ASKED);
+    const result = await storage.get(STORAGE_KEY_CORPUS_ASKED);
     askedCache = result[STORAGE_KEY_CORPUS_ASKED] === true;
   }
   return askedCache;
@@ -96,7 +94,7 @@ export async function getCorpusAsked(): Promise<boolean> {
 export async function markCorpusAsked(): Promise<void> {
   ensureWatcher();
   askedCache = true;
-  await browser.storage.local.set({ [STORAGE_KEY_CORPUS_ASKED]: true });
+  await storage.set({ [STORAGE_KEY_CORPUS_ASKED]: true });
 }
 
 /** The one question the capture path asks. */

@@ -12,11 +12,16 @@
 //
 // The key bypasses slowapi rate limits on the slim API when injected
 // as the X-Loom-Auth header.  See loom_api/web.py::BypassAwareSlowAPI.
+//
+// 7b: reads/writes go through the StorageAdapter seam (same
+// browser.storage.local underneath in the extension host).
+
+import { storage } from "./host";
 
 const STORAGE_KEY = "loom_owner_key";
 
 export async function getOwnerKey(): Promise<string | null> {
-  const result = await browser.storage.local.get(STORAGE_KEY);
+  const result = await storage.get(STORAGE_KEY);
   const value = result[STORAGE_KEY];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -24,8 +29,8 @@ export async function getOwnerKey(): Promise<string | null> {
 export async function setOwnerKey(key: string): Promise<void> {
   const trimmed = key.trim();
   if (trimmed.length === 0) {
-    await browser.storage.local.remove(STORAGE_KEY);
+    await storage.remove(STORAGE_KEY);
     return;
   }
-  await browser.storage.local.set({ [STORAGE_KEY]: trimmed });
+  await storage.set({ [STORAGE_KEY]: trimmed });
 }

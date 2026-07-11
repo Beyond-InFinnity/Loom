@@ -20,6 +20,12 @@
 //   - Values are JSON-serializable (string | number | boolean | arrays |
 //     plain objects) — same envelope browser.storage.local accepts.
 
+/** Documentation type — what may legally be stored.  The adapter signatures
+    below deliberately use `unknown`/`any` instead: interface-typed prefs
+    (PositionPrefs etc.) aren't assignable to a recursive JSON type, and
+    reads mirror the WebExtension typing (`Record<string, any>`) the
+    consuming code was written against — readers narrow with their own
+    coerce()/casts. */
 export type StorageValue =
   | string
   | number
@@ -29,13 +35,14 @@ export type StorageValue =
   | { [key: string]: StorageValue };
 
 export interface StorageChange {
-  oldValue?: StorageValue;
-  newValue?: StorageValue;
+  oldValue?: unknown;
+  newValue?: unknown;
 }
 
 export interface StorageAdapter {
-  get(keys: string[]): Promise<Record<string, StorageValue>>;
-  set(items: Record<string, StorageValue>): Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  get(keys: string | string[]): Promise<Record<string, any>>;
+  set(items: Record<string, unknown>): Promise<void>;
   remove(keys: string | string[]): Promise<void>;
   /** Subscribe to changes; returns an unsubscribe function. */
   onChanged(

@@ -52,6 +52,7 @@ import {
 } from "../romanize/cache";
 import type { RomanizeMap } from "../romanize/types";
 import { captureTracks, type CaptureEntry } from "../corpus/capture";
+import { storage } from "../host";
 
 const NATIVE_LANG_PREF_STORAGE_KEY = "loom_native_lang_pref";
 const DEFAULT_NATIVE_LANG = "en";
@@ -132,7 +133,7 @@ export interface CaptionPayload {
   targetTranslateTo: string | null;
   nativeTranslateTo: string | null;
   /** Base BCP-47 code the auto-picker uses for native matching.
-      Persisted to browser.storage.local. */
+      Persisted to storage. */
   nativeLangPref: string;
   /** Per-track annotation enable flag.  Persisted.  When enabled +
       lang is annotate-romanize, resolveCaptions fans out /annotate
@@ -1093,7 +1094,7 @@ export function setNativeLangPref(code: string): void {
     using cached events; result re-emits when ready. */
 export function setTargetAnnotateEnabled(v: boolean): void {
   targetAnnotateEnabled = v;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_TARGET_ANNOTATE_ENABLED]: v })
     .catch((e) => console.warn("[Loom] persist targetAnnotateEnabled:", e));
   rerunAnnotations();
@@ -1101,7 +1102,7 @@ export function setTargetAnnotateEnabled(v: boolean): void {
 
 export function setNativeAnnotateEnabled(v: boolean): void {
   nativeAnnotateEnabled = v;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_NATIVE_ANNOTATE_ENABLED]: v })
     .catch((e) => console.warn("[Loom] persist nativeAnnotateEnabled:", e));
   rerunAnnotations();
@@ -1112,7 +1113,7 @@ export function setNativeAnnotateEnabled(v: boolean): void {
 export function setTargetPhoneticSystem(code: string | null): void {
   targetPhoneticSystem =
     code === null || code.trim() === "" ? null : code.trim();
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_TARGET_PHONETIC]: targetPhoneticSystem ?? "" })
     .catch((e) => console.warn("[Loom] persist targetPhoneticSystem:", e));
   rerunAnnotations();
@@ -1125,7 +1126,7 @@ export function setTargetPhoneticSystem(code: string | null): void {
 export function setNativePhoneticSystem(code: string | null): void {
   nativePhoneticSystem =
     code === null || code.trim() === "" ? null : code.trim();
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_NATIVE_PHONETIC]: nativePhoneticSystem ?? "" })
     .catch((e) => console.warn("[Loom] persist nativePhoneticSystem:", e));
   rerunAnnotations();
@@ -1173,7 +1174,7 @@ export function setTargetRomanizeEnabled(v: boolean): void {
   if (lang) targetRomanizeEnabledByFamily.set(classifyLang(lang).family, v);
   const persisted: Record<string, boolean> = {};
   for (const [fam, val] of targetRomanizeEnabledByFamily) persisted[fam] = val;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_TARGET_ROMANIZE_ENABLED]: persisted })
     .catch((e) => console.warn("[Loom] persist targetRomanizeEnabled:", e));
   rerunRomanizations();
@@ -1181,7 +1182,7 @@ export function setTargetRomanizeEnabled(v: boolean): void {
 
 export function setNativeRomanizeEnabled(v: boolean): void {
   nativeRomanizeEnabled = v;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_NATIVE_ROMANIZE_ENABLED]: v })
     .catch((e) => console.warn("[Loom] persist nativeRomanizeEnabled:", e));
   rerunRomanizations();
@@ -1195,7 +1196,7 @@ export function setLongVowelMode(
 ): void {
   if (!_VALID_LONG_VOWEL_MODES.has(mode)) return;
   longVowelMode = mode;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_LONG_VOWEL_MODE]: mode })
     .catch((e) => console.warn("[Loom] persist longVowelMode:", e));
   rerunRomanizations();
@@ -1208,7 +1209,7 @@ export function setLongVowelMode(
 export function setDictionaryGlossLang(code: string | null): void {
   const v = code && code.trim() !== "" ? code.trim().toLowerCase() : null;
   dictionaryGlossLang = v;
-  void browser.storage.local
+  void storage
     .set({ [STORAGE_KEY_DICTIONARY_GLOSS_LANG]: v ?? "" })
     .catch((e) => console.warn("[Loom] persist dictionaryGlossLang:", e));
   if (latest) emit({ ...latest, dictionaryGlossLang });
@@ -1242,7 +1243,7 @@ function rerunRomanizations(): void {
 
 async function persistNativeLangPref(code: string): Promise<void> {
   try {
-    await browser.storage.local.set({ [NATIVE_LANG_PREF_STORAGE_KEY]: code });
+    await storage.set({ [NATIVE_LANG_PREF_STORAGE_KEY]: code });
   } catch (e) {
     console.warn("[Loom] failed to persist nativeLangPref:", e);
   }
@@ -1252,7 +1253,7 @@ async function loadNativeLangPref(): Promise<void> {
   if (nativeLangPrefLoaded) return;
   nativeLangPrefLoaded = true;
   try {
-    const result = await browser.storage.local.get(
+    const result = await storage.get(
       NATIVE_LANG_PREF_STORAGE_KEY,
     );
     const value = result[NATIVE_LANG_PREF_STORAGE_KEY];
@@ -1268,7 +1269,7 @@ async function loadAnnotationPrefs(): Promise<void> {
   if (annotationPrefsLoaded) return;
   annotationPrefsLoaded = true;
   try {
-    const result = await browser.storage.local.get([
+    const result = await storage.get([
       STORAGE_KEY_TARGET_ANNOTATE_ENABLED,
       STORAGE_KEY_NATIVE_ANNOTATE_ENABLED,
       STORAGE_KEY_TARGET_PHONETIC,
@@ -1297,7 +1298,7 @@ async function loadRomanizationPrefs(): Promise<void> {
   if (romanizationPrefsLoaded) return;
   romanizationPrefsLoaded = true;
   try {
-    const result = await browser.storage.local.get([
+    const result = await storage.get([
       STORAGE_KEY_TARGET_ROMANIZE_ENABLED,
       STORAGE_KEY_NATIVE_ROMANIZE_ENABLED,
       STORAGE_KEY_LONG_VOWEL_MODE,

@@ -1,6 +1,6 @@
 {
   "name": "@loom/extension",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Loom browser extension \u2014 dual subs with romanization on YouTube, Netflix, iQIYI, and WeTV.",

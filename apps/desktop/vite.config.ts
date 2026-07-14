@@ -8,13 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
-  // Multi-page: the main app + the Player's video/overlay windows
-  // (dual-window architecture, MOBILE_ROADMAP.md §5).
+  // Single integrated window: index.html boots straight into the Loom Player
+  // (MOBILE_ROADMAP.md §5a).  The old secondary player-window entry is gone.
   build: {
     rollupOptions: {
       input: {
         main: "index.html",
-        player: "player.html",
       },
     },
   },

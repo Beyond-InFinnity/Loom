@@ -18,6 +18,7 @@ pub const MPV_FORMAT_DOUBLE: c_int = 5;
 
 pub const MPV_EVENT_NONE: c_int = 0;
 pub const MPV_EVENT_SHUTDOWN: c_int = 1;
+pub const MPV_EVENT_LOG_MESSAGE: c_int = 2;
 pub const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
 
 // mpv_render_param_type
@@ -63,6 +64,14 @@ pub struct mpv_event_property {
 }
 
 #[repr(C)]
+pub struct mpv_event_log_message {
+    pub prefix: *const c_char,
+    pub level: *const c_char,
+    pub text: *const c_char,
+    pub log_level: c_int,
+}
+
+#[repr(C)]
 pub struct mpv_event {
     pub event_id: c_int,
     pub error: c_int,
@@ -94,12 +103,16 @@ extern "C" {
         name: *const c_char,
         format: c_int,
     ) -> c_int;
+    pub fn mpv_request_log_messages(ctx: *mut mpv_handle, min_level: *const c_char) -> c_int;
     pub fn mpv_get_property(
         ctx: *mut mpv_handle,
         name: *const c_char,
         format: c_int,
         data: *mut c_void,
     ) -> c_int;
+    /// Returns a malloc'd string (or null); free it with `mpv_free`.
+    pub fn mpv_get_property_string(ctx: *mut mpv_handle, name: *const c_char) -> *mut c_char;
+    pub fn mpv_free(data: *mut c_void);
     pub fn mpv_wait_event(ctx: *mut mpv_handle, timeout: c_double) -> *mut mpv_event;
 
     pub fn mpv_render_context_create(
@@ -117,5 +130,8 @@ extern "C" {
         ctx: *mut mpv_render_context,
         params: *mut mpv_render_param,
     ) -> c_int;
+    /// Tell mpv a buffer swap just happened (display-rate render loop → mpv can
+    /// time its presentation).  Used by the direct-EGL present path.
+    pub fn mpv_render_context_report_swap(ctx: *mut mpv_render_context);
     pub fn mpv_render_context_free(ctx: *mut mpv_render_context);
 }

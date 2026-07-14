@@ -4,7 +4,46 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <title>Loom Player</title>
+    <style>
+      /* Transparent so the libmpv-rendered video (GtkGLArea behind this
+         webview) shows through everywhere the DOM isn't painted. */
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+
+      /* Dark chrome fallback for native controls inside the shared
+         SettingsPanel — no white native menus/buttons on the player.  The
+         custom control-bar components below (.lp-*) set their own styles and
+         win over these. */
+      select,
+      select option {
+        background-color: #26262b;
+        color: #eaeaec;
+      }
+      select {
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+      }
+      option:checked {
+        background-color: #3a3a44;
+      }
+      button {
+        background-color: #26262b;
+        color: #eaeaec;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      /* Control-bar chrome (.lp-*) lives in src/player-window/controls.css,
+         imported by main.tsx. */
+    </style>
   </head>
 
   <body>

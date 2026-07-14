@@ -1,0 +1,297 @@
+/* Loom Player control chrome — design tokens + interactive states for the
+   transport bar.  Kept in CSS (not inline React styles) so :hover / :active /
+   :focus-visible work — the keyboard focus ring is part of the quality floor.
+   Imported once from main.tsx; the class names are prefixed `lp-`. */
+
+:root {
+  --lp-fg: #f4f4f7;
+  --lp-fg-dim: rgba(255, 255, 255, 0.6);
+  --lp-accent: #7e6eff;
+  --lp-accent-bright: #9d8cff;
+  --lp-hover: rgba(255, 255, 255, 0.13);
+  --lp-menu-bg: #17171d;
+  --lp-menu-border: rgba(255, 255, 255, 0.09);
+  --lp-row-hover: rgba(255, 255, 255, 0.07);
+  --lp-row-active: rgba(126, 110, 255, 0.2);
+  --lp-pill-bg: rgba(255, 255, 255, 0.06);
+  --lp-pill-border: rgba(255, 255, 255, 0.14);
+}
+
+/* icon button */
+.lp-btn {
+  border: none;
+  background: transparent;
+  color: var(--lp-fg);
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s ease, transform 0.06s ease, color 0.12s ease;
+}
+.lp-btn:hover {
+  background: var(--lp-hover);
+}
+.lp-btn:active {
+  transform: scale(0.92);
+}
+.lp-btn:focus-visible {
+  outline: 2px solid var(--lp-accent-bright);
+  outline-offset: 2px;
+}
+.lp-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.lp-btn:disabled:hover {
+  background: transparent;
+}
+.lp-btn.on {
+  color: var(--lp-accent-bright);
+}
+.lp-ico {
+  display: grid;
+  place-items: center;
+}
+.lp-ico svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* autoplay toggle */
+.lp-auto {
+  height: 26px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font: 600 11.5px/1 system-ui, sans-serif;
+  letter-spacing: 0.4px;
+  background: transparent;
+  color: var(--lp-fg-dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: 0.12s;
+}
+.lp-auto:hover {
+  background: var(--lp-hover);
+  color: var(--lp-fg);
+}
+.lp-auto:focus-visible {
+  outline: 2px solid var(--lp-accent-bright);
+  outline-offset: 2px;
+}
+.lp-auto.on {
+  color: var(--lp-accent-bright);
+  background: rgba(126, 110, 255, 0.14);
+}
+.lp-auto .lp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* select pill trigger */
+.lp-pill {
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--lp-pill-bg);
+  border: 1px solid var(--lp-pill-border);
+  color: var(--lp-fg);
+  font: 12px/1 system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+.lp-pill:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+.lp-pill:focus-visible {
+  outline: 2px solid var(--lp-accent-bright);
+  outline-offset: 2px;
+}
+.lp-pill .lp-lbl {
+  color: var(--lp-fg-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.lp-pill .lp-val {
+  font-weight: 600;
+}
+.lp-pill .lp-chev {
+  width: 12px;
+  height: 12px;
+  stroke: var(--lp-fg-dim);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* menu popup */
+.lp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: transparent;
+}
+.lp-menu {
+  position: absolute;
+  bottom: 36px;
+  min-width: 158px;
+  z-index: 31;
+  background: var(--lp-menu-bg);
+  border: 1px solid var(--lp-menu-border);
+  border-radius: 11px;
+  padding: 5px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.lp-menu .lp-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--lp-fg-dim);
+  padding: 5px 9px 6px;
+}
+.lp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font: 12.5px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+  color: var(--lp-fg);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+.lp-item:hover {
+  background: var(--lp-row-hover);
+}
+.lp-item:focus-visible {
+  outline: 2px solid var(--lp-accent-bright);
+  outline-offset: -2px;
+}
+.lp-item.active {
+  background: var(--lp-row-active);
+  color: #fff;
+}
+.lp-item .lp-tick {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke: var(--lp-accent-bright);
+  stroke-width: 2.4;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  visibility: hidden;
+}
+.lp-item.active .lp-tick {
+  visibility: visible;
+}
+.lp-item .lp-name {
+  flex: 1;
+}
+.lp-item .lp-sub {
+  font-size: 10.5px;
+  color: var(--lp-fg-dim);
+}
+
+/* seek bar */
+.lp-seek {
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+.lp-seek .lp-track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.26);
+  transition: height 0.12s ease;
+}
+.lp-seek:hover .lp-track,
+.lp-seek.drag .lp-track {
+  height: 6px;
+}
+.lp-seek .lp-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--lp-accent), var(--lp-accent-bright));
+  box-shadow: 0 0 10px rgba(126, 110, 255, 0.55);
+}
+.lp-seek .lp-thumb {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.12s ease;
+  box-shadow: 0 0 0 4px rgba(126, 110, 255, 0.35), 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.lp-seek:hover .lp-thumb,
+.lp-seek.drag .lp-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+.lp-seek .lp-bubble {
+  position: absolute;
+  bottom: 20px;
+  transform: translateX(-50%);
+  background: #000;
+  color: #fff;
+  font: 11px/1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.lp-time {
+  font-size: 12.5px;
+  color: var(--lp-fg-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
+/* volume — slider reveals on group hover/focus */
+.lp-vol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lp-vol input {
+  width: 0;
+  opacity: 0;
+  transition: width 0.16s ease, opacity 0.16s ease;
+  accent-color: var(--lp-accent);
+  cursor: pointer;
+}
+.lp-vol:hover input,
+.lp-vol:focus-within input {
+  width: 74px;
+  opacity: 1;
+}

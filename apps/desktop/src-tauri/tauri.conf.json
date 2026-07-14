@@ -12,9 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "Loom",
-        "width": 1200,
-        "height": 800
+        "title": "Loom Player",
+        "width": 1280,
+        "height": 720,
+        "transparent": true
       }
     ],
     "security": {

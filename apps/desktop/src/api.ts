@@ -70,6 +70,29 @@ export async function probeHealth(): Promise<HealthInfo> {
   return { name: root.name, version: root.version };
 }
 
+// Poll /health until the sidecar answers (or a timeout).  The player window
+// auto-opens a file the instant its mpv engine attaches, which can beat the
+// uvicorn sidecar's boot — the first /files/by-path fetch then fails with
+// WebKit's "Load failed" network error.  Gating loadMedia on this makes the
+// first load wait for the sidecar instead of erroring.  Fast (one /health
+// round-trip) once the sidecar is already up.
+export async function waitForSidecar(timeoutMs = 20000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr: unknown;
+  for (;;) {
+    try {
+      await probeHealth();
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (Date.now() >= deadline) {
+        throw new Error(`sidecar not ready after ${timeoutMs}ms: ${String(lastErr)}`);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+}
+
 // Desktop fast path: register an absolute on-disk path with the sidecar
 // without copying bytes. Returns a FileSlot the rest of the app holds onto.
 export async function registerFileByPath(path: string): Promise<FileSlot> {

@@ -96,6 +96,7 @@ function formatDuration(seconds: number): string {
 
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { SettingsPanel } from "./settings/SettingsPanel";
+import { PlayerRemote } from "./settings/PlayerRemote";
 
 // Open (or focus) the single-window Loom Player — a separate transparent
 // window whose webview is the caption/transport UI, with libmpv rendering
@@ -356,8 +357,11 @@ function App() {
           {showPlayerSettings ? "Hide settings" : "Player settings"}
         </button>
       </div>
+      <div style={{ marginTop: 12, marginBottom: 8 }}>
+        <PlayerRemote />
+      </div>
       {showPlayerSettings && (
-        <div style={{ marginTop: 16, marginBottom: 8 }}>
+        <div style={{ marginTop: 8, marginBottom: 8 }}>
           <SettingsPanel />
         </div>
       )}

@@ -27,7 +27,7 @@ const LATIN = /[A-Za-z]/;
 
 export type SplitLang = "ja" | "zh" | "ko" | "en" | "other";
 
-function classifyLine(text: string): SplitLang {
+export function classifyLine(text: string): SplitLang {
   const t = text.replace(/\s+/g, "");
   if (!t) return "other";
   if (KANA.test(t)) return "ja";

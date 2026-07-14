@@ -1,16 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main + Player windows",
+  "description": "Capability for the single integrated Player window",
   "windows": [
-    "main",
-    "loom-video",
-    "loom-overlay",
-    "loom-player"
+    "main"
   ],
   "permissions": [
     "core:default",
     "core:window:allow-set-focus",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "core:webview:allow-create-webview-window",
     "dialog:allow-open",
     "dialog:allow-save",

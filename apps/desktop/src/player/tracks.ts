@@ -25,6 +25,7 @@ import {
   API_BASE,
   registerFileByPath,
   scanVideo,
+  waitForSidecar,
   type ScanResponse,
   type TrackInfo,
   type VideoMetadata,
@@ -37,6 +38,8 @@ export interface PlayerTrack {
   fileId?: string;
   /** External track: events already parsed + script-split (no fetch). */
   events?: CaptionEvent[];
+  /** Raw .ass text (external ASS only), retained for song-line preservation. */
+  rawAss?: string;
 }
 
 export interface LoadedMedia {
@@ -153,15 +156,20 @@ async function externalTracks(
       hint === "zh-Hans" ? "zh-Hans" : hint === "zh-Hant" ? "zh-Hant" : "zh-Hant";
     const resolveLang = (l: string): string => (l === "zh" ? zhScript : l);
 
+    // Retain the raw ASS so the song-line split can preserve OP/ED animation
+    // (the parsed/split buckets have lost the override tags).
+    const isAss = ext(name) === "ass" || ext(name) === "ssa";
+    const rawAss = isAss ? text : undefined;
+
     const buckets = splitEventsByLanguage(events);
     // If the split found nothing usable, fall back to one track tagged by
     // the filename hint (or "und").
     if (buckets.length === 0) {
-      out.push(oneExternal(name, hint ?? "und", events, audioLangCode));
+      out.push(oneExternal(name, hint ?? "und", events, audioLangCode, rawAss));
       continue;
     }
     for (const b of buckets) {
-      out.push(oneExternal(name, resolveLang(b.lang), b.events, audioLangCode));
+      out.push(oneExternal(name, resolveLang(b.lang), b.events, audioLangCode, rawAss));
     }
   }
   return out;
@@ -172,9 +180,11 @@ function oneExternal(
   lang: string,
   events: CaptionEvent[],
   audioLangCode: string | null,
+  rawAss?: string,
 ): PlayerTrack {
   return {
     events,
+    rawAss,
     caption: {
       id: `ext:${fileName}:${lang}`,
       languageCode: lang,
@@ -190,6 +200,9 @@ function oneExternal(
 /** Register + scan a local media path, merging embedded text tracks with
     external sibling subtitle files (script-split). */
 export async function loadMedia(path: string): Promise<LoadedMedia> {
+  // The player window can auto-open a file before the sidecar has finished
+  // booting; wait for it so the first scan doesn't fail with "Load failed".
+  await waitForSidecar();
   const slot = await registerFileByPath(path);
   const scan: ScanResponse = await scanVideo(slot.id);
   const audioLangCode =
@@ -301,4 +314,24 @@ export async function fetchTrackEvents(
     throw new Error(`track download → HTTP ${res.status}`);
   }
   return parseSubtitleEvents(await res.text());
+}
+
+/** Track events PLUS the raw .ass text when available (embedded ASS is fetched
+    once; external ASS carries its retained raw).  The raw text feeds the
+    song-line split — non-ASS tracks return text=null and behave as before. */
+export async function fetchTrackSource(
+  track: PlayerTrack,
+): Promise<{ text: string | null; events: CaptionEvent[] }> {
+  // External: raw retained for ASS, events already parsed/split.
+  if (track.events) {
+    return { text: track.rawAss ?? null, events: track.events };
+  }
+  if (!track.fileId) return { text: null, events: [] };
+  const res = await fetch(fileUrl(track.fileId));
+  if (!res.ok) {
+    throw new Error(`track download → HTTP ${res.status}`);
+  }
+  const text = await res.text();
+  const isAss = /^\s*\[Script Info\]/im.test(text) || /^\s*Dialogue:/m.test(text);
+  return { text: isAss ? text : null, events: parseSubtitleEvents(text) };
 }

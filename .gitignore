@@ -77,3 +77,6 @@ dictionaries/
 # Claude Code per-project state (settings, scheduled-tasks lock).
 .claude/
 .playwright-mcp/
+
+# Loom Player: local libmpv build tree (see scripts/build-libmpv.sh) — artifacts, not source
+/vendor/

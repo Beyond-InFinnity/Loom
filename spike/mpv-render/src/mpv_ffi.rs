@@ -117,5 +117,6 @@ extern "C" {
         ctx: *mut mpv_render_context,
         params: *mut mpv_render_param,
     ) -> c_int;
+    pub fn mpv_render_context_report_swap(ctx: *mut mpv_render_context);
     pub fn mpv_render_context_free(ctx: *mut mpv_render_context);
 }

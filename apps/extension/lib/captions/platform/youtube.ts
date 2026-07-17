@@ -62,6 +62,15 @@ export const youtubePlatform: CaptionPlatform = {
   id: "youtube",
   supportsTranslate: true,
 
+  // Identity guard for discover's latched-payload replay (SPA nav).
+  currentVideoId: () => {
+    try {
+      return new URL(location.href).searchParams.get("v");
+    } catch {
+      return null;
+    }
+  },
+
   // Overlay seam (5h-3) — the selectors + native-caption hiding that
   // used to be hardcoded in player-scale.ts / stream.ts / caption-context.
   playerRootSelector: "#movie_player",

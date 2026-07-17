@@ -116,4 +116,13 @@ export interface CaptionPlatform {
       exists only while the controls chrome is mounted) — the corpus
       capture path polls it briefly before falling back. */
   readMediaTitle?(): string | null;
+
+  /** The video id the CURRENT page URL names (Netflix /watch/<id>,
+      YouTube ?v=), or null when the URL doesn't name one.  Used as an
+      identity guard: discover's module state (the latched payload +
+      session) survives SPA navigation, and a fresh overlay mount must
+      not replay a payload belonging to a PREVIOUS video (observed live
+      as the previous episode's subs rendering over the new one).
+      Optional — platforms without it skip the guard (replay always). */
+  currentVideoId?(): string | null;
 }

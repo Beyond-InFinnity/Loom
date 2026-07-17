@@ -20,6 +20,7 @@
 import { parseVtt } from "../netflix/parse-vtt";
 import type { FanoutTrackResult } from "../fanout";
 import type { CaptionTrack } from "../types";
+import { logDev } from "../../env";
 import {
   NETFLIX_PLAYER_ROOT,
   NETFLIX_VIDEO_SELECTOR,
@@ -73,6 +74,10 @@ export const netflixPlatform: CaptionPlatform = {
   // Corpus capture title source (document.title is just "Netflix" here).
   readMediaTitle: () => readNetflixVideoTitle(document),
 
+  // Identity guard for discover's latched-payload replay (SPA nav).
+  currentVideoId: () =>
+    location.pathname.match(/\/watch\/(\d+)/)?.[1] ?? null,
+
   // Overlay seam (5h-3).  Selectors + native-caption hiding from the
   // live-capture recon; see lib/overlay/netflix-player-anchor.ts.
   playerRootSelector: NETFLIX_PLAYER_ROOT,
@@ -96,8 +101,31 @@ export const netflixPlatform: CaptionPlatform = {
     // reaches here from the settings UI (5h-5 hides that control), and we
     // belt-and-braces ignore it if it does.
     const url = track.baseUrl;
+    // HARD TIMEOUT (feedback_async_hang_prevention): a WebVTT GET whose
+    // response never settles previously hung resolveCaptions' await
+    // forever — status stuck "discovering", zero log output (observed
+    // live 2026-07-18: ja track START with no DONE/warn while en
+    // completed).  Silent infinite waits are a banned bug class: abort
+    // with a LABELED reason so the failure surfaces in the existing
+    // "[Loom Fetch] 0 events" warn instead of stalling the pipeline.
+    const ctrl = new AbortController();
+    const timer = setTimeout(
+      () => ctrl.abort(new Error(`timeout after ${NETFLIX_VTT_TIMEOUT_MS}ms`)),
+      NETFLIX_VTT_TIMEOUT_MS,
+    );
+    const onCallerAbort = () =>
+      ctrl.abort(opts.signal?.reason ?? new Error("caller aborted"));
+    if (opts.signal?.aborted) onCallerAbort();
+    else opts.signal?.addEventListener("abort", onCallerAbort, { once: true });
+    logDev("[Loom NFLX Fetch]", track.languageCode, "GET", safeHost(url));
     try {
-      const response = await fetch(url, { signal: opts.signal });
+      const response = await fetch(url, { signal: ctrl.signal });
+      logDev(
+        "[Loom NFLX Fetch]",
+        track.languageCode,
+        "response: status =",
+        response.status,
+      );
       const status = response.status;
       if (!response.ok) {
         // A signed URL that has aged past its ~12 h TTL surfaces here as
@@ -115,6 +143,13 @@ export const netflixPlatform: CaptionPlatform = {
         };
       }
       const text = await response.text();
+      logDev(
+        "[Loom NFLX Fetch]",
+        track.languageCode,
+        "body:",
+        text.length,
+        "chars",
+      );
       if (text.length === 0) {
         return {
           track,
@@ -128,6 +163,13 @@ export const netflixPlatform: CaptionPlatform = {
         };
       }
       const events = parseVtt(text);
+      logDev(
+        "[Loom NFLX Fetch]",
+        track.languageCode,
+        "parsed:",
+        events.length,
+        "events",
+      );
       return {
         track,
         url,
@@ -149,6 +191,24 @@ export const netflixPlatform: CaptionPlatform = {
         error: e instanceof Error ? e.message : String(e),
         isTlang: false,
       };
+    } finally {
+      clearTimeout(timer);
+      // {once:true} only fires-and-forgets; on NORMAL completion the
+      // listener would linger on a long-lived caller signal.
+      opts.signal?.removeEventListener("abort", onCallerAbort);
     }
   },
 };
+
+/** WebVTT GET timeout.  Generous — a full-episode VTT is ~100–300 kB, so
+    20 s only fires on a genuinely wedged connection, never a slow one. */
+const NETFLIX_VTT_TIMEOUT_MS = 20_000;
+
+/** Host of a URL for logging, without ever throwing on a malformed one. */
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.slice(0, 40);
+  }
+}

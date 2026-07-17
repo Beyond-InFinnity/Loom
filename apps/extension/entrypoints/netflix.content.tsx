@@ -82,12 +82,17 @@ export default defineContentScript({
         uiContainer.style.inset = "0";
         const root = ReactDOM.createRoot(uiContainer);
         root.render(<LoomApp />);
-        logDev("[Loom] Netflix overlay mounted inside", ANCHOR_SELECTOR);
+        logDev(
+          "[Loom NFLX ISO] overlay MOUNTED inside",
+          ANCHOR_SELECTOR,
+          "— href =",
+          location.href,
+        );
         return root;
       },
       onRemove: (root) => {
         root?.unmount();
-        logDev("[Loom] Netflix overlay unmounted");
+        logDev("[Loom NFLX ISO] overlay UNMOUNTED — href =", location.href);
       },
     });
     ui.autoMount();
@@ -98,13 +103,44 @@ export default defineContentScript({
     // change is the reliable signal.  Tell MAIN which title is now playing so
     // it adopts that manifest; the overlay itself is handled by autoMount.
     let currentWatchId = watchIdOf(location.href);
+    logDev(
+      "[Loom NFLX ISO] script loaded — href =",
+      location.href,
+      "watchId =",
+      currentWatchId ?? "(none)",
+    );
     ctx.addEventListener(window, "wxt:locationchange", ({ newUrl }) => {
       const newId = watchIdOf(newUrl);
+      // Log EVERY location change — including same-id ones we don't
+      // forward — so a console capture shows whether Chrome's SPA nav
+      // fired this at all, and what we decided.
+      logDev(
+        "[Loom NFLX ISO] locationchange →",
+        String(newUrl),
+        "| watchId",
+        currentWatchId ?? "(none)",
+        "→",
+        newId ?? "(none)",
+        newId === currentWatchId
+          ? "(same id — not posting)"
+          : newId
+            ? "(posting watch-changed)"
+            : "(posting watch-left)",
+      );
       if (newId === currentWatchId) return;
       currentWatchId = newId;
       if (newId) {
         window.postMessage(
           { source: ISO_SOURCE, type: "watch-changed", videoId: newId },
+          location.origin,
+        );
+      } else {
+        // Left /watch/ (back button → browse / detail page).  Tell MAIN so
+        // it clears the committed title + cached tracklist — a stale
+        // `active` here is what let the previous episode's subs get served
+        // to the NEXT title (the back-nav stale-subs bug).
+        window.postMessage(
+          { source: ISO_SOURCE, type: "watch-left" },
           location.origin,
         );
       }

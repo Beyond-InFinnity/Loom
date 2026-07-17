@@ -26,6 +26,7 @@ import {
   type DiscoveryStatus,
 } from "@/lib/captions/discover";
 import { CaptionStream } from "@/lib/captions/stream";
+import { logDev } from "@/lib/env";
 import type { CaptionEvent, CaptionTrack } from "@/lib/captions/types";
 import type { AnnotateMap, AnnotateTokenMap } from "@/lib/annotate/types";
 import type { RomanizeMap } from "@/lib/romanize/types";
@@ -738,6 +739,17 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
 
       const s = payload.status;
       if (s.kind === "tracking" && payload.targetEvents) {
+        // Identity of what's ACTUALLY rendering (vs merely latched):
+        // if this videoId ≠ the /watch/ id in href, stale events are
+        // live on screen — the terminal bug-2 discriminator.
+        logDev(
+          "[Loom ISO] stream.start: videoId =",
+          payload.videoId ?? "(none)",
+          "targetEvents =",
+          payload.targetEvents.length,
+          "| href =",
+          location.href,
+        );
         hideNativeCaptions();
         stream.start({
           targetEvents: payload.targetEvents,

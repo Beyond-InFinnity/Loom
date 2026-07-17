@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { getEnabled, onEnabledChanged } from "@/lib/enabled";
+import { IS_DEV } from "@/lib/env";
 import { initUiLocale } from "@/lib/i18n";
 import { CaptionOverlay } from "./caption-overlay";
 import { CaptionStreamProvider } from "./caption-context";
@@ -29,7 +30,13 @@ import { LoomPill } from "./loom-pill";
 // the whole in-page surface (pill, panel, consent, definition card).
 initUiLocale();
 
-const SESSION_STORAGE_KEY = "loom_activated";
+// Namespaced per build, like MAIN_SOURCE/ISO_SOURCE (lib/env.ts):
+// sessionStorage belongs to the PAGE origin, shared by every extension's
+// content scripts — with one key, a side-by-side dev build and prod
+// "Loom" cross-activate each other (activating one auto-activates BOTH
+// on the next mount → two stacked overlays that look like one broken
+// one).  Distinct keys keep the builds' activation states isolated.
+const SESSION_STORAGE_KEY = IS_DEV ? "loom_activated_dev" : "loom_activated";
 
 function readInitialActivated(): boolean {
   try {

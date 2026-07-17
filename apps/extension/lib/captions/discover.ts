@@ -335,7 +335,14 @@ function handleMessage(event: MessageEvent): void {
   // tracklist server-side in its `latestPayload`, so when the user
   // later activates and subscribeToCaptions sends request-tracklist,
   // MAIN re-emits and we pick up here.
-  if (activeSubscriberCount === 0) return;
+  if (activeSubscriberCount === 0) {
+    logDev(
+      "[Loom ISO] tracklist for videoId =",
+      data.videoId,
+      "DROPPED (dormant — no active subscribers; MAIN caches it for request-tracklist)",
+    );
+    return;
+  }
   discoverSession(data).catch((e) => {
     console.error("[Loom] discover.discoverSession threw:", e);
     emit({
@@ -346,13 +353,68 @@ function handleMessage(event: MessageEvent): void {
   });
 }
 
+/** Identity of a tracklist payload for dedup.  Includes baseUrl so a
+    RE-PARSE with fresh signed URLs (Netflix ~12 h TTL refresh) reads as
+    a NEW payload and re-resolves, while byte-identical re-emits (the
+    request-tracklist double-fire on activation, MAIN's always-answer
+    re-emit) are skipped instead of double-running the full fan-out. */
+function payloadKey(data: MainTracklist): string {
+  return (
+    `${data.videoId}::${data.status}::` +
+    data.tracks.map((t) => `${t.id}@${t.baseUrl}`).join("|")
+  );
+}
+/** Payload currently being processed (guards concurrent duplicates —
+    the activation double-request delivers before the first completes). */
+let inFlightPayloadKey: string | null = null;
+/** Last payload fully processed to a terminal state.  Error paths do
+    NOT set it, so a re-emit after a failure retries. */
+let completedPayloadKey: string | null = null;
+
 async function discoverSession(data: MainTracklist): Promise<void> {
+  // Identity-rich receipt line: if videoId here ever disagrees with the
+  // /watch/ id in href, the ISO side is being fed a STALE tracklist (the
+  // bug-2 signature — old title's subs rendering on new media).
   logDev(
-    "[Loom ISO] tracklist received: status =",
+    "[Loom ISO] tracklist received: videoId =",
+    data.videoId,
+    "status =",
     data.status,
     "tracks =",
     data.tracks.length,
+    "| prev session videoId =",
+    session.videoId ?? "(none)",
+    "| href =",
+    location.href,
   );
+
+  // Dedup applies only WITHIN the current session video: bouncing away
+  // and back re-serves the SAME held payload (identical key) for a title
+  // whose session state was since replaced — that must reprocess, not
+  // skip, or the return visit renders nothing.
+  const key = payloadKey(data);
+  if (
+    data.videoId === session.videoId &&
+    (key === inFlightPayloadKey || key === completedPayloadKey)
+  ) {
+    logDev(
+      "[Loom ISO] duplicate payload — skipping (already",
+      key === inFlightPayloadKey ? "in flight)" : "processed)",
+    );
+    return;
+  }
+  inFlightPayloadKey = key;
+  try {
+    await discoverSessionInner(data, key);
+  } finally {
+    if (inFlightPayloadKey === key) inFlightPayloadKey = null;
+  }
+}
+
+async function discoverSessionInner(
+  data: MainTracklist,
+  key: string,
+): Promise<void> {
 
   // New video?  Reset state.  videoId changing means tracks differ
   // and the cached URL no longer applies.  Overrides are intentionally
@@ -362,6 +424,9 @@ async function discoverSession(data: MainTracklist): Promise<void> {
     eventsCache.clear();
     session = emptySession();
     session.videoId = data.videoId;
+    logDev("[Loom ISO] NEW video — session + events cache reset");
+  } else {
+    logDev("[Loom ISO] same video — session kept (overrides + events cache intact)");
   }
 
   if (data.status === "no-tracks-found") {
@@ -381,6 +446,7 @@ async function discoverSession(data: MainTracklist): Promise<void> {
       ...buildBasePayload(),
       status: { kind: "unsupported", reason: "no-captions" },
     });
+    completedPayloadKey = key; // terminal state — a re-emit changes nothing
     return;
   }
   if (data.status === "no-cc-button") {
@@ -430,6 +496,7 @@ async function discoverSession(data: MainTracklist): Promise<void> {
   session.acquisitionHandle = acq.handle;
   session.acquired = true;
   await resolveCaptions();
+  completedPayloadKey = key;
 }
 
 // ---- Resolution phase -----------------------------------------------
@@ -560,8 +627,11 @@ async function resolveCaptions(): Promise<void> {
   logDev(
     "[Loom ISO] resolve gen",
     generation,
+    "videoId =",
+    session.videoId ?? "(none)",
     "target",
     target.languageCode,
+    `[id ${target.id}]`,
     session.targetTranslateTo
       ? `→ tlang=${session.targetTranslateTo}`
       : "(no tlang)",
@@ -946,13 +1016,18 @@ async function fetchWithCache(
 ): Promise<CaptionEvent[] | null> {
   const key = cacheKey(videoId, track.id, tlang);
   const cached = eventsCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    logDev("[Loom ISO] events cache HIT", key, "→", cached.length, "events");
+    return cached;
+  }
 
   const platform = getPlatform();
   if (!platform) return null;
+  logDev("[Loom ISO] events fetch START", key);
   const result = await platform.fetchTrackEvents(track, { handle, tlang });
   if (result.events && result.events.length > 0) {
     eventsCache.set(key, result.events);
+    logDev("[Loom ISO] events fetch DONE", key, "→", result.events.length, "events");
     return result.events;
   }
   // Empty/error path — surface the actual reason instead of letting
@@ -1368,11 +1443,41 @@ export function subscribeToCaptions(listener: Listener): () => void {
   const wasDormant = activeSubscriberCount === 0;
   activeSubscriberCount += 1;
   if (latest !== null) {
-    listener(latest);
+    // Module state (session/latest/eventsCache) survives overlay remounts —
+    // a fresh mount immediately receives whatever the LAST video latched.
+    // IDENTITY GUARD: when the platform can name the current page's video
+    // and the latched payload belongs to a DIFFERENT one, do NOT replay it
+    // (observed live as the previous episode's subs rendering over the new
+    // one).  The request-tracklist below brings the correct payload.
+    const urlNow = getPlatform()?.currentVideoId?.() ?? null;
+    const stale =
+      urlNow !== null && latest.videoId !== null && latest.videoId !== urlNow;
+    if (stale) {
+      logDev(
+        "[Loom ISO] subscriber attached — latched payload videoId =",
+        latest.videoId,
+        "≠ current page video",
+        urlNow,
+        "→ NOT replaying stale payload (awaiting fresh tracklist)",
+      );
+    } else {
+      logDev(
+        "[Loom ISO] subscriber attached — replaying latched payload: videoId =",
+        latest.videoId ?? "(none)",
+        "status =",
+        latest.status.kind,
+        "| href =",
+        location.href,
+      );
+      listener(latest);
+    }
   }
   if (wasDormant) {
     // Going active.  Ask MAIN to re-emit its cached tracklist so we
     // pick up whatever was dropped while dormant.
+    logDev(
+      "[Loom ISO] activation 0→1 — sending request-tracklist to MAIN",
+    );
     window.postMessage(
       { source: ISO_SOURCE, type: "request-tracklist" },
       location.origin,
@@ -1382,6 +1487,7 @@ export function subscribeToCaptions(listener: Listener): () => void {
     listeners.delete(listener);
     activeSubscriberCount = Math.max(0, activeSubscriberCount - 1);
     if (activeSubscriberCount === 0) {
+      logDev("[Loom ISO] deactivation 1→0 — dormant (aborting in-flight fetches)");
       // Going dormant.  Abort any in-flight annotation / romanization
       // fetches so they don't continue burning CPU after the user
       // explicitly turned Loom off.

@@ -35,6 +35,7 @@ import {
   reduceManifest,
   reduceMediaSwap,
   reduceWatchChange,
+  reduceWatchLeft,
 } from "@/lib/captions/netflix/manifest-tracker";
 
 // The WebVTT profile we both REQUEST (via the stringify hook) and read
@@ -71,6 +72,7 @@ interface LoomMainHolder {
   onManifest: (m: NetflixManifest) => void;
   onMediaSwap: (kind: string) => void;
   onWatchChanged: (videoId: string) => void;
+  onWatchLeft: () => void;
   handleRequestTracklist: () => void;
 }
 
@@ -145,14 +147,28 @@ export default defineContentScript({
   runAt: "document_start",
 
   main() {
-    logDev("[Loom NFLX MAIN] script loaded");
+    // Dev diagnostics: every line carries a per-generation seq + ms-since-
+    // load stamp so ONE console capture reconstructs the exact ordering of
+    // manifest / URL / media events across the MAIN and ISO worlds.
+    let seq = 0;
+    const t0 = performance.now();
+    const dbg = (...args: unknown[]) =>
+      logDev(
+        `[Loom NFLX MAIN #${++seq} t=${Math.round(performance.now() - t0)}ms]`,
+        ...args,
+      );
+    dbg(
+      "script loaded — href =",
+      location.href,
+      "readyState =",
+      document.readyState,
+    );
 
     // Latest tracklist payload we've posted.  ISO can ask us to re-emit
     // this if it subscribed too late to catch the original postMessage
     // (the overlay starts dormant; activation happens well after the
     // manifest fired).  Same role as yt-main's latestPayload.
     let latestPayload: object | null = null;
-    let reemittedForCurrentPayload = false;
 
     // Which title is ACTUALLY playing — the prefetch-vs-advance decision
     // lives in the pure reducer (lib/captions/netflix/manifest-tracker.ts,
@@ -181,33 +197,53 @@ export default defineContentScript({
       existing.onManifest = onManifest;
       existing.onMediaSwap = onMediaSwap;
       existing.onWatchChanged = onWatchChanged;
+      existing.onWatchLeft = onWatchLeft;
       existing.handleRequestTracklist = handleRequestTracklist;
-      logDev("[Loom NFLX MAIN] re-attached after reload (hooks not re-wrapped)");
+      dbg("re-attached after reload (hooks not re-wrapped)");
       return;
     }
     const holder: LoomMainHolder = {
       onManifest,
       onMediaSwap,
       onWatchChanged,
+      onWatchLeft,
       handleRequestTracklist,
     };
     w[HOLDER_KEY] = holder;
 
     installStringifyHook();
     installParseHook((m) => holder.onManifest(m));
-    installMediaSwapWatcher((k) => holder.onMediaSwap(k));
+    installMediaSwapWatcher((k) => holder.onMediaSwap(k), dbg);
 
     /** A <video> loadstart/emptied means the player swapped streams — the
-        episode genuinely changed.  Adopt whatever title we were holding. */
+        episode genuinely changed.  Adopt the held manifest for whatever
+        title the URL now names (URL-anchored: browse-preview loadstarts,
+        where the URL has no /watch/ id, can never adopt anything). */
     function onMediaSwap(kind: string): void {
-      const heldId = tracker.pending?.movieId ?? null;
-      const { state, action } = reduceMediaSwap(tracker);
+      const urlId = readVideoId();
+      const activeBefore = tracker.activeMovieId ?? "(none)";
+      const { state, action } = reduceMediaSwap(tracker, urlId);
       tracker = state;
       if (action.kind === "post") {
-        logDev("[Loom NFLX MAIN] media swap (", kind, ") → adopting held title", heldId);
+        dbg(
+          "media swap (",
+          kind,
+          ") → ADOPTING held title",
+          urlId,
+          "(replaces active =",
+          activeBefore,
+          ")",
+        );
         postPayload(action.payload);
       } else {
-        logDev("[Loom NFLX MAIN] media swap (", kind, ") — nothing held");
+        dbg(
+          "media swap (",
+          kind,
+          ") — no held match for urlId =",
+          urlId ?? "(none)",
+          "; active stays",
+          activeBefore,
+        );
       }
     }
 
@@ -216,18 +252,54 @@ export default defineContentScript({
         doesn't fire loadstart/emptied on episode change, so onMediaSwap never
         sees them.  Adopt the held manifest for the new id. */
     function onWatchChanged(videoId: string): void {
+      const activeBefore = tracker.activeMovieId ?? "(none)";
+      const pendingBefore =
+        tracker.held.map((h) => h.movieId).join(",") || "(none)";
       const { state, action } = reduceWatchChange(tracker, videoId);
       tracker = state;
       if (action.kind === "post") {
-        logDev("[Loom NFLX MAIN] watch changed → adopting", videoId);
-        postPayload(action.payload);
-      } else {
-        logDev(
-          "[Loom NFLX MAIN] watch changed →",
+        dbg(
+          "watch-changed →",
           videoId,
-          "(no held match; active reset / awaiting its manifest)",
+          "ADOPTING held manifest (replaces active =",
+          activeBefore,
+          ")",
+        );
+        postPayload(action.payload);
+      } else if (activeBefore === videoId) {
+        dbg("watch-changed →", videoId, "(dup — already the active title)");
+      } else {
+        // Genuinely never parsed this title (held map has no entry) —
+        // reset and wait for its manifest.  With the held map this
+        // should now only happen when the manifest truly hasn't been
+        // parsed YET (it arrives → reduceManifest adopts via the URL
+        // match); a persistent stall here means Netflix never parsed it.
+        dbg(
+          "watch-changed →",
+          videoId,
+          "NOT HELD → tracker RESET (was active =",
+          activeBefore,
+          ", held =",
+          pendingBefore,
+          ") — awaiting this title's manifest",
         );
       }
+    }
+
+    /** The URL left /watch/ entirely (back button → browse / detail
+        page).  Clear the committed title AND the cached tracklist so
+        nothing stale can be re-emitted to a fresh overlay on the NEXT
+        title.  Held manifests stay — re-entering a title re-adopts. */
+    function onWatchLeft(): void {
+      const activeBefore = tracker.activeMovieId ?? "(none)";
+      tracker = reduceWatchLeft(tracker);
+      latestPayload = null;
+      dbg(
+        "watch-left → cleared active (was",
+        activeBefore,
+        ") + cached tracklist; held titles retained:",
+        tracker.held.map((h) => h.movieId).join(",") || "(none)",
+      );
     }
 
     function onManifest(manifest: NetflixManifest): void {
@@ -235,26 +307,13 @@ export default defineContentScript({
         manifest.movieId != null ? String(manifest.movieId) : null;
       if (movieId === null) return; // installParseHook guarantees non-null
 
-      // SPA gate (no-refresh fix): the MAIN hook now runs on EVERY netflix
-      // page, so it also parses manifests from home-screen auto-previews and
-      // /title/ detail-page prefetches — neither of which is the title being
-      // watched.  Until we've locked onto a playing title, only accept the
-      // manifest whose movieId matches the current /watch/<id> URL; ignore
-      // the rest (else a home-screen preview becomes "active" and the real
-      // episode gets held as a "different title" → wrong subs).  Once a
-      // title IS active, defer entirely to the tracker — its prefetch logic
-      // deliberately accepts manifests whose movieId != the URL (the
-      // next-episode prefetch), so this gate must NOT apply then.
-      if (tracker.activeMovieId === null && movieId !== readVideoId()) {
-        logDev(
-          "[Loom NFLX MAIN] ignoring pre-watch manifest",
-          movieId,
-          "(not the /watch/ title; url =",
-          readVideoId() ?? "(none)",
-          ")",
-        );
-        return;
-      }
+      // NOTE the old SPA drop-gate is GONE (the F5-only bug): a manifest
+      // that parsed before the URL flipped to its /watch/<id> was DROPPED
+      // here and Netflix never re-parsed it → no tracklist until refresh.
+      // The reducer now HOLDS every manifest keyed by movieId and adopts
+      // only on an explicit title-naming signal (URL match at parse time,
+      // watch-changed, media-swap), so home-preview pollution stays
+      // impossible while pre-watch manifests stay recoverable.
 
       const rawTracks = textTracksOf(manifest);
       const audioLang = primaryAudioLang(manifest);
@@ -265,8 +324,8 @@ export default defineContentScript({
 
       // Rich diagnostics: every manifest event, with everything needed to
       // reconstruct the prefetch-vs-advance sequence offline.
-      logDev(
-        "[Loom NFLX MAIN] manifest: movieId =",
+      dbg(
+        "manifest: movieId =",
         movieId,
         "active =",
         tracker.activeMovieId ?? "(none)",
@@ -280,13 +339,16 @@ export default defineContentScript({
         tracks.length,
         "audioLang =",
         audioLang ?? "(none)",
-        "pending =",
-        tracker.pending?.movieId ?? "(none)",
+        "held =",
+        tracker.held.map((h) => h.movieId).join(",") || "(none)",
       );
 
       // Non-final / partial parse with no text tracks at all → ignore and
       // wait for the real manifest.
-      if (tracks.length === 0 && rawTracks.length === 0) return;
+      if (tracks.length === 0 && rawTracks.length === 0) {
+        dbg("manifest DECISION: skip (partial parse — zero raw tracks)");
+        return;
+      }
 
       // "ok" = fetchable WebVTT; "no-captions" = text tracks exist but all
       // image-only (OCR-only → overlay degrades gracefully).
@@ -294,43 +356,114 @@ export default defineContentScript({
         tracks.length > 0 ? "ok" : "no-captions";
       const payload: PostPayload = { videoId, status, tracks };
 
-      const { state, action } = reduceManifest(tracker, {
-        movieId,
-        status,
-        payload,
-      });
+      const activeBefore = tracker.activeMovieId;
+      const { state, action } = reduceManifest(
+        tracker,
+        { movieId, status, payload },
+        readVideoId(),
+      );
       tracker = state;
       if (action.kind === "post") {
+        dbg(
+          "manifest DECISION: ADOPT + post (",
+          activeBefore === null
+            ? "matches current /watch/ URL, nothing active"
+            : "WebVTT upgrade of active",
+          ")",
+        );
         postPayload(action.payload);
       } else if (action.kind === "hold") {
-        // Prefetch trap: a different title than what's playing.  Don't
-        // adopt it (that reverted Frieren to Chinese mid-episode) — held
-        // until onMediaSwap confirms the <video> actually swapped.
-        logDev(
-          "[Loom NFLX MAIN] holding manifest for different title",
+        // Not adoptable YET: a next-episode prefetch while another title
+        // plays (the Frieren trap), a home-preview, or a pre-watch parse
+        // of the title being navigated to.  Retained in the held map —
+        // watch-changed / media-swap / a request-tracklist for its URL
+        // adopts it the moment a signal names it.
+        dbg(
+          "manifest DECISION: HELD",
           action.movieId,
-          "(awaiting media swap)",
+          activeBefore === null
+            ? "(nothing active; URL doesn't name it yet — pre-watch/preview)"
+            : `(differs from active ${activeBefore} — prefetch/preview)`,
+          "— adoptable on watch-changed/media-swap",
         );
+      } else {
+        dbg("manifest DECISION: ignore (dup of active", activeBefore, ")");
       }
     }
 
     function postPayload(payload: PostPayload): void {
       const fullPayload = { source: MAIN_SOURCE, type: "tracklist", ...payload };
       latestPayload = fullPayload;
-      reemittedForCurrentPayload = false;
       window.postMessage(fullPayload, location.origin);
-      logDev("[Loom NFLX MAIN] tracklist posted:", payload.status);
+      dbg(
+        "tracklist POSTED → ISO: videoId =",
+        payload.videoId,
+        "status =",
+        payload.status,
+        "tracks =",
+        payload.tracks.length,
+      );
     }
 
     /** ISO asks us to re-emit the latest tracklist when it subscribed too
         late to catch the original postMessage (the overlay starts dormant /
-        mounts after the manifest fired).  Once per payload. */
+        mounts after the manifest fired).  IDENTITY-GUARDED: the cached
+        payload is only re-emitted when it matches the current /watch/
+        title — a stale one (previous episode) is never served.  When the
+        cache can't answer, fall back to ADOPTING a held manifest for the
+        current URL (this recovers a manifest that parsed before the URL
+        flipped — the activation path of the F5-only bug).
+
+        DELIBERATELY NOT once-per-payload: an earlier one-shot flag could
+        permanently starve a remounting overlay (the single re-emit lands
+        while the overlay is mid-remount → dropped as dormant → flag says
+        "consumed" → every later request suppressed).  Requests are rare
+        (activation edges only) and the ISO side dedups identical payloads,
+        so always answering is safe. */
     function handleRequestTracklist(): void {
-      if (latestPayload && !reemittedForCurrentPayload) {
-        logDev("[Loom NFLX MAIN] ISO requested tracklist re-emit");
-        reemittedForCurrentPayload = true;
+      const urlId = readVideoId();
+      const cachedId =
+        (latestPayload as { videoId?: string | null } | null)?.videoId ?? null;
+
+      // Cached payload matches the current title (or we're not on a watch
+      // page at all — nothing better to offer) → re-emit it.
+      if (latestPayload && (urlId === null || cachedId === urlId)) {
+        dbg(
+          "ISO requested tracklist re-emit — re-emitting cached videoId =",
+          cachedId ?? "(?)",
+          "urlId =",
+          urlId ?? "(none)",
+        );
         window.postMessage(latestPayload, location.origin);
+        return;
       }
+
+      // Cache is stale for this URL (or empty).  Adopt from the held map
+      // if we parsed this title's manifest already (pre-watch parse).
+      if (urlId !== null) {
+        const { state, action } = reduceWatchChange(tracker, urlId);
+        tracker = state;
+        if (action.kind === "post") {
+          dbg(
+            "ISO requested tracklist — cached videoId =",
+            cachedId ?? "(none)",
+            "is stale/absent for urlId =",
+            urlId,
+            "→ ADOPTING held manifest for the current title",
+          );
+          postPayload(action.payload);
+          return;
+        }
+      }
+      dbg(
+        "ISO requested tracklist — nothing to serve (cached videoId =",
+        cachedId ?? "(none)",
+        ", urlId =",
+        urlId ?? "(none)",
+        ", held =",
+        tracker.held.map((h) => h.movieId).join(",") || "(none)",
+        ") — awaiting this title's manifest",
+      );
     }
 
     // Listen for messages from ISO.  Netflix only needs request-tracklist
@@ -351,6 +484,8 @@ export default defineContentScript({
         holder.handleRequestTracklist();
       } else if (data.type === "watch-changed" && typeof data.videoId === "string") {
         holder.onWatchChanged(data.videoId);
+      } else if (data.type === "watch-left") {
+        holder.onWatchLeft();
       }
     });
 
@@ -521,12 +656,16 @@ function readVideoId(): string | null {
     the element is attached to the DOM at all, so any `closest()` test is
     null at that moment.  Net effect: the held next-episode manifest was
     never adopted (no swap ever "fired"), so autoplay/advance kept showing
-    the previous episode's subs.  Instead we accept any <video> swap and let
-    the pure reducer no-op unless a DIFFERENT-title manifest is actually
-    `pending` — which only happens on /watch/ pages after a real prefetch,
-    so incidental media (home previews, etc.) can't trip it.  durationchange
-    is logged only (it can fire mid-stream under MSE). */
-function installMediaSwapWatcher(onSwap: (kind: string) => void): void {
+    the previous episode's subs.  Instead we accept any <video> swap; the
+    pure reducer is URL-ANCHORED (reduceMediaSwap adopts only a held
+    manifest for the title the /watch/ URL currently names), so incidental
+    media — home-preview <video>s, where the URL has no /watch/ id — can
+    never adopt anything.  durationchange is logged only (it can fire
+    mid-stream under MSE). */
+function installMediaSwapWatcher(
+  onSwap: (kind: string) => void,
+  log: (...args: unknown[]) => void,
+): void {
   const handler = (kind: string) => (e: Event) => {
     const t = e.target;
     if (!(t instanceof HTMLVideoElement)) return;
@@ -537,8 +676,8 @@ function installMediaSwapWatcher(onSwap: (kind: string) => void): void {
         : t.isConnected
           ? "(other)"
           : "(detached)";
-    logDev(
-      "[Loom NFLX MAIN] video",
+    log(
+      "video",
       kind,
       "container =",
       container,

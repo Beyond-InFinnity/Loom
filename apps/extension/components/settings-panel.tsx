@@ -328,6 +328,7 @@ export function SettingsPanel({
     topPositionOffsetPct,
     bottomPositionOffsetPct,
     lineSpacingPx,
+    annotationSpacingPx,
     annotationFontRatio,
     targetPosition,
     nativePosition,
@@ -405,6 +406,7 @@ export function SettingsPanel({
     setTopPositionOffsetPct,
     setBottomPositionOffsetPct,
     setLineSpacingPx,
+    setAnnotationSpacingPx,
     setAnnotationFontRatio,
     setTargetPosition,
     setNativePosition,
@@ -718,6 +720,15 @@ export function SettingsPanel({
           step={1}
           onChange={setLineSpacingPx}
           hint={`${lineSpacingPx}px`}
+        />
+        <RangeRow
+          label={t("settings.position.annotationSpacing")}
+          value={annotationSpacingPx}
+          min={0}
+          max={40}
+          step={1}
+          onChange={setAnnotationSpacingPx}
+          hint={`${annotationSpacingPx}px`}
         />
         <p style={hintStyle()}>{t("settings.position.nudgeHint")}</p>
       </Section>

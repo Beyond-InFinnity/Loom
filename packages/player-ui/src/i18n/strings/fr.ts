@@ -93,6 +93,7 @@ export const fr: LocaleTable = {
   "settings.position.topNudge": "Ligne du haut — décalage vertical",
   "settings.position.bottomNudge": "Ligne du bas — décalage vertical",
   "settings.position.lineSpacing": "Interligne",
+  "settings.position.annotationSpacing": "Espacement de l'annotation",
   "settings.position.nudgeHint":
     "Le décalage rapproche une ligne du centre de l'image à mesure que tu la relèves (vers le bas pour la ligne du haut, vers le haut pour celle du bas) — pratique pour sortir le texte des bandes noires des vidéos au format letterbox. Les panneaux et les sous-titres verticaux conservent leur propre position. Enregistré par plateforme.",
   "settings.pos.top1": "↑ Haut 1",

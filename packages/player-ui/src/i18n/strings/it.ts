@@ -93,6 +93,7 @@ export const it: LocaleTable = {
   "settings.position.topNudge": "Linea superiore — spostamento verticale",
   "settings.position.bottomNudge": "Linea inferiore — spostamento verticale",
   "settings.position.lineSpacing": "Interlinea",
+  "settings.position.annotationSpacing": "Spaziatura annotazione",
   "settings.position.nudgeHint":
     "Lo spostamento avvicina una linea al centro dell'immagine man mano che la alzi (verso il basso per la linea superiore, verso l'alto per quella inferiore) — utile per staccare il testo dalle barre nere nei video in letterbox. Le scritte e i sottotitoli verticali mantengono la loro posizione. Salvato per ogni piattaforma.",
   "settings.pos.top1": "↑ Alto 1",

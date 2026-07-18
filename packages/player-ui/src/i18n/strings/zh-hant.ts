@@ -93,6 +93,7 @@ export const zhHant: LocaleTable = {
   "settings.position.topNudge": "上方一行 —— 垂直微調",
   "settings.position.bottomNudge": "下方一行 —— 垂直微調",
   "settings.position.lineSpacing": "行距",
+  "settings.position.annotationSpacing": "注解間距",
   "settings.position.nudgeHint":
     "微調會在你調高數值時將該行移向畫面中央（上方行下移，下方行上移）—— 便於把文字拉離黑邊影片的黑邊區域。標示和直排字幕會保持各自的位置。依平台分別儲存。",
   "settings.pos.top1": "↑ 上 1",

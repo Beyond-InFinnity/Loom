@@ -93,6 +93,7 @@ export const ja: LocaleTable = {
   "settings.position.topNudge": "Topの行 — 縦方向の微調整",
   "settings.position.bottomNudge": "Bottomの行 — 縦方向の微調整",
   "settings.position.lineSpacing": "行間",
+  "settings.position.annotationSpacing": "アノテーションの間隔",
   "settings.position.nudgeHint":
     "微調整は行を上げるほど映像の中央へ寄せます（Topの行は下へ、Bottomの行は上へ）— レターボックスの黒帯からテキストを引き離すのに便利です。標識や縦書きの字幕は独自の位置を保ちます。プラットフォームごとに保存されます。",
   "settings.pos.top1": "↑ Top 1",

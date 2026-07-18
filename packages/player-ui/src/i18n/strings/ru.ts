@@ -93,6 +93,7 @@ export const ru: LocaleTable = {
   "settings.position.topNudge": "Верхняя строка — вертикальный сдвиг",
   "settings.position.bottomNudge": "Нижняя строка — вертикальный сдвиг",
   "settings.position.lineSpacing": "Межстрочный интервал",
+  "settings.position.annotationSpacing": "Интервал аннотации",
   "settings.position.nudgeHint":
     "Сдвиг двигает строку к центру кадра по мере её подъёма (вниз для верхней строки, вверх для нижней) — удобно, чтобы убрать текст с чёрных полос на видео с леттербоксом. Надписи и вертикальные субтитры сохраняют своё положение. Сохраняется отдельно для каждой платформы.",
   "settings.pos.top1": "↑ Верх 1",

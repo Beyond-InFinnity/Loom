@@ -93,6 +93,7 @@ export const yue: LocaleTable = {
   "settings.position.topNudge": "上面嗰行 —— 上下微調",
   "settings.position.bottomNudge": "下面嗰行 —— 上下微調",
   "settings.position.lineSpacing": "行距",
+  "settings.position.annotationSpacing": "注音間距",
   "settings.position.nudgeHint":
     "微調會喺你調高數值時將嗰行移向畫面中間（上面行向下，下面行向上）—— 用嚟將文字拉離黑邊片嘅黑邊就好方便。招牌同直排字幕會保持返自己嘅位置。逐個平台分開儲。",
   "settings.pos.top1": "↑ 上 1",

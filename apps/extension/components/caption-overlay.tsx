@@ -194,6 +194,7 @@ export function CaptionOverlay() {
     topPositionOffsetPct,
     bottomPositionOffsetPct,
     lineSpacingPx,
+    annotationSpacingPx,
     annotationFontRatio,
     targetPosition,
     nativePosition,
@@ -461,13 +462,21 @@ export function CaptionOverlay() {
   return (
     <>
       {wordsInteractive ? <style>{VOCAB_WORD_CSS}</style> : null}
-      {renderZone("top", slots, scale, topPositionOffsetPct, lineSpacingPx)}
+      {renderZone(
+        "top",
+        slots,
+        scale,
+        topPositionOffsetPct,
+        lineSpacingPx,
+        annotationSpacingPx,
+      )}
       {renderZone(
         "bottom",
         slots,
         scale,
         bottomPositionOffsetPct,
         lineSpacingPx,
+        annotationSpacingPx,
       )}
       {extraCues.map((e) => (
         <PositionalCue
@@ -549,6 +558,7 @@ function renderZone(
   scale: number,
   offsetPct: number,
   lineSpacingPx: number,
+  annotationSpacingPx: number,
 ): React.ReactNode {
   const key1: CaptionPosition = zone === "top" ? "top-1" : "bottom-1";
   const key2: CaptionPosition = zone === "top" ? "top-2" : "bottom-2";
@@ -576,8 +586,20 @@ function renderZone(
 
   return (
     <div style={zoneStyle(zone, scale, offsetPct, lineSpacingPx)} key={zone}>
-      <SlotNode state={s1} scale={scale} bothConfigured={bothConfigured} />
-      <SlotNode state={s2} scale={scale} bothConfigured={bothConfigured} />
+      <SlotNode
+        state={s1}
+        scale={scale}
+        bothConfigured={bothConfigured}
+        lineSpacingPx={lineSpacingPx}
+        annotationSpacingPx={annotationSpacingPx}
+      />
+      <SlotNode
+        state={s2}
+        scale={scale}
+        bothConfigured={bothConfigured}
+        lineSpacingPx={lineSpacingPx}
+        annotationSpacingPx={annotationSpacingPx}
+      />
     </div>
   );
 }
@@ -586,14 +608,25 @@ function SlotNode({
   state,
   scale,
   bothConfigured,
+  lineSpacingPx,
+  annotationSpacingPx,
 }: {
   state: SlotState;
   scale: number;
   bothConfigured: boolean;
+  lineSpacingPx: number;
+  annotationSpacingPx: number;
 }) {
   if (!state.configured) return null;
   if (state.layer !== null) {
-    return <LayerEl scale={scale} layer={state.layer} />;
+    return (
+      <LayerEl
+        scale={scale}
+        layer={state.layer}
+        lineSpacingPx={lineSpacingPx}
+        annotationSpacingPx={annotationSpacingPx}
+      />
+    );
   }
   // Configured but empty.  Reserve space only when the sibling slot
   // is also configured — see renderZone for the rationale.
@@ -603,6 +636,7 @@ function SlotNode({
       fontSize={state.reservedFontSize}
       fontFamily={state.reservedFontFamily}
       scale={scale}
+      lineSpacingPx={lineSpacingPx}
     />
   );
 }
@@ -617,19 +651,24 @@ function LayerPlaceholder({
   fontSize,
   fontFamily,
   scale,
+  lineSpacingPx,
 }: {
   fontSize: number;
   fontFamily: string;
   scale: number;
+  lineSpacingPx: number;
 }) {
+  const fontPxScaled = fontSize * scale;
   return (
     <div
       style={{
         fontFamily: resolveFontFamily(fontFamily),
-        fontSize: `${fontSize * scale}px`,
+        fontSize: `${fontPxScaled}px`,
         fontWeight: 500,
         textAlign: "center",
-        lineHeight: 1.25,
+        // Match layerStyle's line-height so the reserved height equals a real
+        // line even when the user has added line spacing.
+        lineHeight: `${1.25 * fontPxScaled + lineSpacingPx * scale}px`,
         padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,
         maxWidth: "92%",
         visibility: "hidden",
@@ -641,11 +680,25 @@ function LayerPlaceholder({
   );
 }
 
-function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
+function LayerEl({
+  scale,
+  layer,
+  lineSpacingPx,
+  annotationSpacingPx,
+}: {
+  scale: number;
+  layer: Layer;
+  lineSpacingPx: number;
+  annotationSpacingPx: number;
+}) {
   return (
-    <div style={layerStyle(layer, scale)}>
+    <div style={layerStyle(layer, scale, lineSpacingPx)}>
       {layer.romanizationLine ? (
-        <RomanizationLine layer={layer} scale={scale} />
+        <RomanizationLine
+          layer={layer}
+          scale={scale}
+          annotationSpacingPx={annotationSpacingPx}
+        />
       ) : null}
       <AnnotatedText
         segments={layer.segments}
@@ -658,6 +711,9 @@ function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
         highlightEnabled={layer.variantHighlightEnabled}
         cleanHighlightColor={layer.variantCleanHighlightColor}
         collapseHighlightColor={layer.variantCollapseHighlightColor}
+        // Annotation spacing (px, scaled): extra gap between the furigana/pinyin
+        // ruby and its token.
+        overRtTranslateYPx={annotationSpacingPx * scale}
         tokens={layer.tokens}
         interactive={layer.interactive}
         onWordClick={layer.onWordClick}
@@ -671,7 +727,15 @@ function LayerEl({ scale, layer }: { scale: number; layer: Layer }) {
     the parent layer's text-shadow + outline via CSS (the .layer div
     sets text-shadow on the whole subtree); only color, font-size,
     and font-family override the inherited values. */
-function RomanizationLine({ layer, scale }: { layer: Layer; scale: number }) {
+function RomanizationLine({
+  layer,
+  scale,
+  annotationSpacingPx,
+}: {
+  layer: Layer;
+  scale: number;
+  annotationSpacingPx: number;
+}) {
   const fontPx = layer.fontSizePx * layer.romanizationRatio * scale;
   // Romanization opacity is resolved by the overlay (C-5): it follows the
   // base alpha while the Top group is linked, or its own when unlinked.
@@ -684,6 +748,9 @@ function RomanizationLine({ layer, scale }: { layer: Layer; scale: number }) {
           : "inherit",
         fontSize: `${fontPx}px`,
         lineHeight: 1.15,
+        // Annotation spacing (px, scaled): gap between the romanization line
+        // and the main text below it.
+        marginBottom: `${annotationSpacingPx * scale}px`,
         color,
         // text-shadow inherits via CSS from the .layer style — the
         // 4-corner outline + drop-shadow apply to this child too,
@@ -901,16 +968,24 @@ function zoneStyle(
   return { ...base, bottom: `${inset}%` };
 }
 
-function layerStyle(layer: Layer, scale: number): React.CSSProperties {
+function layerStyle(
+  layer: Layer,
+  scale: number,
+  lineSpacingPx: number,
+): React.CSSProperties {
+  // Multi-line "Line spacing": base leading (1.25) PLUS the user's px, so a
+  // wrapped multi-line caption spaces out.  In px so it composes with the
+  // scaled font; 0 → the original 1.25em look.
+  const fontPxScaled = layer.fontSizePx * scale;
   return {
     fontFamily: resolveFontFamily(layer.fontFamily),
-    fontSize: `${layer.fontSizePx * scale}px`,
+    fontSize: `${fontPxScaled}px`,
     fontWeight: 500,
     color: hexToRgba(layer.color, layer.alpha),
     textAlign: "center",
     whiteSpace: "pre-wrap",
     padding: `0 ${HORIZONTAL_PADDING_PX * scale}px`,
-    lineHeight: 1.25,
+    lineHeight: `${1.25 * fontPxScaled + lineSpacingPx * scale}px`,
     unicodeBidi: "isolate",
     // 8-direction offset shadows emulate the ASS outline; a trailing
     // offset shadow emulates the ASS drop-shadow; an optional `0 0 Npx`

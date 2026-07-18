@@ -93,6 +93,7 @@ export const de: LocaleTable = {
   "settings.position.topNudge": "Obere Zeile — vertikal verschieben",
   "settings.position.bottomNudge": "Untere Zeile — vertikal verschieben",
   "settings.position.lineSpacing": "Zeilenabstand",
+  "settings.position.annotationSpacing": "Annotationsabstand",
   "settings.position.nudgeHint":
     "Das Verschieben rückt eine Zeile zur Bildmitte, wenn du sie anhebst (nach unten für die obere Zeile, nach oben für die untere) — praktisch, um Text von den schwarzen Balken bei Letterbox-Videos wegzuziehen. Schilder und vertikale Einblendungen behalten ihre eigene Position. Wird pro Plattform gespeichert.",
   "settings.pos.top1": "↑ Oben 1",

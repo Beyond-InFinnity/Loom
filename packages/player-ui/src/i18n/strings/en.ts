@@ -100,6 +100,7 @@ export const en = {
   "settings.position.topNudge": "Top line — vertical nudge",
   "settings.position.bottomNudge": "Bottom line — vertical nudge",
   "settings.position.lineSpacing": "Line spacing",
+  "settings.position.annotationSpacing": "Annotation spacing",
   "settings.position.nudgeHint":
     "Nudge moves a line toward the picture center as you raise it (down for the top line, up for the bottom) — handy for pulling text off the black bars on letterboxed video. Signs and vertical cues keep their own position. Saved per platform.",
   "settings.pos.top1": "↑ Top 1",

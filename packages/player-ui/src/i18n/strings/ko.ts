@@ -93,6 +93,7 @@ export const ko: LocaleTable = {
   "settings.position.topNudge": "Top 줄 — 세로 미세 조정",
   "settings.position.bottomNudge": "Bottom 줄 — 세로 미세 조정",
   "settings.position.lineSpacing": "줄 간격",
+  "settings.position.annotationSpacing": "주석 간격",
   "settings.position.nudgeHint":
     "미세 조정은 값을 올릴수록 줄을 화면 중앙 쪽으로 이동시킵니다(Top 줄은 아래로, Bottom 줄은 위로) — 레터박스 영상의 검은 여백에서 텍스트를 빼낼 때 유용합니다. 표지판과 세로 자막은 자체 위치를 유지합니다. 플랫폼별로 저장됩니다.",
   "settings.pos.top1": "↑ Top 1",

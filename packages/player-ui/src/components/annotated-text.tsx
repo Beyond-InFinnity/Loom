@@ -94,6 +94,10 @@ interface AnnotatedTextProps {
    *  rt baseline and whatever sits below the layer (other slot in
    *  the same zone, or YT chrome).  In CSS px @ scale. */
   underRtTranslateYPx?: number;
+  /** Extra UPWARD gap (CSS px @ scale) between the over-rt (furigana /
+   *  pinyin annotation) and its base token — the user "Annotation spacing"
+   *  control.  0 = the browser's default ruby gap. */
+  overRtTranslateYPx?: number;
   /** Word-level tokens for this line (VOCAB_LOOKUP.md Phase 2).  When
    *  `interactive` and present, each token's run of segments
    *  (`start..start+length`) is wrapped in a clickable word element.
@@ -126,6 +130,7 @@ export function AnnotatedText({
   cleanHighlightColor,
   collapseHighlightColor,
   underRtTranslateYPx = 2,
+  overRtTranslateYPx = 0,
   tokens = null,
   interactive = false,
   onWordClick,
@@ -157,7 +162,9 @@ export function AnnotatedText({
     //   3. both                    → nested: outer ruby holds under-rt,
     //                                inner ruby holds base + over-rt.
     const overRt = seg.reading ? (
-      <rt style={overRtStyle(rtFontPx, color, fontFamily)}>{seg.reading}</rt>
+      <rt style={overRtStyle(rtFontPx, color, fontFamily, overRtTranslateYPx)}>
+        {seg.reading}
+      </rt>
     ) : null;
     const underRt = seg.variantForm ? (
       <rt
@@ -242,6 +249,7 @@ function overRtStyle(
   fontPx: number,
   color: string,
   fontFamily: string | null,
+  translateYPx: number,
 ): React.CSSProperties {
   const base: React.CSSProperties = {
     fontSize: `${fontPx}px`,
@@ -250,6 +258,8 @@ function overRtStyle(
     fontWeight: 500,
     rubyPosition: "over",
   };
+  // Negative = up, away from the token → a bigger furigana↔token gap.
+  if (translateYPx) base.transform = `translateY(${-translateYPx}px)`;
   if (fontFamily) base.fontFamily = fontFamily;
   return base;
 }

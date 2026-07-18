@@ -163,9 +163,19 @@ function currentPlatformId(): string {
 interface PositionPrefs {
   top: number;
   bottom: number;
+  /** Line spacing (px) between caption text lines — the gap between stacked
+      layers in a zone AND extra leading between wrapped lines of one caption. */
   spacing: number;
+  /** Annotation spacing (px) — extra gap between the furigana/pinyin ruby (and
+      the romanization line) and the main text.  0 = the browser default. */
+  annotationSpacing: number;
 }
-const DEFAULT_POSITION_PREFS: PositionPrefs = { top: 0, bottom: 0, spacing: 4 };
+const DEFAULT_POSITION_PREFS: PositionPrefs = {
+  top: 0,
+  bottom: 0,
+  spacing: 4,
+  annotationSpacing: 0,
+};
 
 // Module-level caches of the per-platform size + position prefs.  Prime
 // mounts the overlay through a REMOUNT reconciler (a surface migration tears
@@ -330,6 +340,7 @@ interface CaptionContextValue {
   topPositionOffsetPct: number;
   bottomPositionOffsetPct: number;
   lineSpacingPx: number;
+  annotationSpacingPx: number;
   annotationFontRatio: number;
   /** Romanization (5e) styling — same shared-across-layers shape as
       annotation.  Ratio is relative to the parent layer's font (Top
@@ -461,6 +472,7 @@ interface CaptionContextValue {
   setTopPositionOffsetPct: (pct: number) => void;
   setBottomPositionOffsetPct: (pct: number) => void;
   setLineSpacingPx: (px: number) => void;
+  setAnnotationSpacingPx: (px: number) => void;
   setBottomFontSizePx: (px: number) => void;
   setAnnotationFontRatio: (ratio: number) => void;
   setRomanizationColor: (hex: string) => void;
@@ -577,6 +589,11 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     () =>
       cachedPositionByPlatform[currentPlatformId()]?.spacing ??
       DEFAULT_POSITION_PREFS.spacing,
+  );
+  const [annotationSpacingPx, setAnnotationSpacingPxState] = useState(
+    () =>
+      cachedPositionByPlatform[currentPlatformId()]?.annotationSpacing ??
+      DEFAULT_POSITION_PREFS.annotationSpacing,
   );
   const [annotationFontRatio, setAnnotationFontRatioState] = useState(
     DEFAULT_ANNOTATION_FONT_RATIO,
@@ -905,7 +922,13 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
               p.spacing <= 40
                 ? p.spacing
                 : DEFAULT_POSITION_PREFS.spacing;
-            clean[plat] = { top, bottom, spacing };
+            const annotationSpacing =
+              typeof p.annotationSpacing === "number" &&
+              p.annotationSpacing >= 0 &&
+              p.annotationSpacing <= 40
+                ? p.annotationSpacing
+                : DEFAULT_POSITION_PREFS.annotationSpacing;
+            clean[plat] = { top, bottom, spacing, annotationSpacing };
           }
           cachedPositionByPlatform = clean;
           const mine = clean[currentPlatformId()];
@@ -913,6 +936,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
             setTopPositionOffsetPctState(mine.top);
             setBottomPositionOffsetPctState(mine.bottom);
             setLineSpacingPxState(mine.spacing);
+            setAnnotationSpacingPxState(mine.annotationSpacing);
           }
         }
         if (typeof aRatio === "number" && aRatio >= 0.2 && aRatio <= 1.0)
@@ -1221,6 +1245,14 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
     },
     [persistPositionPrefs],
   );
+  const setAnnotationSpacingPx = useCallback(
+    (px: number) => {
+      const clamped = Math.max(0, Math.min(40, Math.round(px)));
+      setAnnotationSpacingPxState(clamped);
+      persistPositionPrefs({ annotationSpacing: clamped });
+    },
+    [persistPositionPrefs],
+  );
   const setAnnotationFontRatio = useCallback((ratio: number) => {
     const clamped = Math.max(0.2, Math.min(1.0, ratio));
     setAnnotationFontRatioState(clamped);
@@ -1516,6 +1548,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topPositionOffsetPct,
       bottomPositionOffsetPct,
       lineSpacingPx,
+      annotationSpacingPx,
       annotationFontRatio,
       romanizationFontFamily,
       romanizationFontRatio,
@@ -1608,6 +1641,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopPositionOffsetPct,
       setBottomPositionOffsetPct,
       setLineSpacingPx,
+      setAnnotationSpacingPx,
       setAnnotationFontRatio,
       setRomanizationColor,
       setRomanizationFontFamily,
@@ -1657,6 +1691,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       topPositionOffsetPct,
       bottomPositionOffsetPct,
       lineSpacingPx,
+      annotationSpacingPx,
       annotationFontRatio,
       romanizationFontFamily,
       romanizationFontRatio,
@@ -1749,6 +1784,7 @@ export function CaptionStreamProvider({ children }: { children: ReactNode }) {
       setTopPositionOffsetPct,
       setBottomPositionOffsetPct,
       setLineSpacingPx,
+      setAnnotationSpacingPx,
       setAnnotationFontRatio,
       setRomanizationColor,
       setRomanizationFontFamily,

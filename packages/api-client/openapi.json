@@ -2007,7 +2007,8 @@
                   },
                   "type": "array"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 200
               },
               {
                 "type": "null"
@@ -2022,7 +2023,8 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 200
               },
               {
                 "type": "null"
@@ -2050,7 +2052,8 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 200
               },
               {
                 "type": "null"
@@ -2065,7 +2068,8 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 200
               },
               {
                 "type": "null"

@@ -164,6 +164,39 @@ def chunked(items: list, size: int) -> list[list]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+# Enrich replays corpus texts through the public batch endpoints, which since
+# the 2026-07 hardening enforce a total-chars-per-batch cap (loom_api/limits.py
+# BATCH_MAX_TOTAL_CHARS, default 2M → 422) and a body-size cap (10 MB → 413).
+# Corpus lines are individually allowed up to 5000 chars, so a count-only
+# 2000-chunk could legally reach 10M chars and trip both caps — and the
+# enrich loop treats any request failure as "server unreachable" and breaks
+# out of that language's chunks.  Chunk under a char budget (4x below the
+# server cap) so a well-formed enrich request can never be rejected for size.
+ENRICH_CHUNK_MAX_ITEMS = 2000
+ENRICH_CHUNK_MAX_CHARS = 500_000
+ENRICH_MAX_TEXT_CHARS = 5000  # server zeroes longer items — enriching is pointless
+
+
+def chunked_by_budget(
+    items: list[str], max_items: int, max_chars: int
+) -> list[list[str]]:
+    """Split *items* into order-preserving chunks holding ≤max_items entries
+    AND ≤max_chars total characters (a single item longer than max_chars gets
+    its own chunk rather than being dropped — callers pre-filter those)."""
+    chunks: list[list[str]] = []
+    cur: list[str] = []
+    cur_chars = 0
+    for item in items:
+        if cur and (len(cur) >= max_items or cur_chars + len(item) > max_chars):
+            chunks.append(cur)
+            cur, cur_chars = [], 0
+        cur.append(item)
+        cur_chars += len(item)
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 PARQUET_COLUMNS = [
     "platform", "media_id", "title", "origin_lang", "track_id", "track_lang",
     "is_cc", "track_kind", "captured_at", "seq", "start_ms", "end_ms", "text",
@@ -315,7 +348,19 @@ class ExportRunner:
 
         total = 0
         for lang, texts in sorted(by_lang.items()):
-            for chunk in chunked(texts, 2000):
+            # Drop texts the server would zero anyway (>5000 chars) and chunk
+            # under the batch caps so a request can never 422/413 for size —
+            # the except-break below is then reachable only by a genuinely
+            # unreachable/failing server, its intended meaning.
+            sendable = [t for t in texts if len(t) <= ENRICH_MAX_TEXT_CHARS]
+            if len(sendable) < len(texts):
+                logger.info(
+                    "enrich: lang=%s skipped %d oversized texts (>%d chars)",
+                    lang, len(texts) - len(sendable), ENRICH_MAX_TEXT_CHARS,
+                )
+            for chunk in chunked_by_budget(
+                sendable, ENRICH_CHUNK_MAX_ITEMS, ENRICH_CHUNK_MAX_CHARS
+            ):
                 if self._dry_run:
                     continue
                 try:

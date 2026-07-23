@@ -31,6 +31,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from .body_limit import BodySizeLimit
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_dictionary_store, get_result_cache
@@ -55,6 +56,13 @@ app = FastAPI(
 # chrome-extension:// / moz-extension:// origin per install, whitelisted by the
 # regex below (exact-listing every install ID isn't workable).
 _origins = resolve_exact_origins(os.environ.get("LOOM_CORS_ORIGINS"))
+
+# Body-size guard — registered FIRST so it runs INNERMOST (add_middleware is
+# LIFO): its 411/413 rejections flow back out through CORSMiddleware (browser
+# clients see the real status, not an opaque CORS failure) and oversized
+# requests still consume a rate-limit slot in the outer slowapi layer.
+# Cap + rationale: loom_api/body_limit.py; env override LOOM_MAX_BODY_BYTES.
+app.add_middleware(BodySizeLimit)
 
 app.add_middleware(
     CORSMiddleware,

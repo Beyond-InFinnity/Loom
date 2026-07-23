@@ -20,11 +20,12 @@ one slowapi slot instead of N.
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from loom_core.romanize import engine_version, strip_speaker_markup
 from loom_core.styles import get_lang_config
 
+from .. import limits
 from ..deps import get_result_cache
 from ..result_cache import CacheRow, cache_key, log_batch, normalize_text
 
@@ -179,6 +180,25 @@ class RomanizeBatchRequest(BaseModel):
         ),
         max_length=_BATCH_MAX_TEXTS,
     )
+
+    @field_validator("texts")
+    @classmethod
+    def _cap_total_chars(cls, texts: List[str]) -> List[str]:
+        # Cost cap, not a correctness cap: bounds the CPU one request can
+        # demand.  A single OVERSIZED item stays fail-soft (_computable
+        # zeroes it, positional alignment preserved), but the SUM across
+        # the batch is what bounds worst-case work, so it hard-rejects
+        # (422).  Legit worst case ≈ 1M chars (web app 2000-text chunk);
+        # cap default 2M — see loom_api/limits.py.
+        cap = limits.BATCH_MAX_TOTAL_CHARS
+        total = sum(len(t) for t in texts)
+        if cap and total > cap:
+            raise ValueError(
+                f"total batch text size {total} chars exceeds the "
+                f"{cap}-char limit; split into smaller batches"
+            )
+        return texts
+
     lang_code: str = Field(..., description="See POST /romanize.")
     phonetic_system: Optional[str] = Field(
         None,

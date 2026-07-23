@@ -390,3 +390,107 @@ def test_capabilities_route_exposes_per_source_map(mem_store):
     # The per-source map is filtered to token-supported source langs only, so
     # every key is also a definable source lang.
     assert set(resp.gloss_langs_by_source).issubset(set(resp.source_langs))
+
+
+# --------------------------------------------------------------------------- #
+# Cost guards (2026-07 hardening) — fail-soft, never 422 a positional batch
+# --------------------------------------------------------------------------- #
+
+def test_oversized_word_is_failsoft_not_crash(mem_store, define_handler):
+    # A "word" longer than any real headword yields zero candidate keys →
+    # no lookup, found=false — and the rest of the batch is unaffected.
+    handler, Req = define_handler
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+    resp = handler(Req(lang="ja", words=["あ" * 5000, "食べる"]))
+    assert resp.results[0].found is False
+    assert resp.results[1].found is True
+
+
+def test_alt_keys_beyond_cap_are_ignored(mem_store, define_handler):
+    from loom_api.routes.define import _MAX_ALT_KEYS
+    handler, Req = define_handler
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+    # The real key parked just past the cap → not tried.
+    padded = [f"junk{i}" for i in range(_MAX_ALT_KEYS)] + ["食べる"]
+    resp = handler(Req(lang="ja", words=["みつからない"], alt_keys=[padded]))
+    assert resp.results[0].found is False
+    # Same key inside the cap → tried and found.
+    resp = handler(Req(lang="ja", words=["みつからない"], alt_keys=[["食べる"]]))
+    assert resp.results[0].found is True
+
+
+def test_oversized_candidate_key_skipped_not_queried(mem_store, define_handler):
+    from loom_api.routes.define import _candidates
+    long_key = "き" * 100
+    assert _candidates(long_key, None) == []
+    assert _candidates("食べる", [long_key]) == ["食べる"]
+
+
+def test_oversized_surface_never_reaches_analyzer(mem_store, define_handler, monkeypatch):
+    # An implausibly long surface must not reach MeCab.  `grammar is None`
+    # alone can't discriminate (analyze_grammar returns None for garbage and
+    # the fail-soft catch swallows raises), so spy on the analyzer itself:
+    # NOT called for the oversized surface, called for the normal control.
+    import loom_api.routes.define as define_mod
+    calls = []
+
+    def spy(surface, lang, continuation=""):
+        calls.append((surface, continuation))
+        return None
+
+    monkeypatch.setattr(define_mod, "analyze_grammar", spy)
+    handler, Req = define_handler
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+
+    resp = handler(Req(lang="ja", words=["食べる"], surfaces=["あ" * 1000]))
+    assert resp.results[0].found is True and resp.results[0].grammar is None
+    assert calls == []  # oversized surface: analyzer never invoked
+
+    handler(Req(lang="ja", words=["食べる"], surfaces=["食べた"]))
+    assert len(calls) == 1 and calls[0][0] == "食べた"  # positive control
+
+
+def test_oversized_continuation_arrives_sliced(mem_store, define_handler, monkeypatch):
+    # The continuation (next cue's lead) is attacker-length; it must reach
+    # the analyzer sliced to _MAX_SURFACE_LENGTH, never whole.
+    import loom_api.routes.define as define_mod
+    from loom_api.routes.define import _MAX_SURFACE_LENGTH
+    seen = []
+
+    def spy(surface, lang, continuation=""):
+        seen.append(continuation)
+        return None
+
+    monkeypatch.setattr(define_mod, "analyze_grammar", spy)
+    handler, Req = define_handler
+    handler(Req(lang="ja", words=["食べ"], surfaces=["食べ"],
+                surface_continuations=["て" * 10_000]))
+    assert len(seen) == 1 and len(seen[0]) == _MAX_SURFACE_LENGTH
+
+
+def test_oversized_primary_with_valid_alt_still_resolves(mem_store, define_handler):
+    # The length skip is PER-KEY, not per-item: a garbage-long lemma with a
+    # sane surface alternate must still resolve via the alternate — the
+    # sharpest pin of "caps never reject legitimate traffic".
+    handler, Req = define_handler
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+    resp = handler(Req(lang="ja", words=["あ" * 100], alt_keys=[["食べる"]]))
+    assert resp.results[0].found is True
+    assert resp.results[0].senses[0].gloss == ["to eat"]
+
+
+def test_oversized_reading_skips_romaji(mem_store, define_handler):
+    handler, Req = define_handler
+    mem_store.add("ja", "食べる", "たべる", [{"gloss": ["to eat"]}], source="jmdict")
+    resp = handler(Req(lang="ja", words=["食べる"], readings=["あ" * 1000]))
+    assert resp.results[0].found is True
+    assert resp.results[0].romaji is None
+
+
+def test_aligned_list_length_caps_are_validated(define_handler):
+    import pydantic
+    import pytest as _pytest
+    from loom_api.routes.define import _MAX_WORDS
+    _, Req = define_handler
+    with _pytest.raises(pydantic.ValidationError):
+        Req(lang="ja", words=["犬"], readings=["いぬ"] * (_MAX_WORDS + 1))

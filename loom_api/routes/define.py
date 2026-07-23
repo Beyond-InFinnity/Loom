@@ -40,7 +40,12 @@ CAPABILITIES_VERSION = 2
 router = APIRouter(tags=["define"])
 
 _MAX_WORDS = 200       # a paused line's worth of tokens, generously
-_MAX_WORD_LENGTH = 64  # longest realistic dictionary headword
+_MAX_WORD_LENGTH = 64  # longest realistic dictionary headword; longer
+                       # candidate keys are silently skipped in
+                       # _candidates (fail-soft found=false, never 422)
+_MAX_ALT_KEYS = 16       # alternates considered per word (client sends 1)
+_MAX_SURFACE_LENGTH = 500   # longest surface/continuation fed to MeCab/kiwi
+_MAX_READING_LENGTH = 256   # longest kana reading fed to hepburn_from_kana
 
 
 class DefineRequest(BaseModel):
@@ -55,6 +60,7 @@ class DefineRequest(BaseModel):
     )
     alt_keys: Optional[List[List[str]]] = Field(
         None,
+        max_length=_MAX_WORDS,
         description=(
             "Optional per-word fallback keys, aligned to `words` by index — "
             "e.g. the token's surface form so 黒曜石 resolves when MeCab's lemma "
@@ -63,6 +69,7 @@ class DefineRequest(BaseModel):
     )
     readings: Optional[List[str]] = Field(
         None,
+        max_length=_MAX_WORDS,
         description=(
             "Optional per-word contextual kana readings, aligned to `words` — "
             "the reading the card DISPLAYS (e.g. は→わ, the inflected 見た).  "
@@ -81,6 +88,7 @@ class DefineRequest(BaseModel):
     )
     surfaces: Optional[List[str]] = Field(
         None,
+        max_length=_MAX_WORDS,
         description=(
             "Optional per-word INFLECTED surface forms, aligned to `words` — the "
             "word as it appears in the caption (食べさせられた) vs its dictionary lemma "
@@ -90,6 +98,7 @@ class DefineRequest(BaseModel):
     )
     surface_continuations: Optional[List[str]] = Field(
         None,
+        max_length=_MAX_WORDS,
         description=(
             "Optional per-word continuation text, aligned to `words` — the lead of "
             "the NEXT subtitle cue, for a predicate split across events (利用し | "
@@ -179,7 +188,7 @@ def _romaji_pair(lang: str, kana: Optional[str]) -> tuple[Optional[str], Optiona
     for other languages or blank input.  The doubled form is returned as None
     when it equals the macron form (no long vowel) so the client won't render a
     redundant parenthetical."""
-    if lang != "ja" or not kana:
+    if lang != "ja" or not kana or len(kana) > _MAX_READING_LENGTH:
         return (None, None)
     macron, doubled = hepburn_from_kana(kana)
     if not macron:
@@ -211,11 +220,21 @@ def _candidates(word: str, alts: Optional[List[str]]) -> List[str]:
     capitalized (Kinder, Brot) — still hit as-is and never fall through.  For
     caseless scripts (CJK/Korean) .lower() is a no-op, so this is inert there.
     (Turkish İ→i̇ is NOT solved by plain .lower(); it needs a locale casefold —
-    tracked as a known limitation.)"""
+    tracked as a known limitation.)
+
+    Cost guards (2026-07 hardening): keys longer than _MAX_WORD_LENGTH are
+    skipped — an oversized "word" thus yields zero candidates → no lookup →
+    found=false, matching the batch routes' fail-soft philosophy (never 422 a
+    positional batch for one bad item).  Accepted tradeoff: a handful of
+    joke-length Wiktionary headwords (the 79-char Donaudampfschiffahrts…
+    entry) become unresolvable; the longest real German compound (63 chars)
+    still fits.  Skips are PER-KEY, so an oversized primary with a sane
+    alternate still resolves via the alternate.  Only the first
+    _MAX_ALT_KEYS alternates are considered (clients send 1)."""
     out: List[str] = []
-    for k in [word, *(alts or [])]:
+    for k in [word, *((alts or [])[:_MAX_ALT_KEYS])]:
         nk = key(k)
-        if nk and nk not in out:
+        if nk and len(nk) <= _MAX_WORD_LENGTH and nk not in out:
             out.append(nk)
     for k in list(out):
         lk = k.lower()
@@ -395,9 +414,17 @@ def _grammar_model(
     there's inflection to explain (a plain dictionary form → None) so the card
     shows a grammar section only when it adds something.  *continuation* stitches
     the next cue's lead for a split predicate (finding ③).  Fail-soft — a MeCab
-    hiccup never breaks a definition lookup."""
+    hiccup never breaks a definition lookup.
+
+    Cost guards (2026-07 hardening): an implausibly long surface (no caption
+    word approaches 500 chars) skips analysis instead of feeding MeCab/kiwi an
+    arbitrary-length string; the continuation is sliced — harmless, the suffix
+    walk stops at the first content word anyway."""
     if not grammar_supported(lang):
         return None
+    if not surface or len(surface) > _MAX_SURFACE_LENGTH:
+        return None
+    continuation = (continuation or "")[:_MAX_SURFACE_LENGTH]
     try:
         gb = analyze_grammar(surface, lang, continuation)
     except Exception:

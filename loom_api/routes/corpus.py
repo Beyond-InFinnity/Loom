@@ -23,13 +23,18 @@ Texts are normalized server-side with the same normalize_text() as the
 result cache so the export job's corpus↔cache joins are exact-match.
 """
 
+import json
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from .. import limits
 from ..corpus_store import CorpusCapture, normalize_capture_lines
 from ..deps import get_corpus_store
+
+logger = logging.getLogger("loom.corpus")
 
 router = APIRouter(tags=["corpus"])
 
@@ -99,6 +104,23 @@ def corpus_capture(req: CorpusCaptureRequest) -> CorpusCaptureResponse:
     if not lines:
         return CorpusCaptureResponse(stored=False, reason="no non-empty lines")
 
+    # Styles size guard (2026-07 hardening): `styles` is an opaque JSON map
+    # with no pydantic-expressible bound, and it lands verbatim in the
+    # corpus_track row.  An oversized map is DROPPED — not 422ed — because
+    # capture is fire-and-forget (a 422 quarantines the desktop spool) and
+    # the LINES are the corpus; styles are auxiliary OCR metadata.  Real
+    # fansub style maps are ~50 KB; cap default 256 KB (loom_api/limits.py).
+    styles = req.styles
+    if styles is not None and limits.CORPUS_STYLES_MAX_BYTES:
+        styles_bytes = len(json.dumps(styles, ensure_ascii=False).encode("utf-8"))
+        if styles_bytes > limits.CORPUS_STYLES_MAX_BYTES:
+            logger.warning(
+                "capture styles dropped: %d bytes > %d cap (platform=%s media=%s)",
+                styles_bytes, limits.CORPUS_STYLES_MAX_BYTES,
+                limits.log_safe(req.platform), limits.log_safe(req.media_id),
+            )
+            styles = None
+
     result = get_corpus_store().capture(
         CorpusCapture(
             platform=req.platform.strip().lower(),
@@ -110,7 +132,7 @@ def corpus_capture(req: CorpusCaptureRequest) -> CorpusCaptureResponse:
             origin_lang=req.origin_lang,
             is_cc=req.is_cc,
             track_kind=req.track_kind,
-            styles=req.styles,
+            styles=styles,
         )
     )
     return CorpusCaptureResponse(

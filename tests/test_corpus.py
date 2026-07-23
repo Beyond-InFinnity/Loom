@@ -441,3 +441,71 @@ class TestProvider:
             assert isinstance(deps.get_corpus_store(), NullCorpusStore)
         finally:
             set_corpus_store(None)
+
+
+# ---------------------------------------------------------------------------
+# Styles size guard (2026-07 hardening): oversized styles map is dropped,
+# the capture itself (the lines — the actual corpus) still stores.
+# ---------------------------------------------------------------------------
+
+class TestStylesSizeGuard:
+    def test_oversized_styles_dropped_lines_kept(self, mem_store, capture_handler, monkeypatch, caplog):
+        import logging
+        from loom_api import limits
+        monkeypatch.setattr(limits, "CORPUS_STYLES_MAX_BYTES", 64)
+        handler, Req, Line = capture_handler
+        big = {"Default": {"pad": "x" * 200}}
+        # loom.corpus has propagate=False (corpus_store.py) so caplog's root
+        # handler never sees it — attach the capture handler directly.
+        corpus_logger = logging.getLogger("loom.corpus")
+        corpus_logger.addHandler(caplog.handler)
+        try:
+            resp = handler(_req(Req, Line, styles=big))
+        finally:
+            corpus_logger.removeHandler(caplog.handler)
+        assert resp.stored is True and resp.lines == 2
+        (cap,) = mem_store.tracks.values()
+        assert cap.styles is None
+        assert any("styles dropped" in r.getMessage() for r in caplog.records)
+
+    def test_styles_under_cap_kept(self, mem_store, capture_handler, monkeypatch):
+        from loom_api import limits
+        monkeypatch.setattr(limits, "CORPUS_STYLES_MAX_BYTES", 10_000)
+        handler, Req, Line = capture_handler
+        styles = {"Default": {"fontname": "Noto Sans CJK JP"}}
+        resp = handler(_req(Req, Line, styles=styles))
+        assert resp.stored is True
+        (cap,) = mem_store.tracks.values()
+        assert cap.styles == styles
+
+    def test_guard_disabled_keeps_oversized(self, mem_store, capture_handler, monkeypatch):
+        from loom_api import limits
+        monkeypatch.setattr(limits, "CORPUS_STYLES_MAX_BYTES", 0)
+        handler, Req, Line = capture_handler
+        big = {"Default": {"pad": "x" * 200}}
+        resp = handler(_req(Req, Line, styles=big))
+        assert resp.stored is True
+        (cap,) = mem_store.tracks.values()
+        assert cap.styles == big
+
+    def test_styles_exactly_at_cap_kept(self, mem_store, capture_handler, monkeypatch):
+        # Strict `>` boundary: a map serializing to exactly the cap is kept.
+        import json as _json
+        from loom_api import limits
+        handler, Req, Line = capture_handler
+        styles = {"Default": {"fontname": "Noto"}}
+        exact = len(_json.dumps(styles, ensure_ascii=False).encode("utf-8"))
+        monkeypatch.setattr(limits, "CORPUS_STYLES_MAX_BYTES", exact)
+        resp = handler(_req(Req, Line, styles=styles))
+        assert resp.stored is True
+        (cap,) = mem_store.tracks.values()
+        assert cap.styles == styles
+
+    def test_empty_styles_dict_kept_as_is(self, mem_store, capture_handler):
+        # {} is not None: serializes to 2 bytes, sails under any cap, stored
+        # verbatim (empty map ≠ absent map).
+        handler, Req, Line = capture_handler
+        resp = handler(_req(Req, Line, styles={}))
+        assert resp.stored is True
+        (cap,) = mem_store.tracks.values()
+        assert cap.styles == {}

@@ -12,7 +12,7 @@
     ]
   },
   "deploy": {
-    "startCommand": "gunicorn loom_api.web:app -k uvicorn_worker.UvicornWorker --workers 1 --max-requests 500 --max-requests-jitter 50 --timeout 120 --bind 0.0.0.0:$PORT",
+    "startCommand": "gunicorn loom_api.web:app -k uvicorn_worker.UvicornWorker --workers 1 --max-requests 500 --max-requests-jitter 50 --timeout 120 --access-logfile - --bind 0.0.0.0:$PORT",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",

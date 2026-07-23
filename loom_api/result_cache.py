@@ -86,6 +86,26 @@ def cache_key(
     return hashlib.sha256(payload.encode("utf-8")).digest()
 
 
+def _ordered_unique_rows(rows: list["CacheRow"]) -> list["CacheRow"]:
+    """Sort rows by key_hash and drop duplicate keys within one batch.
+
+    Ordering is the deadlock fix: two batch requests run concurrently in the
+    threadpool (one worker, ~40 threads), each opens a pooled connection and
+    INSERTs overlapping key_hashes (repeated subtitle lines across episodes);
+    if their multi-row inserts acquire index-tuple locks in DIFFERENT orders
+    they deadlock (observed live 2026-07-21 — fail-open swallowed it, but the
+    write was lost + a 30 s breaker trip).  A consistent global order makes the
+    cycle impossible.  De-dup is the belt: a repeated key inside one
+    executemany can self-conflict on ``ON CONFLICT``."""
+    seen: set[bytes] = set()
+    out: list["CacheRow"] = []
+    for r in sorted(rows, key=lambda r: r.key):
+        if r.key not in seen:
+            seen.add(r.key)
+            out.append(r)
+    return out
+
+
 @dataclass(frozen=True)
 class CacheRow:
     key: bytes
@@ -199,7 +219,7 @@ class PostgresResultCache:
             return {}
 
     def put_many(self, rows: Iterable[CacheRow]) -> None:
-        rows = list(rows)
+        rows = _ordered_unique_rows(list(rows))
         if not rows or self._down():
             return
         try:

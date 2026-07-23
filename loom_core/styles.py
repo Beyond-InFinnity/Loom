@@ -161,6 +161,37 @@ def _normalize_lang_code(lang_code):
     return lang_code
 
 
+def cache_lang(lang_code: str) -> str:
+    """Canonical language key for the result cache — the romanizer-equivalence
+    class of *lang_code*.  Two codes that resolve to the SAME romanizer share
+    it, so region/alias variants stop fragmenting the cache (``ja``/``ja-jp``/
+    ``jpn`` → ``ja``; ``zh``/``zh-CN``/``chs`` → ``zh-Hans``), while codes that
+    resolve DIFFERENTLY stay apart.
+
+    The apart-ness is load-bearing and NOT guaranteed by the cache key's
+    ``system_name`` alone: ``ru`` and ``uk`` (and bg/sr/mk/be/mn) all carry the
+    romanization_name "Latin transliteration", and hi/bn/ta/te/gu/pa all carry
+    "IAST" — so only the primary subtag separates them.  This returns the
+    alias-normalized PRIMARY subtag for non-Chinese (region/script subtags
+    never change a non-Chinese romanizer), and the script VARIANT for Chinese
+    (``zh-Hans``/``zh-Hant``/``yue``), where the script selects Pinyin vs
+    Zhuyin vs Jyutping.  Built from the same ``_chinese_variant`` /
+    ``_normalize_lang_code`` the romanizer itself resolves through, so it can
+    never merge two codes the romanizer would treat differently.
+
+    (phonetic_system is intentionally NOT encoded here — the cache key already
+    carries the resolved system_name, which distinguishes e.g. Thai
+    paiboon/rtgs/ipa or an explicit Chinese pinyin/zhuyin override.)"""
+    # Normalize aliases FIRST so the classifier sees canonical BCP-47:
+    # `chs`/`cht` become `zh-Hans`/`zh-Hant` (which _chinese_variant understands),
+    # not the bare `chs` it would treat as non-Chinese.
+    normalized = _normalize_lang_code(lang_code)
+    variant = _chinese_variant(normalized)
+    if variant is not None:
+        return variant
+    return (normalized or "").lower().split("-")[0].split("_")[0]
+
+
 def _font_for_script(lang_code: str) -> str:
     """Return the best default font for *lang_code* from FONT_LIST.
 

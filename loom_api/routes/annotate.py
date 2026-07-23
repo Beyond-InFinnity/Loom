@@ -30,7 +30,7 @@ from loom_core.romanize import (
     engine_version,
     is_token_supported,
 )
-from loom_core.styles import get_lang_config
+from loom_core.styles import cache_lang, get_lang_config
 
 from .. import limits
 from ..deps import get_result_cache
@@ -164,8 +164,9 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
     cache = get_result_cache()
     system_name = cfg.get("annotation_system_name", "Annotation")
     eng_ver = engine_version(req.lang_code)
+    clang = cache_lang(req.lang_code)  # canonical cache identity (ja-jp→ja etc.)
     norm = normalize_text(req.text)
-    key = cache_key("annotate", req.lang_code, system_name, "-", eng_ver, norm)
+    key = cache_key("annotate", clang, system_name, "-", eng_ver, norm)
 
     hit = cache.get_many([key]).get(key)
     if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
@@ -173,13 +174,18 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
         raw_tokens = _tokens_from_cache(hit.get("tokens"))
     else:
         raw_spans = annotation_func(norm) if annotation_func else []
-        raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
+        # Tokens are cached under the cache_lang key, so they MUST be a pure
+        # function of clang — NOT req.lang_code.  build_word_tokens' Chinese
+        # path derives its traditional/simplified flag from the code, and two
+        # codes sharing a clang (yue/yue-HK, zh/zh-yue) would otherwise store
+        # divergent per-word tokens into the same cache entry (cache poisoning).
+        raw_tokens = build_word_tokens(norm, clang, raw_spans, annotation_func)
         cache.put_many(
             [
                 CacheRow(
                     key=key,
                     kind="annotate",
-                    lang_code=req.lang_code,
+                    lang_code=clang,
                     phonetic_system=system_name,
                     mode="-",
                     engine_version=eng_ver,
@@ -322,13 +328,14 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
     cache = get_result_cache()
     system_name = cfg.get("annotation_system_name", "Annotation")
     eng_ver = engine_version(req.lang_code)
+    clang = cache_lang(req.lang_code)  # canonical cache identity (ja-jp→ja etc.)
 
     unique: dict[str, bytes] = {}  # normalized text -> cache key
     for text in req.texts:
         if _computable(text):
             norm = normalize_text(text)
             if norm not in unique:
-                unique[norm] = cache_key("annotate", req.lang_code, system_name, "-", eng_ver, norm)
+                unique[norm] = cache_key("annotate", clang, system_name, "-", eng_ver, norm)
 
     found = cache.get_many(list(unique.values())) if unique else {}
     # normalized text -> (raw spans [(base, reading), ...], raw tokens)
@@ -343,13 +350,15 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
             )
             continue
         raw_spans = annotation_func(norm) if annotation_func else []
-        raw_tokens = build_word_tokens(norm, req.lang_code, raw_spans, annotation_func)
+        # Tokens keyed on clang must be computed from clang (see the single
+        # /annotate handler) — else yue/yue-HK, zh/zh-yue poison each other.
+        raw_tokens = build_word_tokens(norm, clang, raw_spans, annotation_func)
         computed[norm] = (raw_spans, raw_tokens)
         new_rows.append(
             CacheRow(
                 key=key,
                 kind="annotate",
-                lang_code=req.lang_code,
+                lang_code=clang,
                 phonetic_system=system_name,
                 mode="-",
                 engine_version=eng_ver,

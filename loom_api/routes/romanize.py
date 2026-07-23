@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from loom_core.romanize import engine_version, strip_speaker_markup
-from loom_core.styles import get_lang_config
+from loom_core.styles import cache_lang, get_lang_config
 
 from .. import limits
 from ..deps import get_result_cache
@@ -108,12 +108,13 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
     system_name = cfg.get("romanization_name", "N/A")
     mode = req.long_vowel_mode if has_japanese_path else "-"
     eng_ver = engine_version(req.lang_code)
+    clang = cache_lang(req.lang_code)  # canonical cache identity (ja-jp→ja etc.)
     # Strip speaker markup (（名） labels + multi-speaker dashes) before romanizing
     # — the phonetic line shouldn't spell out a proper noun or a turn dash.  It's
     # a separate display line, so this can't misalign per-char ruby.  Key on the
     # stripped text so labelled and unlabelled copies of a line share one entry.
     norm = strip_speaker_markup(normalize_text(req.text))
-    key = cache_key("romanize", req.lang_code, system_name, mode, eng_ver, norm)
+    key = cache_key("romanize", clang, system_name, mode, eng_ver, norm)
 
     hit = cache.get_many([key]).get(key)
     if isinstance(hit, dict) and isinstance(hit.get("romanized"), str):
@@ -129,7 +130,7 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
                 CacheRow(
                     key=key,
                     kind="romanize",
-                    lang_code=req.lang_code,
+                    lang_code=clang,
                     phonetic_system=system_name,
                     mode=mode,
                     engine_version=eng_ver,
@@ -265,6 +266,7 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
     system_name = cfg.get("romanization_name", "N/A")
     mode = req.long_vowel_mode if has_japanese_path else "-"
     eng_ver = engine_version(req.lang_code)
+    clang = cache_lang(req.lang_code)  # canonical cache identity (ja-jp→ja etc.)
 
     # Strip speaker markup (labels + multi-speaker dashes) before romanizing (see
     # /romanize).  Keying on the stripped text dedups "（A）行くよ"/"（B）行くよ"/"行くよ".
@@ -276,7 +278,7 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
         if _computable(text):
             norm = _romaji_input(text)
             if norm not in unique:
-                unique[norm] = cache_key("romanize", req.lang_code, system_name, mode, eng_ver, norm)
+                unique[norm] = cache_key("romanize", clang, system_name, mode, eng_ver, norm)
 
     found = cache.get_many(list(unique.values())) if unique else {}
     values: dict[str, str] = {}
@@ -296,7 +298,7 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
             CacheRow(
                 key=key,
                 kind="romanize",
-                lang_code=req.lang_code,
+                lang_code=clang,
                 phonetic_system=system_name,
                 mode=mode,
                 engine_version=eng_ver,

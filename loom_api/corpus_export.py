@@ -291,6 +291,12 @@ class ExportRunner:
     def _cache_rows_for(self, lang_code: str, texts: list[str]) -> list[tuple[str, str, str, Any, int]]:
         if not texts:
             return []
+        # The cache stores the CANONICAL romanizer-equivalence lang in its
+        # lang_code column (loom_core.styles.cache_lang: ja-jp→ja, zh-CN→zh-Hans,
+        # bare zh→zh-Hans), so a corpus track tagged with a region variant still
+        # joins to the rows the enrich step wrote.  Match on that same canonical.
+        from loom_core.styles import cache_lang  # lazy: keep module import-light
+
         with self._pool.connection() as conn:
             return conn.execute(
                 """
@@ -298,7 +304,7 @@ class ExportRunner:
                 FROM romanization_cache
                 WHERE lang_code = %s AND input_text = ANY(%s)
                 """,
-                (lang_code, texts),
+                (cache_lang(lang_code), texts),
             ).fetchall()
 
     # -- enrichment -----------------------------------------------------------

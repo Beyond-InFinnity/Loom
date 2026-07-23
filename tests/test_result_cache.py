@@ -25,9 +25,11 @@ from loom_api.deps import set_result_cache
 from loom_api.result_cache import (
     CacheRow,
     InMemoryResultCache,
+    _ordered_unique_rows,
     cache_key,
     normalize_text,
 )
+from loom_core.styles import cache_lang
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +359,120 @@ class TestProvider:
             )
         finally:
             set_result_cache(None)
+
+
+# ---------------------------------------------------------------------------
+# Deadlock fix — put_many inserts in a deterministic key order + dedups
+# ---------------------------------------------------------------------------
+
+def _row(key: bytes) -> CacheRow:
+    return CacheRow(key=key, kind="romanize", lang_code="ja", phonetic_system="Romaji",
+                    mode="-", engine_version=1, input_text="x", output={"romanized": "x"})
+
+
+class TestOrderedUniqueRows:
+    def test_sorts_by_key(self):
+        rows = [_row(b"\x03"), _row(b"\x01"), _row(b"\x02")]
+        assert [r.key for r in _ordered_unique_rows(rows)] == [b"\x01", b"\x02", b"\x03"]
+
+    def test_drops_duplicate_keys(self):
+        rows = [_row(b"\x01"), _row(b"\x02"), _row(b"\x01")]
+        assert [r.key for r in _ordered_unique_rows(rows)] == [b"\x01", b"\x02"]
+
+    def test_two_batches_share_one_lock_order(self):
+        # The property that kills the deadlock: whatever order two writers built
+        # their rows in, the insert order is identical.
+        keys = [b"\x05", b"\x01", b"\x09", b"\x03"]
+        a = _ordered_unique_rows([_row(k) for k in keys])
+        b = _ordered_unique_rows([_row(k) for k in reversed(keys)])
+        assert [r.key for r in a] == [r.key for r in b]
+
+    def test_empty_is_empty(self):
+        assert _ordered_unique_rows([]) == []
+
+
+# ---------------------------------------------------------------------------
+# Cache-lang canonicalization — dedup region/alias variants WITHOUT merging
+# distinct romanizers (loom_core.styles.cache_lang)
+# ---------------------------------------------------------------------------
+
+class TestCacheLang:
+    def test_japanese_region_and_alias_variants_collapse(self):
+        assert cache_lang("ja") == "ja"
+        assert cache_lang("ja-JP") == "ja"
+        assert cache_lang("ja-jp") == "ja"
+        assert cache_lang("jpn") == "ja"
+
+    def test_dominant_codes_are_unchanged_no_flush(self):
+        # The cache key for the common codes must NOT move (else a needless
+        # full re-enrich).
+        for code in ("ja", "ko", "zh-Hans", "zh-Hant", "yue", "en", "hi", "ru"):
+            assert cache_lang(code) == code
+
+    def test_simplified_chinese_variants_share(self):
+        assert cache_lang("zh-Hans") == "zh-Hans"
+        assert cache_lang("zh-CN") == "zh-Hans"
+        assert cache_lang("zh") == "zh-Hans"       # bare zh defaults Simplified
+        assert cache_lang("chs") == "zh-Hans"
+
+    def test_traditional_stays_distinct_from_simplified(self):
+        assert cache_lang("zh-Hant") == "zh-Hant"
+        assert cache_lang("zh-TW") == "zh-Hant"
+        assert cache_lang("cht") == "zh-Hant"
+        assert cache_lang("zh-Hant") != cache_lang("zh-Hans")   # Zhuyin vs Pinyin
+
+    def test_cantonese_is_its_own_class(self):
+        assert cache_lang("yue") == "yue"
+        assert cache_lang("zh-HK") == "yue"
+        assert cache_lang("yue") not in (cache_lang("zh-Hans"), cache_lang("zh-Hant"))
+
+    def test_cyrillic_langs_stay_distinct(self):
+        # ru/uk/bg/... all share romanization_name "Latin transliteration", so
+        # ONLY the primary keeps them apart — merging them would romanize one
+        # language's text with another's rules.
+        assert cache_lang("ru") == "ru"
+        assert cache_lang("uk") == "uk"
+        assert len({cache_lang(c) for c in ("ru", "uk", "bg", "sr", "mk", "be", "mn")}) == 7
+
+    def test_indic_langs_stay_distinct(self):
+        # hi/bn/ta/... all share "IAST".
+        assert len({cache_lang(c) for c in ("hi", "bn", "ta", "te", "gu", "pa")}) == 6
+
+    def test_empty_and_none_are_safe(self):
+        assert cache_lang("") == ""
+        assert cache_lang(None) == ""
+
+
+class TestCacheLangDedupIntegration:
+    def test_ja_and_ja_jp_share_the_cache(self, mem_cache, compute_counter, romanize_handler):
+        handler, Req = romanize_handler
+        handler(Req(texts=["東京"], lang_code="ja"))
+        after_first = compute_counter["n"]
+        assert after_first >= 1
+        # Same text under the region variant — must hit ja's entry, no recompute.
+        handler(Req(texts=["東京"], lang_code="ja-JP"))
+        assert compute_counter["n"] == after_first
+
+    def test_zh_hant_does_not_collide_with_zh_hans(self, mem_cache, compute_counter, romanize_handler):
+        handler, Req = romanize_handler
+        handler(Req(texts=["中国"], lang_code="zh-Hans"))
+        after_hans = compute_counter["n"]
+        # Traditional resolves to a DIFFERENT romanizer (Zhuyin) — must recompute.
+        handler(Req(texts=["中国"], lang_code="zh-Hant"))
+        assert compute_counter["n"] > after_hans
+
+    def test_annotate_tokens_are_a_function_of_cache_lang_not_raw_code(self, annotate_handler):
+        # zh and zh-yue both canonicalize to cache_lang "zh-Hans", so the
+        # annotate `tokens` cached under that key MUST match.  build_word_tokens'
+        # Chinese path picks its traditional/simplified flag from the code
+        # (zh → simplified segmentation, zh-yue → t2s round-trip first), so
+        # passing the RAW code once wrote DIVERGENT tokens two sibling codes
+        # shared one cache entry with (cache poisoning).  No cache installed
+        # (Null) → each computes fresh, so equality proves the routes pass clang.
+        handler, Req = annotate_handler
+        # 這個問題很難: zh → …很·難, zh-yue(t2s) → …很難 — a boundary that only
+        # matches once both go through the same canonical (clang) code.
+        text = "這個問題很難"
+        a = handler(Req(texts=[text], lang_code="zh")).results[0].tokens
+        b = handler(Req(texts=[text], lang_code="zh-yue")).results[0].tokens
+        assert [t.word for t in a] == [t.word for t in b]

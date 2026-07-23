@@ -35,6 +35,7 @@ from .body_limit import BodySizeLimit
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_dictionary_store, get_result_cache
+from .recycle import IdleActivityTracker, start_idle_recycler
 from .routes import annotate, corpus, define, health, language, romanize, styles
 
 app = FastAPI(
@@ -170,6 +171,11 @@ class BypassAwareSlowAPI:
 # `loom.version` lines.  Implementation + rationale: loom_api/client_version.py.
 app.add_middleware(ClientVersionLog)
 app.add_middleware(BypassAwareSlowAPI)
+# Idle-recycle activity tracker — registered LAST so it is OUTERMOST and sees
+# every request (in-flight count + last-activity time for loom_api/recycle.py).
+# /health and / are excluded so a liveness probe can't keep a bloated idle
+# worker awake. Pure book-keeping; never rejects or alters a request.
+app.add_middleware(IdleActivityTracker)
 
 # Eagerly build the romanize/annotate result cache (ROMANIZATION_CACHE.md
 # Layer 1) and the corpus store (Layer 2) at worker boot rather than on the
@@ -179,6 +185,12 @@ app.add_middleware(BypassAwareSlowAPI)
 get_result_cache()
 get_corpus_store()
 get_dictionary_store()
+
+# Arm idle-aware worker recycling (P3): sheds accumulated NLP-dictionary RAM
+# when the worker is BOTH idle and bloated, so the average RSS (= the Railway
+# bill) stays near baseline without inflicting the reload on real users.
+# No-op under pytest / when LOOM_IDLE_RECYCLE=off. See loom_api/recycle.py.
+start_idle_recycler()
 
 app.include_router(health.router)
 app.include_router(language.router)

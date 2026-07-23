@@ -1,11 +1,13 @@
-"""Request-cost limits for the public web API (stdlib-only).
+"""Operational limits & env knobs for the public web API (stdlib-only).
 
-Central home for the env-overridable abuse caps added in the 2026-07
-hardening round.  These bound the COST a single request can impose (bytes
-buffered, chars computed), complementing slowapi's request-COUNT limits in
-web.py — a count limiter alone permits ~100 maximal 10M-char batches per
-minute per IP, i.e. ~113x CPU oversubscription (measured 2026-07: one
-maximal zh /romanize/batch ≈ 68 s of GIL-bound CPU; ja ≈ 28 s).
+Central home for the env-overridable operational tunables added in the
+2026-07 hardening round: the request-cost caps (below) and the idle-recycle
+thresholds (consumed by loom_api/recycle.py).  The cost caps bound the work
+a single request can impose (bytes buffered, chars computed), complementing
+slowapi's request-COUNT limits in web.py — a count limiter alone permits
+~100 maximal 10M-char batches per minute per IP, i.e. ~113x CPU
+oversubscription (measured 2026-07: one maximal zh /romanize/batch ≈ 68 s
+of GIL-bound CPU; ja ≈ 28 s).
 
 Defaults are set from the measured legitimate client envelope (2026-07
 audit of extension / web app / desktop enrich payload builders):
@@ -40,6 +42,18 @@ def _env_int(name: str, default: int) -> int:
         return max(0, int(raw))
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse a bool env var; ''/absent/junk → default (never crash on a typo)."""
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in ("off", "0", "false", "no", "disabled"):
+        return False
+    if raw in ("on", "1", "true", "yes", "enabled"):
+        return True
+    return default
 
 
 #: Max request body in bytes (from Content-Length), enforced by the

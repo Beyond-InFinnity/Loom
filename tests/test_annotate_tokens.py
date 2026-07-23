@@ -69,7 +69,63 @@ def test_ja_contextual_reading_topic_ha_becomes_wa():
     _, toks = _tokens("ja", "これは寿司です")
     by_word = {t[0]: t for t in toks}
     assert by_word["は"][3] == "わ", by_word["は"]
-    assert by_word["寿司"][3] == "すし"           # kanji token carries its kana reading
+    # 寿司です is ONE clickable word: the trailing です copula (助動詞) is absorbed
+    # into the noun rather than left as a bare-です dead-end. Lemma stays the
+    # noun (JMdict hit) and the kanji keeps its kana reading.
+    assert by_word["寿司です"][1] == "寿司"
+    assert by_word["寿司です"][3].startswith("すし")
+
+
+def test_ja_polite_auxiliary_masu_is_not_a_bare_token():
+    # Regression (Evangelion ep16 "ミサトさん、聞こえてます"): the polite auxiliary
+    # ます (助動詞) must NOT be a standalone clickable word — bare ます dead-ends
+    # into 枡 (masu, "measuring box", a NOUN) in JMdict. It belongs to the
+    # predicate: 聞こえてます is one word looking up 聞こえる (+ 'polite' grammar).
+    for text, whole, lemma in [
+        ("聞こえてます", "聞こえてます", "聞こえる"),
+        ("聞こえています", "聞こえています", "聞こえる"),
+        ("食べます", "食べます", "食べる"),
+        ("食べました", "食べました", "食べる"),
+        ("食べませんでした", "食べませんでした", "食べる"),
+    ]:
+        _, toks = _tokens("ja", text)
+        surfaces = {t[0] for t in toks}
+        assert "ます" not in surfaces, (text, surfaces)
+        assert "です" not in surfaces, (text, surfaces)
+        by_word = {t[0]: t for t in toks}
+        assert whole in by_word, (text, surfaces)
+        assert by_word[whole][1] == lemma           # looks up the verb, not ます
+
+
+def test_ja_masu_absorption_does_not_over_merge_across_predicates():
+    # The auxiliary attaches ONLY to its own predicate: 食べて寝ます must stay
+    # two clickable words (食べて → 食べる, 寝ます → 寝る), not one blob.
+    _, toks = _tokens("ja", "食べて寝ます")
+    lemmas = [t[1] for t in toks]
+    assert "食べる" in lemmas and "寝る" in lemmas
+    assert "ます" not in {t[0] for t in toks}
+
+
+def test_ja_evidential_rashii_after_noun_stays_its_own_word():
+    # 風邪らしい = "seems to be a cold" — らしい is a CONTENT-bearing 助動詞 with
+    # its own dictionary entry, NOT copula/politeness. It must stay clickable
+    # (not absorb into 風邪, which would silently drop the evidential meaning —
+    # nouns get no grammar-pill fallback). This is the boundary of the ます/です
+    # absorption: only copula/tense/politeness auxiliaries collapse.
+    for text, noun in [("風邪らしい", "風邪"), ("学生らしい", "学生"), ("雨らしい", "雨")]:
+        _, toks = _tokens("ja", text)
+        words = [t[0] for t in toks]
+        assert "らしい" in words, (text, words)
+        assert noun in words, (text, words)
+
+
+def test_ja_rashii_after_predicate_still_merges():
+    # After a VERB/adjective the romaji mask already merges らしい, so it's one
+    # word looking up the predicate (行くらしい → 行く) — the らしい exclusion is
+    # scoped to the noun case and must not un-merge the predicate case.
+    _, toks = _tokens("ja", "行くらしい")
+    assert [t[0] for t in toks] == ["行くらしい"]
+    assert toks[0][1] == "行く"
 
 
 def test_ja_lemma_disambiguator_suffix_stripped():

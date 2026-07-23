@@ -166,7 +166,10 @@ def test_zh_multi_speaker_both_labels_dropped_dialogue_kept():
 @ja
 def test_ja_multi_speaker_dashes_dropped():
     _spans, words = _words("ja", "- 何\n- そうです")
-    assert "何" in words and "です" in words
+    # Dialogue content survives (何, そうです — です absorbed into its predicate,
+    # not a bare-です token); the speaker-turn dashes are dropped as markup.
+    assert "何" in words and "そうです" in words
+    assert "-" not in words and "- " not in words
 
 
 # --------------------------------------------------------------------------- #

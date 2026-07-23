@@ -114,7 +114,13 @@ ENGINE_VERSIONS: dict[str, int] = {
     #   BRAHMIC/CYRILLIC v4 (hi/ru/uk): ①/② applied the span-path drop to these
     #       WITHOUT a version bump when it shipped; bump now (v3→v4) to flush any
     #       stale pre-①/② token/romaji rows for their labelled/multi-speaker lines.
-    "ja": 6,
+    #   ja v7 (polite-auxiliary word grouping): the clickable WORD tokens now
+    #       absorb a trailing 助動詞 ます/です into the preceding predicate
+    #       (聞こえてます → one 聞こえる token + 'polite' grammar), instead of
+    #       leaving a bare ます that dead-ended into 枡 (masu, "measuring box",
+    #       noun).  Spans + romaji are byte-identical; only the annotate `tokens`
+    #       change, so bump to flush stale token rows.
+    "ja": 7,
     "zh": 5,
     "yue": 5,
     "ko": 4,
@@ -3065,6 +3071,13 @@ def _clean_ja_lemma(lemma: "str | None") -> "str | None":
     return lemma.split('-', 1)[0] or None
 
 
+# Content-bearing 助動詞 that carry their own dictionary meaning and must NOT be
+# absorbed into a preceding NOUN by the word-token grouping (they'd lose the
+# lookup + have no grammar-pill fallback on a noun head).  らしい = evidential
+# "seems/apparently".  みたい/よう/そう are 形状詞 (not 助動詞), so not a concern here.
+_JA_CONTENT_AUX_LEMMAS = frozenset({"らしい"})
+
+
 def _japanese_tokens(spans: list, annotation_func) -> list:
     """Group MeCab morpheme spans into WORD tokens (VOCAB_LOOKUP.md Phase 2 §1).
 
@@ -3090,6 +3103,26 @@ def _japanese_tokens(spans: list, annotation_func) -> list:
         # Extend the group while the merge mask says span j joins span j+1.
         j = i
         while j < n - 1 and j < len(merge_mask) and merge_mask[j]:
+            j += 1
+        # WORD-TOKEN grouping additionally absorbs trailing auxiliaries (助動詞)
+        # that the ROMAJI merge mask deliberately splits for readability — namely
+        # ます/です (_should_merge_for_romaji keeps 'kikoete masu' un-joined).  A
+        # copula/politeness/tense 助動詞 attaches backward to its predicate, so the
+        # whole predicate is ONE lookup word: 聞こえてます → 聞こえる (+ a 'polite'
+        # grammar feature), never a clickable ます dead-ending into 枡 (masu,
+        # "measuring box", a noun).  This does NOT touch merge_mask, so romaji
+        # still splits.  EXCEPTION: a CONTENT-bearing 助動詞 (らしい — the evidential
+        # "seems/apparently") is NOT absorbed: after a NOUN the mask leaves it
+        # standalone and it has its own JMdict entry, so 風邪らしい must stay
+        # 風邪 + らしい, not collapse to 風邪 ("a cold") and silently drop the
+        # evidential (nouns get no grammar pill).  After a predicate the mask
+        # already merges らしい, so this exclusion only affects the noun case.
+        while (
+            j < n - 1
+            and (j + 1) < len(token_meta)
+            and token_meta[j + 1][1] == '助動詞'
+            and token_meta[j + 1][0] not in _JA_CONTENT_AUX_LEMMAS
+        ):
             j += 1
         # Trim leading/trailing punctuation-only spans so the clickable word is
         # the word itself, not the word plus its trailing ellipsis/quote (は… →

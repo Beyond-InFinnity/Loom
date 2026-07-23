@@ -1,1 +1,1 @@
-web: gunicorn loom_api.web:app -k uvicorn_worker.UvicornWorker --workers 1 --max-requests 500 --max-requests-jitter 50 --timeout 120 --access-logfile - --bind 0.0.0.0:$PORT
+web: gunicorn loom_api.web:app -k uvicorn_worker.UvicornWorker --workers 1 --max-requests 500 --max-requests-jitter 50 --timeout 120 --access-logfile - --forwarded-allow-ips 100.64.0.0/10 --bind 0.0.0.0:$PORT

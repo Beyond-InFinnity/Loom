@@ -21,7 +21,6 @@ Bandwidth: text-in / text-out, ~100KB per request worst-case.  No file
 uploads, no async jobs — process per request, return, done.
 """
 
-import hmac
 import os
 
 from fastapi import FastAPI
@@ -31,12 +30,13 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from .auth import bypass_keys_from_env, is_bypass_key
 from .body_limit import BodySizeLimit
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_dictionary_store, get_result_cache
 from .recycle import IdleActivityTracker, start_idle_recycler
-from .routes import annotate, corpus, define, health, language, romanize, styles
+from .routes import annotate, corpus, debug, define, health, language, romanize, styles
 
 app = FastAPI(
     title="Loom Web API",
@@ -125,24 +125,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # generation pipeline (Step 6) at the bucket boundary.  Skipping the
 # limiter entirely is the right semantics — and downgrading later (if a
 # key leaks) just means rotating the env var, no code change.
-_bypass_env = os.environ.get("LOOM_BYPASS_KEYS", "").strip()
-_BYPASS_KEYS: list[str] = [k.strip() for k in _bypass_env.split(",") if k.strip()]
+# Key parsing + the constant-time check live in loom_api/auth.py (shared with
+# the owner-gated /debug/echo route); the list is still read once at worker
+# boot here, preserving the original semantics.
+_BYPASS_KEYS: list[str] = bypass_keys_from_env()
 
 
 def _is_bypass_key(presented: str) -> bool:
-    """Constant-time check: is `presented` in the allow-list?
-
-    Iterates every key with hmac.compare_digest to keep timing leakage
-    proportional only to len(_BYPASS_KEYS), not to which key matched
-    (or how many leading bytes agreed).
-    """
-    if not presented or not _BYPASS_KEYS:
-        return False
-    matched = False
-    for k in _BYPASS_KEYS:
-        if hmac.compare_digest(presented, k):
-            matched = True
-    return matched
+    return is_bypass_key(presented, _BYPASS_KEYS)
 
 
 class BypassAwareSlowAPI:
@@ -205,3 +195,6 @@ app.include_router(styles.router)
 app.include_router(corpus.router)
 # POST /define/batch — per-word dictionary lookup (VOCAB_LOOKUP.md).
 app.include_router(define.router)
+# GET /debug/echo — owner-gated raw-header echo for edge-proxy diagnosis
+# (404 without a valid X-Loom-Auth; see routes/debug.py).
+app.include_router(debug.router)

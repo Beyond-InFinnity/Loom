@@ -25,7 +25,7 @@ from loom_api.routes.debug import echo
 # Harness
 # ---------------------------------------------------------------------------
 
-def _request(headers, client=("203.0.113.9", 51234), scheme="https"):
+def _request(headers, client=("203.0.113.9", 51234), scheme="https", app=None):
     """Build a real fastapi.Request from a minimal ASGI scope."""
     scope = {
         "type": "http",
@@ -37,7 +37,28 @@ def _request(headers, client=("203.0.113.9", 51234), scheme="https"):
         "http_version": "1.1",
         "query_string": b"",
     }
+    if app is not None:
+        scope["app"] = app
     return Request(scope)
+
+
+class _FakeLimiter:
+    enabled = True
+    _key_style = "endpoint"
+    _default_limits = []
+    _application_limits = []
+    _exempt_routes = set()
+    _route_limits = {}
+
+    class _storage:
+        pass
+
+
+class _FakeApp:
+    class state:
+        limiter = _FakeLimiter()
+
+    routes = []
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +172,33 @@ def test_missing_client_reported_as_none(monkeypatch):
     monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
     body = echo(_request([(b"x-loom-auth", b"k1")], client=None))
     assert body["client"] is None
+
+
+# ---------------------------------------------------------------------------
+# Rate-limiter diagnostics (why a burst never 429s in prod)
+# ---------------------------------------------------------------------------
+
+def test_reports_rate_limit_env(monkeypatch):
+    monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
+    monkeypatch.setenv("LOOM_RATE_LIMIT", "30/minute,2000/day")
+    body = echo(_request([(b"x-loom-auth", b"k1")], app=_FakeApp()))
+    assert body["ratelimit"]["env_LOOM_RATE_LIMIT"] == "30/minute,2000/day"
+
+
+def test_reports_limiter_enabled_and_key(monkeypatch):
+    monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
+    body = echo(_request([(b"x-loom-auth", b"k1")], app=_FakeApp()))
+    rl = body["ratelimit"]
+    assert rl["present"] is True
+    assert rl["enabled"] is True
+    # the key the limiter would bucket this request under
+    assert rl["remote_address_key"] == "203.0.113.9"
+
+
+def test_ratelimit_block_never_raises_without_app(monkeypatch):
+    monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
+    body = echo(_request([(b"x-loom-auth", b"k1")]))
+    assert body["ratelimit"]["present"] is False
 
 
 # ---------------------------------------------------------------------------

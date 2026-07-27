@@ -80,6 +80,27 @@ def _ratelimit_report(request: Request) -> dict:
         report["route_handler"] = None if handler is None else getattr(handler, "__name__", str(handler))
     except Exception as exc:  # pragma: no cover - defensive
         report["route_handler"] = f"<err {type(exc).__name__}>"
+    # Why did matching fail?  Report the scope fields route matching consumes
+    # (root_path is stripped from path by starlette's get_route_path) plus the
+    # per-route match verdicts.
+    try:
+        report["scope"] = {
+            k: request.scope.get(k)
+            for k in ("path", "root_path", "method", "type")
+        }
+        raw = request.scope.get("raw_path")
+        report["scope"]["raw_path"] = raw.decode("latin-1") if isinstance(raw, bytes) else raw
+        report["n_routes"] = len(request.app.routes)
+        matches = []
+        for route in list(request.app.routes)[:40]:
+            try:
+                m, _child = route.matches(request.scope)
+                matches.append([getattr(route, "path", str(route)), str(m), hasattr(route, "endpoint")])
+            except Exception as exc:  # pragma: no cover - defensive
+                matches.append([getattr(route, "path", "?"), f"<err {type(exc).__name__}>", None])
+        report["route_matches"] = [m for m in matches if not str(m[1]).endswith("NONE")]
+    except Exception as exc:  # pragma: no cover - defensive
+        report["scope"] = f"<err {type(exc).__name__}>"
     return report
 
 

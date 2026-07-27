@@ -49,6 +49,35 @@ def _ratelimit_report(request: Request) -> dict:
         report["limits"] = f"<err {type(exc).__name__}>"
     client = request.scope.get("client")
     report["bucket_key"] = str(client[0]) if client else "unknown"
+    # The env parse above says what the config SHOULD be; this reports the
+    # LIVE middleware instance, which is what actually decides.  Prod once
+    # served a burst unthrottled while the env parsed correctly — only
+    # instance state distinguishes "misconfigured" from "not wired in".
+    try:
+        app = request.scope.get("app")
+        report["registered_middleware"] = [
+            getattr(m.cls, "__name__", str(m.cls)) for m in getattr(app, "user_middleware", [])
+        ]
+        node = getattr(app, "middleware_stack", None)
+        found = None
+        for _ in range(20):
+            if node is None:
+                break
+            if type(node).__name__ == "RateLimit":
+                found = node
+                break
+            node = getattr(node, "app", None) or getattr(node, "_app", None)
+        if found is None:
+            report["live_instance"] = None
+        else:
+            report["live_instance"] = {
+                "limits": [list(t) for t in getattr(found, "_limits", [])],
+                "tracked_keys": len(getattr(found, "_state", {})),
+                "exempt": sorted(getattr(found, "_exempt", [])),
+                "bypass_keys": len(getattr(found, "_bypass", [])),
+            }
+    except Exception as exc:  # pragma: no cover - defensive
+        report["live_instance"] = f"<err {type(exc).__name__}>"
     return report
 
 

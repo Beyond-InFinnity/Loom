@@ -60,8 +60,10 @@ Priority order for the hiragana reading of each kanji token:
   3. MeCab morpheme reading — generated fallback for unannotated kanji tokens.
 """
 
+import contextlib
 import functools
 import re
+import threading
 
 # ---------------------------------------------------------------------------
 # Engine versions — cache-key discipline (ROMANIZATION_CACHE.md gotcha #1)
@@ -838,6 +840,38 @@ def _make_zhuyin_romanizer(variant: str = None):
 
 _shared_ja_tagger = None
 _shared_ja_tagger_tried = False
+# Guards the shared tagger.  RLock so a nested borrow on one thread can't
+# self-deadlock; different threads still serialize, which is the point.
+_ja_tagger_lock = threading.RLock()
+
+
+@contextlib.contextmanager
+def borrow_ja_tagger():
+    """Borrow the process-wide MeCab tagger for the duration of the block.
+
+    HOLD IT UNTIL EVERY FIELD YOU NEED IS COPIED OUT.  MeCab is not reentrant
+    and fugashi Nodes are VIEWS over the tagger's lattice — `.surface` is
+    copied eagerly but `.feature` is parsed lazily from lattice memory, so
+    reading it after another thread re-parses yields THAT parse's data.  It is
+    therefore not enough to lock around `tagger(text)`; the materialization
+    loop must be inside the block too.
+
+    Every API route is a sync `def`, so FastAPI runs it in anyio's ~40-thread
+    pool: this is genuinely concurrent.  Measured on the unlocked code, 20 of
+    6000 concurrent parses were corrupted (今日 read as おみな instead of きょう) —
+    and a wrong reading doesn't just render, it is written into the shared
+    Postgres result cache and served to everyone until an ENGINE_VERSIONS bump.
+
+    Cost is negligible: a per-line parse is sub-millisecond and the worker is
+    GIL-bound anyway, so serializing these is far cheaper than one tagger per
+    thread would be in RAM.
+    """
+    tagger = get_shared_ja_tagger()
+    if tagger is None:
+        yield None
+        return
+    with _ja_tagger_lock:
+        yield tagger
 
 
 def get_shared_ja_tagger():
@@ -1022,39 +1056,42 @@ def _make_japanese_pipeline():
         # Tier 1: extract author annotations from the raw text (before stripping).
         inline_map = _extract_inline_furigana(text)
         clean = _strip_reverse_furigana(_strip_inline_furigana(_strip_ass(text)))
-        words = tagger(clean)
-
-        # Phase 1: Extract structured tokens from MeCab
+        # Phase 1: Extract structured tokens from MeCab.  Parse AND read every
+        # field inside the borrow — fugashi's `.feature` is a lazy view over the
+        # tagger's lattice, so materializing outside the lock races with any
+        # other thread's parse (see borrow_ja_tagger).
         # Tokens are 5-tuples: (surface, kana, pos1, pos2, lemma)
         raw_tokens = []
-        for word in words:
-            surface = word.surface
-            if not surface:
-                continue
-            kana = pos1 = pos2 = lemma = None
-            try:
-                kana = word.feature.kana
-                if kana is None or kana == '*':
-                    kana = None
-            except (AttributeError, IndexError):
-                pass
-            try:
-                pos1 = word.feature.pos1 or ''
-            except (AttributeError, IndexError):
-                pos1 = ''
-            try:
-                pos2 = word.feature.pos2 or ''
-            except (AttributeError, IndexError):
-                pos2 = ''
-            try:
-                lemma = word.feature.lemma or ''
-            except (AttributeError, IndexError):
-                lemma = ''
-            # Override: 私 defaults to ワタクシ in UniDic — ワタシ is the
-            # modern standard reading used in virtually all anime/media.
-            if surface == '私' and kana == 'ワタクシ':
-                kana = 'ワタシ'
-            raw_tokens.append((surface, kana, pos1, pos2, lemma))
+        with borrow_ja_tagger() as shared:
+            words = (shared or tagger)(clean)
+            for word in words:
+                surface = word.surface
+                if not surface:
+                    continue
+                kana = pos1 = pos2 = lemma = None
+                try:
+                    kana = word.feature.kana
+                    if kana is None or kana == '*':
+                        kana = None
+                except (AttributeError, IndexError):
+                    pass
+                try:
+                    pos1 = word.feature.pos1 or ''
+                except (AttributeError, IndexError):
+                    pos1 = ''
+                try:
+                    pos2 = word.feature.pos2 or ''
+                except (AttributeError, IndexError):
+                    pos2 = ''
+                try:
+                    lemma = word.feature.lemma or ''
+                except (AttributeError, IndexError):
+                    lemma = ''
+                # Override: 私 defaults to ワタクシ in UniDic — ワタシ is the
+                # modern standard reading used in virtually all anime/media.
+                if surface == '私' and kana == 'ワタクシ':
+                    kana = 'ワタシ'
+                raw_tokens.append((surface, kana, pos1, pos2, lemma))
 
         # Phase 2: Merge adjacent katakana fragments (fixes name splitting)
         tokens = _merge_katakana_fragments(raw_tokens)

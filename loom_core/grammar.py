@@ -145,21 +145,24 @@ _JA_CONTINUATION_CAP = 12
 def _ja_tokens(surface: str):
     """Return a list of light morpheme records for *surface* via the shared
     MeCab tagger.  Each record: (surface, pos1, pos2, lemma, cForm)."""
-    from .romanize import get_shared_ja_tagger  # lazy — MeCab is heavy
+    from .romanize import borrow_ja_tagger  # lazy — MeCab is heavy
 
-    tagger = get_shared_ja_tagger()
-    if tagger is None:
-        return []
+    # Parse and read every field inside the borrow: `w.feature` is a lazy view
+    # over the shared tagger's lattice, so materializing outside the lock picks
+    # up another thread's parse (see romanize.borrow_ja_tagger).
     out = []
-    for w in tagger(surface):
-        f = w.feature
-        out.append((
-            w.surface,
-            getattr(f, "pos1", "") or "",
-            getattr(f, "pos2", "") or "",
-            getattr(f, "lemma", "") or "",
-            getattr(f, "cForm", "") or "",
-        ))
+    with borrow_ja_tagger() as tagger:
+        if tagger is None:
+            return []
+        for w in tagger(surface):
+            f = w.feature
+            out.append((
+                w.surface,
+                getattr(f, "pos1", "") or "",
+                getattr(f, "pos2", "") or "",
+                getattr(f, "lemma", "") or "",
+                getattr(f, "cForm", "") or "",
+            ))
     return out
 
 

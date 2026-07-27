@@ -1,0 +1,368 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="662" height="814" viewBox="0 0 662 814" role="img" aria-label="Matrix of dictionary coverage: 20 video languages by 16 definition languages, 77 available pairings">
+<rect x="0.5" y="0.5" width="661" height="813" rx="14" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<text x="26" y="44" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="19" font-weight="600" fill="#ffffff">Built-in dictionary coverage</text>
+<text x="26" y="66" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#c3c2b7">Pause, click a word, read its definition — 77 language pairings available today.</text>
+<text x="142" y="96" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="600" fill="#c3c2b7">Definition language <tspan font-weight="400" fill="#898781">— the language you read in</tspan></text>
+<text x="156.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 156.0 168)">English</text>
+<text x="184.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 184.0 168)">Spanish</text>
+<text x="212.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 212.0 168)">Japanese</text>
+<text x="248.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 248.0 168)">French</text>
+<text x="276.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 276.0 168)">German</text>
+<text x="304.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 304.0 168)">Russian</text>
+<text x="332.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 332.0 168)">Arabic</text>
+<text x="360.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 360.0 168)">Chinese</text>
+<text x="388.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 388.0 168)">Dutch</text>
+<text x="416.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 416.0 168)">Hungarian</text>
+<text x="444.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 444.0 168)">Indonesian</text>
+<text x="472.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 472.0 168)">Mongolian</text>
+<text x="500.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 500.0 168)">Slovenian</text>
+<text x="528.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 528.0 168)">Swedish</text>
+<text x="556.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 556.0 168)">Thai</text>
+<text x="584.0" y="168" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="start" transform="rotate(-52 584.0 168)">Vietnamese</text>
+<text x="36" y="460.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="600" fill="#c3c2b7" text-anchor="middle" transform="rotate(-90 36 460.0)">Video language <tspan font-weight="400" fill="#898781">— the word you click</tspan></text>
+<text x="132" y="192.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Korean</text>
+<rect x="142" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="262" y="176" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="318" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="346" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="374" y="176" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="176" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="458" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="486" y="176" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="176" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="570" y="176" width="24" height="24" rx="4" fill="#3987e5"/>
+<text x="132" y="220.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Japanese</text>
+<rect x="142" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="262" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="290" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="318" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="402" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="430" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="514" y="204" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="542" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="204" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="248.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Chinese</text>
+<rect x="142" y="232" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="232" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="232" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="232" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="262" y="232" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="290" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="232" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="284.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Czech</text>
+<rect x="142" y="268" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="268" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="268" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="268" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="312.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Danish</text>
+<rect x="142" y="296" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="296" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="296" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="296" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="340.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Dutch</text>
+<rect x="142" y="324" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="324" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="324" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="324" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="368.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">English</text>
+<rect x="142" y="352" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="352" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="352" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="352" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="396.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">French</text>
+<rect x="142" y="380" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="380" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="380" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="380" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="424.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">German</text>
+<rect x="142" y="408" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="408" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="408" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="408" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="452.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Hindi</text>
+<rect x="142" y="436" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="436" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="436" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="436" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="480.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Indonesian</text>
+<rect x="142" y="464" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="464" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="464" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="464" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="508.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Italian</text>
+<rect x="142" y="492" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="492" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="492" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="492" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="536.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Polish</text>
+<rect x="142" y="520" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="520" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="520" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="520" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="564.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Portuguese</text>
+<rect x="142" y="548" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="548" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="548" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="548" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="592.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Romanian</text>
+<rect x="142" y="576" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="576" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="576" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="576" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="620.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Russian</text>
+<rect x="142" y="604" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="604" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="604" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="604" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="648.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Spanish</text>
+<rect x="142" y="632" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="632" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="632" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="632" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="676.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Swedish</text>
+<rect x="142" y="660" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="660" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="660" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="660" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="704.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Turkish</text>
+<rect x="142" y="688" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="688" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="688" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="688" width="24" height="24" rx="4" fill="#242422"/>
+<text x="132" y="732.0" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7" text-anchor="end">Ukrainian</text>
+<rect x="142" y="716" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="170" y="716" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="198" y="716" width="24" height="24" rx="4" fill="#3987e5"/>
+<rect x="234" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="262" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="290" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="318" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="346" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="374" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="402" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="430" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="458" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="486" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="514" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="542" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="570" y="716" width="24" height="24" rx="4" fill="#242422"/>
+<rect x="142" y="759" width="14" height="14" rx="3" fill="#3987e5"/>
+<text x="162" y="770" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7">Dictionary available</text>
+<rect x="292" y="759" width="14" height="14" rx="3" fill="#242422"/>
+<text x="312" y="770" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="#c3c2b7">Not yet</text>
+<text x="26" y="794" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11" fill="#898781">Sources: JMdict · KRDict · CC-CEDICT · CFDICT · HanDeDict · Wiktionary (kaikki.org) · snapshot July 2026</text>
+</svg>

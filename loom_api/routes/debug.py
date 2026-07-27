@@ -27,80 +27,28 @@ _REDACTED_HEADERS = {b"x-loom-auth"}
 
 
 def _ratelimit_report(request: Request) -> dict:
-    """Live slowapi state as the RUNNING worker sees it.
+    """Effective rate-limit config as the RUNNING worker sees it.
 
-    A 250-request burst against prod never 429'd while the identical stack
-    (same pinned package versions, same gunicorn flags, same limit string)
-    enforced correctly on a laptop — so the divergence is in the deployed
-    process, not the code.  slowapi's Limiter resolves much of its config
-    through starlette's Config (which reads os.environ), so the deployed
-    limiter can differ from the constructor arguments in web.py.  Everything
-    here is best-effort: a diagnostic must never be the thing that 500s.
+    Exists because the limiter once failed SILENTLY in prod (slowapi +
+    FastAPI 0.140 `_IncludedRouter` — see loom_api/ratelimit.py): a burst
+    from one IP got 250×200 and nothing was logged.  Reporting the parsed
+    limits and the key a request buckets under makes "is limiting actually
+    on?" answerable in one curl instead of a deploy-and-guess loop.
+    Best-effort throughout: a diagnostic must never be what 500s.
     """
     report: dict = {"env_LOOM_RATE_LIMIT": os.environ.get("LOOM_RATE_LIMIT")}
-    limiter = getattr(getattr(request.app, "state", None), "limiter", None) if request.scope.get("app") else None
-    if limiter is None:
-        report["present"] = False
-        return report
-    report["present"] = True
-    for field, attr in (
-        ("enabled", "enabled"),
-        ("key_style", "_key_style"),
-        ("key_prefix", "_key_prefix"),
-        ("storage_dead", "_storage_dead"),
-        ("auto_check", "_auto_check"),
-        ("swallow_errors", "_swallow_errors"),
-    ):
-        try:
-            report[field] = getattr(limiter, attr)
-        except Exception as exc:  # pragma: no cover - defensive
-            report[field] = f"<err {type(exc).__name__}>"
-    for field, attr in (("default_limits", "_default_limits"),
-                        ("application_limits", "_application_limits")):
-        try:
-            report[field] = [str(lim) for group in getattr(limiter, attr, []) for lim in group]
-        except Exception as exc:  # pragma: no cover - defensive
-            report[field] = f"<err {type(exc).__name__}>"
     try:
-        report["storage"] = type(limiter._storage).__name__
-    except Exception:  # pragma: no cover - defensive
-        report["storage"] = None
-    try:
-        from slowapi.util import get_remote_address
+        from ..ratelimit import DEFAULT_RATE_LIMIT, EXEMPT_PATHS, parse_limits
 
-        report["remote_address_key"] = get_remote_address(request)
+        raw = os.environ.get("LOOM_RATE_LIMIT", DEFAULT_RATE_LIMIT)
+        limits = parse_limits(raw)
+        report["limits"] = [[count, period] for count, period in limits]
+        report["enforcing"] = bool(limits)
+        report["exempt_paths"] = list(EXEMPT_PATHS)
     except Exception as exc:  # pragma: no cover - defensive
-        report["remote_address_key"] = f"<err {type(exc).__name__}>"
-    # Does slowapi's middleware resolve a handler for this path?  It silently
-    # exempts the request when it can't (_should_exempt returns True on None).
-    try:
-        from slowapi.middleware import _find_route_handler
-
-        handler = _find_route_handler(request.app.routes, request.scope)
-        report["route_handler"] = None if handler is None else getattr(handler, "__name__", str(handler))
-    except Exception as exc:  # pragma: no cover - defensive
-        report["route_handler"] = f"<err {type(exc).__name__}>"
-    # Why did matching fail?  Report the scope fields route matching consumes
-    # (root_path is stripped from path by starlette's get_route_path) plus the
-    # per-route match verdicts.
-    try:
-        report["scope"] = {
-            k: request.scope.get(k)
-            for k in ("path", "root_path", "method", "type")
-        }
-        raw = request.scope.get("raw_path")
-        report["scope"]["raw_path"] = raw.decode("latin-1") if isinstance(raw, bytes) else raw
-        report["n_routes"] = len(request.app.routes)
-        matches = []
-        for route in list(request.app.routes)[:40]:
-            try:
-                m, _child = route.matches(request.scope)
-                matches.append([getattr(route, "path", str(route)), str(m), hasattr(route, "endpoint")])
-            except Exception as exc:  # pragma: no cover - defensive
-                matches.append([getattr(route, "path", "?"), f"<err {type(exc).__name__}>", None])
-        report["route_matches"] = [m for m in matches if not str(m[1]).endswith("NONE")]
-    except Exception as exc:  # pragma: no cover - defensive
-        report["scope"] = f"<err {type(exc).__name__}>"
+        report["limits"] = f"<err {type(exc).__name__}>"
+    client = request.scope.get("client")
+    report["bucket_key"] = str(client[0]) if client else "unknown"
     return report
 
 

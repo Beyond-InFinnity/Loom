@@ -25,16 +25,12 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 
-from .auth import bypass_keys_from_env, is_bypass_key
 from .body_limit import BodySizeLimit
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_dictionary_store, get_result_cache
+from .ratelimit import RateLimit
 from .recycle import IdleActivityTracker, start_idle_recycler
 from .routes import annotate, corpus, debug, define, health, language, romanize, styles
 
@@ -60,10 +56,35 @@ _origins = resolve_exact_origins(os.environ.get("LOOM_CORS_ORIGINS"))
 
 # Body-size guard — registered FIRST so it runs INNERMOST (add_middleware is
 # LIFO): its 411/413 rejections flow back out through CORSMiddleware (browser
-# clients see the real status, not an opaque CORS failure) and oversized
-# requests still consume a rate-limit slot in the outer slowapi layer.
+# clients see the real status, not an opaque CORS failure).
 # Cap + rationale: loom_api/body_limit.py; env override LOOM_MAX_BODY_BYTES.
 app.add_middleware(BodySizeLimit)
+
+# Per-IP request-RATE limiting.  Registered before CORS (so it sits INSIDE it)
+# for the same reason as BodySizeLimit: a 429 must exit through CORSMiddleware
+# or a Chrome-MV3 extension fetch sees an opaque CORS failure instead of the
+# real status.  Being outside BodySizeLimit also means a throttled request is
+# rejected before its body is read.  CORS preflights are answered by
+# CORSMiddleware further out and so never consume a slot.
+#
+#   30/minute    — burst cap.  Stops single-IP flooding (a scraper, a botnet
+#                  stress test, a client spamming retries).  Real usage is far
+#                  below it: an extension activation is a handful of batch
+#                  calls, and a definition click is one request.
+#
+#   2000/day     — sustained-abuse cap, well above any plausible single user.
+#
+# Override via LOOM_RATE_LIMIT (comma-separated, all applied simultaneously);
+# `0`/`off` disables.  Owner keys in LOOM_BYPASS_KEYS skip the limiter — the
+# Step-6 OCR pipeline fans out tens of thousands of calls.  /health and / are
+# always exempt so a platform liveness probe can't be throttled.
+#
+# NOT slowapi: it resolved the matched route's `.endpoint` to decide whether
+# to limit, FastAPI 0.140 wrapped include_router() routes in `_IncludedRouter`
+# (no `.endpoint`), and slowapi then silently exempted EVERY request — live
+# prod took 250 requests from one IP with zero 429s.  loom_api/ratelimit.py
+# reads only the ASGI scope, so a framework upgrade cannot disarm it again.
+app.add_middleware(RateLimit)
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,84 +104,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# IP-keyed rate limits.  Two layers stacked:
-#
-#   100/minute   — burst limit.  Stops single-IP flooding (a botnet stress
-#                  test or a misconfigured client spamming retries).  A
-#                  legitimate generation fans out ~300 /romanize calls in
-#                  ~30 seconds (in parallel via Promise.all on the client),
-#                  which spikes briefly above 100/min — but slowapi's
-#                  fixed-window counter resets each minute, so a real
-#                  generation completes within one window.  If we ever see
-#                  legitimate users hitting this, raise to 200/minute.
-#
-#   2000/day     — sustained-abuse cap.  ~6 generations/day per IP, well
-#                  above any plausible single-user demand and well below
-#                  what a scraper would need for "all of Pinyin novels"
-#                  type extraction.
-#
-# Override via LOOM_RATE_LIMIT — comma-separated, all limits applied
-# simultaneously.  Examples:
-#   LOOM_RATE_LIMIT="200/minute,5000/day"   (looser)
-#   LOOM_RATE_LIMIT="60/minute,500/day"     (tighter, abuse mode)
-#   LOOM_RATE_LIMIT="2000/day"              (single limit, no burst control)
-_rate_env = os.environ.get("LOOM_RATE_LIMIT", "100/minute,2000/day").strip()
-_rate_limits = [s.strip() for s in _rate_env.split(",") if s.strip()]
-limiter = Limiter(key_func=get_remote_address, default_limits=_rate_limits)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Owner-bypass keys.  Comma-separated long random strings — generate with
+# Owner-bypass keys (Tier A) live in LOOM_BYPASS_KEYS — comma-separated long
+# random strings, generated with
 #   python -c "import secrets; print(secrets.token_hex(32))"
-# Set in Railway as LOOM_BYPASS_KEYS.  Frontend stores the key in
-# localStorage (see apps/web/components/owner-key-bootstrap.tsx) and
-# attaches it as X-Loom-Auth on every request via the openapi-fetch
-# middleware.  Requests carrying a key in the allow-list bypass the
-# slowapi pipeline entirely — same code path as if the rate limiter
-# weren't installed.
-#
-# Why bypass instead of an "owner bucket" with a higher per-key limit:
-# the operator is the only legitimate consumer of unrestricted access,
-# and a higher bucket would still rate-limit the synthetic-data
-# generation pipeline (Step 6) at the bucket boundary.  Skipping the
-# limiter entirely is the right semantics — and downgrading later (if a
-# key leaks) just means rotating the env var, no code change.
-# Key parsing + the constant-time check live in loom_api/auth.py (shared with
-# the owner-gated /debug/echo route); the list is still read once at worker
-# boot here, preserving the original semantics.
-_BYPASS_KEYS: list[str] = bypass_keys_from_env()
-
-
-def _is_bypass_key(presented: str) -> bool:
-    return is_bypass_key(presented, _BYPASS_KEYS)
-
-
-class BypassAwareSlowAPI:
-    """ASGI middleware that wraps SlowAPIMiddleware: requests carrying a
-    valid X-Loom-Auth header skip the rate limiter entirely.  All other
-    traffic falls through to slowapi's standard IP-keyed pipeline."""
-
-    def __init__(self, app):
-        # _inner = the slowapi-wrapped pipeline (full app behind a limiter)
-        # _app   = the raw inner app (used when bypass triggers)
-        self._inner = SlowAPIMiddleware(app)
-        self._app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            for k, v in scope.get("headers", []):
-                if k == b"x-loom-auth":
-                    if _is_bypass_key(v.decode("latin-1").strip()):
-                        return await self._app(scope, receive, send)
-                    break
-        return await self._inner(scope, receive, send)
-
+# The frontend stores one in localStorage (apps/web/components/owner-key-
+# bootstrap.tsx) and sends it as X-Loom-Auth on every request.  Parsing + the
+# constant-time comparison live in loom_api/auth.py, shared by the rate
+# limiter (which skips limiting for a valid key) and the owner-gated
+# /debug/echo route.  Why a full bypass rather than a bigger bucket: the
+# operator is the only legitimate consumer of unrestricted access, and a
+# higher bucket would still throttle the Step-6 synthetic-data pipeline at the
+# boundary.  Revoking is an env-var rotation, no code change.
 
 # Extension-version telemetry: log X-Loom-Version headers (ext ≥0.4.0) so
 # Railway logs show the live version mix across all browsers.  Watch via
 # `loom.version` lines.  Implementation + rationale: loom_api/client_version.py.
 app.add_middleware(ClientVersionLog)
-app.add_middleware(BypassAwareSlowAPI)
 # Idle-recycle activity tracker — registered LAST so it is OUTERMOST and sees
 # every request (in-flight count + last-activity time for loom_api/recycle.py).
 # /health and / are excluded so a liveness probe can't keep a bloated idle

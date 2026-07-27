@@ -185,20 +185,27 @@ def test_reports_rate_limit_env(monkeypatch):
     assert body["ratelimit"]["env_LOOM_RATE_LIMIT"] == "30/minute,2000/day"
 
 
-def test_reports_limiter_enabled_and_key(monkeypatch):
+def test_reports_parsed_limits_and_bucket_key(monkeypatch):
     monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
-    body = echo(_request([(b"x-loom-auth", b"k1")], app=_FakeApp()))
-    rl = body["ratelimit"]
-    assert rl["present"] is True
-    assert rl["enabled"] is True
-    # the key the limiter would bucket this request under
-    assert rl["remote_address_key"] == "203.0.113.9"
+    monkeypatch.setenv("LOOM_RATE_LIMIT", "30/minute,2000/day")
+    rl = echo(_request([(b"x-loom-auth", b"k1")], app=_FakeApp()))["ratelimit"]
+    assert rl["limits"] == [[30, 60], [2000, 86400]]
+    assert rl["enforcing"] is True
+    # the key a request from this peer buckets under
+    assert rl["bucket_key"] == "203.0.113.9"
+
+
+def test_reports_not_enforcing_when_disabled(monkeypatch):
+    monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
+    monkeypatch.setenv("LOOM_RATE_LIMIT", "off")
+    rl = echo(_request([(b"x-loom-auth", b"k1")], app=_FakeApp()))["ratelimit"]
+    assert rl["enforcing"] is False
 
 
 def test_ratelimit_block_never_raises_without_app(monkeypatch):
     monkeypatch.setenv("LOOM_BYPASS_KEYS", "k1")
     body = echo(_request([(b"x-loom-auth", b"k1")]))
-    assert body["ratelimit"]["present"] is False
+    assert body["ratelimit"]["bucket_key"] == "203.0.113.9"
 
 
 # ---------------------------------------------------------------------------

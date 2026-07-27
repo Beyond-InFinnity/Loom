@@ -9,56 +9,79 @@
 #
 # When adding a new language to loom_core/romanize.py, add its pip dep here
 # too — otherwise Railway will 500 on the first request that exercises it.
+#
+# ── PINNED (2026-07-26) — versions are load-bearing, don't unpin ───────
+# These were unpinned, so every deploy silently re-resolved and prod drifted
+# away from every laptop.  That is how rate limiting broke: prod landed on
+# fastapi 0.140, whose new `_IncludedRouter` wrapper made slowapi exempt
+# EVERY request (silently — 250 req/1 IP, zero 429s), while local resolved
+# 0.136 and enforced perfectly, so it was unreproducible off prod.  Pins are
+# the versions verified live on 2026-07-26.
+#
+# Upgrading: bump deliberately, deploy, then RE-VERIFY the live behaviour
+# that version could break — at minimum burst the rate limiter until it 429s
+# (loom_api/ratelimit.py reads only the ASGI scope now, but the lesson is
+# that a silent security-control failure looks exactly like success).
 
 # ── Web framework ──────────────────────────────────────────────────────
-fastapi
-uvicorn[standard]
-gunicorn                               # master process for worker recycling (ROMANIZATION_CACHE.md §4 Option A)
-uvicorn-worker                         # gunicorn worker class (uvicorn.workers is deprecated upstream)
-pydantic>=2.0
+fastapi==0.140.0
+uvicorn[standard]==0.51.0
+gunicorn==26.0.0                               # master process for worker recycling (ROMANIZATION_CACHE.md §4 Option A)
+uvicorn-worker==0.4.0                         # gunicorn worker class (uvicorn.workers is deprecated upstream)
+pydantic==2.13.4
 
 # ── Result cache (ROMANIZATION_CACHE.md Layer 1) ───────────────────────
 # Postgres-backed content-addressed cache for /romanize/batch +
 # /annotate/batch.  Fail-open: without DATABASE_URL (or with the DB down)
 # the API runs uncached.  Web-only deps — desktop requirements.txt omits
 # them on purpose (loom_api/result_cache.py imports psycopg lazily).
-psycopg[binary]
-psycopg-pool
+psycopg[binary]==3.3.4
+psycopg-pool==3.3.1
 
 # ── Core dependencies ──────────────────────────────────────────────────
-pysubs2                                # imported by loom_core.models / language
-langdetect                             # _dominant_script fallback
-langcodes
-language_data                          # transitive of langcodes
+pysubs2==1.8.1                                # imported by loom_core.models / language
+langdetect==1.0.9                             # _dominant_script fallback
+langcodes==3.5.1
+language_data==1.4.0                          # transitive of langcodes
 
 # ── Per-language romanization deps ─────────────────────────────────────
 # Japanese — fugashi (MeCab) + unidic-lite dictionary
-fugashi
-unidic-lite
+fugashi==1.5.2
+unidic-lite==1.0.8
 
 # Chinese — pinyin / zhuyin / Traditional→Simplified
-pypinyin
-jieba
-opencc-python-reimplemented
+pypinyin==0.55.0
+jieba==0.42.1
+opencc-python-reimplemented==0.1.7
 
 # Cantonese — jyutping
-pycantonese
+pycantonese==5.0.0
 
 # Korean — Revised Romanization
-korean-romanizer
+korean-romanizer==0.28.0
+
+# Word tokenizers behind /define (VOCAB_LOOKUP.md).  These were MISSING here
+# and only reached prod because Railpack auto-installs requirements.txt before
+# running this file's build command — i.e. Korean lookup and every generic
+# (space-delimited) language were one build-config change away from silently
+# losing their clickable words.  Listed explicitly so this file is actually
+# the prod dependency set it claims to be.
+kiwipiepy==0.23.2                      # Korean morphology → 다-form lemmas
+simplemma==1.2.0                       # generic lemmatizer (~50 langs)
+regex==2026.7.19                       # \p{L}\p{M} — keeps Brahmic matras / Arabic diacritics in-word
 
 # Cyrillic — ru / uk / be / sr / bg / mk / mn
-cyrtranslit
+cyrtranslit==1.2.0
 
 # Thai — paiboon / RTGS / IPA (RTGS engine = thai2rom = neural, needs torch)
-pythainlp
-python-crfsuite                        # han_solo CRF segmenter (transitive)
-numpy                                  # thai2rom calls .numpy() on torch tensors
+pythainlp==5.3.4
+python-crfsuite==0.9.12                        # han_solo CRF segmenter (transitive)
+numpy==2.5.1                                  # thai2rom calls .numpy() on torch tensors
 # Pin torch to the CPU-only PyPI wheel — the default index pulls CUDA
 # builds (~800MB).  Railway gets the ~700MB CPU build via this hint
 # (still much smaller than the ~2GB CUDA install).
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch
+torch==2.13.0
 
 # Indic — Devanagari / Bengali / Tamil / Telugu / Gujarati / Gurmukhi
-aksharamukha
+aksharamukha==2.3

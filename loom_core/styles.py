@@ -1,5 +1,6 @@
 # app/styles.py
-from .romanize import get_romanizer, get_annotation_func, get_japanese_pipeline, _apply_thai_word_boundaries
+from .romanize import (get_romanizer, get_annotation_func, get_japanese_pipeline,
+                       _apply_thai_word_boundaries, normalize_phonetic_system)
 
 FONT_LIST = [
     # Latin + Cyrillic (broad script coverage)
@@ -251,6 +252,7 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
     Drives dynamic labels: "Furigana Style", "Pinyin Style", "Zhuyin Style",
     "Jyutping Style", etc.  Returns "Annotation" as generic fallback.
     """
+    phonetic_system = normalize_phonetic_system(phonetic_system)
     if phonetic_system:
         _SYS_NAMES = {
             "pinyin": "Pinyin", "zhuyin": "Zhuyin", "jyutping": "Jyutping",
@@ -329,6 +331,7 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     chinese_variant : str | None
         One of "zh-Hans", "zh-Hant", "yue", or None for non-Chinese.
     """
+    phonetic_system = normalize_phonetic_system(phonetic_system)
     # Normalize ISO 639-2 aliases (jpn/kor/tha/chi/cht/...) to BCP-47 once.
     # Downstream helpers (annotation_system_name, chinese_variant,
     # font_for_script) all key on the primary 2-letter subtag.

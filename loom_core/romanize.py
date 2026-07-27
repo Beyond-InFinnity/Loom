@@ -75,6 +75,29 @@ import re
 # invalidation logic exists or is needed.  Refactors that don't change output
 # must NOT bump (that would needlessly cold-start the cache).
 _ENGINE_VERSION_DEFAULT = 1
+def normalize_phonetic_system(system: str | None) -> str | None:
+    """Canonical form of a `phonetic_system` request value.
+
+    LOAD-BEARING for cache integrity.  The result cache keys a row on the
+    resolved system NAME (styles._annotation_system_name / romanization_name),
+    but the OUTPUT comes from get_annotation_func / get_romanizer.  Those two
+    resolvers must agree about which system was requested, or one writes engine
+    A's output into engine B's row and every later reader gets the wrong
+    reading until an ENGINE_VERSIONS bump.
+
+    They didn't: the name side lowercased while the engine side matched
+    case-sensitively, so `phonetic_system:"Pinyin"` on zh-Hant was named Pinyin
+    but computed ZHUYIN — poisoning the hottest zh-Hant key (the extension
+    defaults zh-Hant to Pinyin) from one unauthenticated request.
+
+    Both sides now route every value through here, so they agree by
+    construction rather than by both remembering to lowercase.
+    """
+    if not system:
+        return None
+    return system.strip().lower() or None
+
+
 ENGINE_VERSIONS: dict[str, int] = {
     # primary lang code -> version; unlisted languages use the default.
     # Bumped when the /annotate `tokens` output format changes so old cache
@@ -2952,6 +2975,7 @@ def get_annotation_func(lang_code: str, system: str = None):
 
     Returns None for languages without character-aligned annotations.
     """
+    system = normalize_phonetic_system(system)
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
     # Explicit system override — works for any Chinese variant
@@ -3725,6 +3749,7 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
         phonetic_system: Override for languages with multiple romanization
                          systems.  Thai: ``"rtgs"``, ``"paiboon"``, ``"ipa"``.
     """
+    phonetic_system = normalize_phonetic_system(phonetic_system)
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 

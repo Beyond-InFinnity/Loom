@@ -119,10 +119,17 @@ class RateLimit:
             return await self._app(scope, receive, send)
         if scope.get("path", "") in self._exempt:
             return await self._app(scope, receive, send)
-        if self._has_bypass_key(scope):
-            return await self._app(scope, receive, send)
 
         try:
+            # Inside the guard: the bypass check parses an ATTACKER-CONTROLLED
+            # header, so it must not be able to throw past the middleware. It
+            # once did — a non-ASCII X-Loom-Auth raised out of compare_digest,
+            # 500'ing the request AND skipping the count below, which made it an
+            # unlimited unauthenticated request source. Root cause is fixed in
+            # auth.py; this keeps any future parsing bug fail-open instead of
+            # fail-500.
+            if self._has_bypass_key(scope):
+                return await self._app(scope, receive, send)
             retry_after = self._consume(self._client_key(scope))
         except Exception:  # pragma: no cover - defensive
             # Fail OPEN, like the result cache: a limiter bug must never take

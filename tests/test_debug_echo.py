@@ -82,6 +82,26 @@ def test_is_bypass_key_false_when_no_keys_configured():
     assert is_bypass_key("anything", []) is False
 
 
+def test_is_bypass_key_survives_a_non_ascii_presented_key():
+    """hmac.compare_digest raises TypeError comparing non-ASCII *str*.
+
+    The header is latin-1 decoded from the raw bytes and h11 permits obs-text
+    (0x80-0xFF) in field values, so `X-Loom-Auth: <any high byte>` reached
+    compare_digest and 500'd the request — verified live in prod, and because
+    the check runs before the limiter's try/except it also skipped rate-limit
+    counting entirely.
+    """
+    assert is_bypass_key("\xe9secret", ["abc123"]) is False
+
+
+def test_is_bypass_key_matches_a_non_ascii_key():
+    assert is_bypass_key("clé-secrète", ["clé-secrète"]) is True
+
+
+def test_is_bypass_key_non_ascii_presented_against_non_ascii_key_mismatch():
+    assert is_bypass_key("clé-secrète", ["clé-autre"]) is False
+
+
 def test_bypass_keys_from_env_parses_comma_list(monkeypatch):
     monkeypatch.setenv("LOOM_BYPASS_KEYS", " k1 , k2 ,, k3 ")
     assert bypass_keys_from_env() == ["k1", "k2", "k3"]

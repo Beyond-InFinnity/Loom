@@ -191,6 +191,39 @@ def test_wrong_key_does_not_bypass():
     assert _status(_run(mw, _scope(headers=hdr))) == 429
 
 
+def test_non_ascii_auth_header_still_counts_and_never_raises():
+    """A garbage X-Loom-Auth must not become a free pass OR a 500.
+
+    The bypass check ran outside the fail-open try/except, so a non-ASCII
+    header raised out of the middleware: 500 to the client (with no CORS
+    headers, since ServerErrorMiddleware sits outside CORS) and — worse — the
+    request was never counted, so repeating it was an unlimited unauthenticated
+    request source.
+    """
+    app = _App()
+    mw = RateLimit(app, limits=[(2, 60)], bypass_keys=["k1"], clock=_Clock())
+    hdr = [(b"x-loom-auth", "\xe9x".encode("latin-1"))]
+    assert _status(_run(mw, _scope(headers=hdr))) == 200
+    assert _status(_run(mw, _scope(headers=hdr))) == 200
+    assert _status(_run(mw, _scope(headers=hdr))) == 429  # counted, not bypassed
+
+
+def test_bypass_check_failure_cannot_escape_the_middleware(monkeypatch):
+    """Defence in depth: even if the key check itself blows up, the limiter
+    must fail OPEN (serve the request) rather than 500 — the same contract the
+    counting path already had."""
+    from loom_api import ratelimit as rl
+
+    def boom(*_a, **_k):
+        raise RuntimeError("key check exploded")
+
+    monkeypatch.setattr(rl, "is_bypass_key", boom)
+    app = _App()
+    mw = rl.RateLimit(app, limits=[(5, 60)], bypass_keys=["k1"], clock=_Clock())
+    assert _status(_run(mw, _scope(headers=[(b"x-loom-auth", b"k1")]))) == 200
+    assert app.calls == 1
+
+
 def test_empty_limits_disables_middleware():
     app = _App()
     mw = RateLimit(app, limits=[], clock=_Clock())

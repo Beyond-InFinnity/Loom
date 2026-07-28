@@ -520,3 +520,35 @@ def test_single_route_emits_tokens_for_no_annotation_func_lang(mem_cache):
     resp = annotate(AnnotateRequest(text="Los gatos", lang_code="es"))
     assert resp.spans == [] and resp.html == ""
     assert any(t.word == "gatos" for t in resp.tokens)
+
+
+# --------------------------------------------------------------------------- #
+# is_token_supported must share cache_lang's canonicalization.
+#
+# Same defect class as engine_version: it split the RAW code, so an ffprobe
+# 3-letter tag (`spa`, `fre`, `ger` — what Matroska emits, and what the desktop
+# and web paths read) resolved to an unknown primary and the route produced NO
+# tokens at all. The track rendered, but not one word was clickable.
+# --------------------------------------------------------------------------- #
+
+def test_iso639_2_aliases_are_token_supported():
+    from loom_core.romanize import is_token_supported
+
+    for alias, canonical in (("spa", "es"), ("fre", "fr"), ("fra", "fr"),
+                             ("ger", "de"), ("deu", "de"), ("ita", "it"),
+                             ("jpn", "ja"), ("kor", "ko"), ("cmn", "zh")):
+        assert is_token_supported(alias) is is_token_supported(canonical) is True, alias
+
+
+def test_region_variants_are_token_supported():
+    from loom_core.romanize import is_token_supported
+
+    for code in ("ja-JP", "es-ES", "pt-BR", "zh-Hant", "de-DE"):
+        assert is_token_supported(code) is True, code
+
+
+def test_genuinely_unsupported_languages_stay_unsupported():
+    from loom_core.romanize import is_token_supported
+
+    for code in ("vi", "xyz", "", "he"):
+        assert is_token_supported(code) is False, code

@@ -3565,8 +3565,18 @@ GENERIC_TOKEN_PRIMARIES = frozenset(
 
 def is_token_supported(lang_code: str) -> bool:
     """True if build_word_tokens can produce word tokens for *lang_code* — via a
-    custom analyzer OR the generic simplemma path."""
-    primary = (lang_code or "").lower().split("-")[0].split("_")[0]
+    custom analyzer OR the generic simplemma path.
+
+    Canonicalized through `cache_lang`, like engine_version: splitting the RAW
+    code meant an ffprobe 3-letter tag (`spa`, `fre`, `ger` — what Matroska
+    emits and what the desktop/web paths read) resolved to an unknown primary,
+    so the route produced NO tokens and not one word on the track was
+    clickable, even though the language is fully supported under its 2-letter
+    code.
+    """
+    from .styles import cache_lang  # lazy: styles imports this module
+
+    primary = cache_lang(lang_code or "").split("-")[0].lower()
     return primary in SUPPORTED_TOKEN_PRIMARIES or primary in GENERIC_TOKEN_PRIMARIES
 
 

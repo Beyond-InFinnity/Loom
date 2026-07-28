@@ -101,6 +101,11 @@ def normalize_phonetic_system(system: str | None) -> str | None:
 
 
 ENGINE_VERSIONS: dict[str, int] = {
+    #   fr/it v4: an elided proclitic's LEMMA is now the full word it stands
+    #       for (qu'->que, l'->le, d'->di) instead of the bare letter, which
+    #       was a real headword and answered confidently wrong ('qu' ->
+    #       "alternative spelling of ku").  Cached `tokens` change, so old
+    #       rows must not be served.
     # primary lang code -> version; unlisted languages use the default.
     # Bumped when the /annotate `tokens` output format changes so old cache
     # rows (an earlier token shape) can't be served — the version is part of
@@ -150,9 +155,9 @@ ENGINE_VERSIONS: dict[str, int] = {
     "yue": 5,
     "ko": 4,
     "es": 3,
-    "fr": 3,
+    "fr": 4,
     "de": 3,
-    "it": 3,
+    "it": 4,
     "pt": 3,
     "sv": 3,
     "nl": 3,
@@ -3426,25 +3431,65 @@ _ELISION_PRIMARIES = frozenset({"fr", "it", "ca", "oc"})
 
 
 def _split_elision(word: str, offset: int, primary: str) -> list:
-    """Split leading elided proclitics off *word*; return [(subword, start), …].
+    """Split leading elided proclitics off *word*; return [(subword, start, elided), …].
 
     Only peels a clitic of ≤2 letters immediately before an apostrophe, so
     Romance elisions separate but genuine apostrophe-words stay intact.  For
-    non-elision languages (or words with no apostrophe) returns [(word, offset)].
+    non-elision languages (or words with no apostrophe) returns
+    [(word, offset, False)].
+
+    The third element marks a PEELED CLITIC.  It is what keeps
+    `_elision_lemma` from firing on ordinary words: the `un` of "un chat" must
+    keep its own lemma, while the `un` of "un'amica" resolves to `una`.
     """
     if primary not in _ELISION_PRIMARIES or ("'" not in word and "’" not in word):
-        return [(word, offset)]
+        return [(word, offset, False)]
     parts: list = []
     i, n = 0, len(word)
     while i < n:
         ap = next((j for j in range(i, n) if word[j] in "'’"), -1)
         if ap != -1 and 1 <= ap - i <= 2:
-            parts.append((word[i:ap], offset + i))
+            parts.append((word[i:ap], offset + i, True))
             i = ap + 1
         else:
             break
-    parts.append((word[i:], offset + i))
-    return [(w, o) for (w, o) in parts if w]
+    parts.append((word[i:], offset + i, False))
+    return [(w, o, e) for (w, o, e) in parts if w]
+
+
+# An elided proclitic, mapped to the full word it stands for — for LOOKUP ONLY.
+# The peeled clitic is a real headword in its own right, so without this the
+# card answers the wrong question with total confidence: `l'` in l'école
+# returned "The twelfth letter of the French alphabet" and `qu'` in qu'il
+# returned "alternative spelling of ku" (a JAPANESE romanization entry).  On
+# real corpus text 7.4% of French tokens (163/2191) were bare clitics — every
+# one a wrong answer that scores as a HIT, since a gloss did come back.
+#
+# Genuinely ambiguous cases resolve to the commonest reading rather than
+# nothing: French l' is le OR la, and Italian l' is il/lo/la — but any article
+# beats a letter-of-the-alphabet entry.  ca/oc are deliberately absent: the
+# splitter serves them, but nothing has been measured there to justify a guess.
+_ELISION_LEMMA = {
+    "fr": {"qu": "que", "l": "le", "d": "de", "j": "je", "c": "ce",
+           "n": "ne", "m": "me", "t": "te", "s": "se"},
+    "it": {"d": "di", "c": "ci", "l": "il", "un": "una"},
+}
+
+
+def _elision_lemma(clitic: str, primary: str, parts: list, idx: int) -> str:
+    """Lookup key for a peeled clitic (falls back to the normal lemma path)."""
+    table = _ELISION_LEMMA.get(primary) or {}
+    key = clitic.lower()
+    full = table.get(key)
+    if full is None:
+        return _generic_lemma(clitic, primary) or clitic
+    # French s' is `se` (reflexive) nearly always, but `si` before il/ils —
+    # and "s'il vous plaît" is common enough to be worth the special case.
+    if primary == "fr" and key == "s":
+        nxt = parts[idx + 1][0].lower() if idx + 1 < len(parts) else ""
+        if nxt.startswith("il"):
+            return "si"
+    return full
 
 
 _simplemma_loaded = None
@@ -3479,10 +3524,14 @@ def _generic_tokens(text: str, lang_code: str) -> list:
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     tokens: list = []
     for m in _GENERIC_WORD_RE.finditer(clean):
-        for word, start in _split_elision(m.group(), m.start(), primary):
+        parts = _split_elision(m.group(), m.start(), primary)
+        for idx, (word, start, elided) in enumerate(parts):
             if not _is_lookupable_word(word):
                 continue
-            lemma = _generic_lemma(word, primary) or word
+            # A peeled clitic looks up the word it stands for; everything else
+            # takes the normal lemma path.  Display is untouched either way.
+            lemma = (_elision_lemma(word, primary, parts, idx) if elided
+                     else (_generic_lemma(word, primary) or word))
             tokens.append((word, lemma, [], None, start, len(word)))
     return tokens
 

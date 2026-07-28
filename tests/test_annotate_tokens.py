@@ -552,3 +552,79 @@ def test_genuinely_unsupported_languages_stay_unsupported():
 
     for code in ("vi", "xyz", "", "he"):
         assert is_token_supported(code) is False, code
+
+
+# --------------------------------------------------------------------------- #
+# Elided clitics must look up their FULL form.
+#
+# _split_elision peels a ≤2-letter proclitic before an apostrophe so the stem
+# becomes clickable (l'école -> école).  But the peeled clitic stayed a lookup
+# key in its own right, and a bare letter is a real Wiktionary headword — so
+# clicking `l'` in l'école returned "The twelfth letter of the French alphabet"
+# and `qu'` in qu'il returned "alternative spelling of ku", a JAPANESE
+# romanization entry.  Measured on real corpus text: 163/2191 French tokens
+# (7.4%) were bare clitics, every one of them a confidently WRONG answer that
+# scores as a HIT in any coverage metric because a gloss came back.
+#
+# Fix is on the LOOKUP key only (the lemma the client sends as `words`); the
+# displayed surface is untouched.
+# --------------------------------------------------------------------------- #
+
+def _lemma_of(text, lang, surface):
+    from loom_core.romanize import _generic_tokens
+    for tok in _generic_tokens(text, lang):
+        if tok[0] == surface:
+            return tok[1]
+    raise AssertionError(f"{surface!r} not tokenized out of {text!r}")
+
+
+def test_french_clitics_look_up_their_full_form():
+    cases = [
+        ("qu'il arrive", "qu", "que"),
+        ("l'école", "l", "le"),
+        ("d'un ami", "d", "de"),
+        ("j'ai faim", "j", "je"),
+        ("c'est vrai", "c", "ce"),
+        ("n'est pas", "n", "ne"),
+        ("m'aide", "m", "me"),
+        ("t'appelle", "t", "te"),
+        ("s'appelle Marie", "s", "se"),
+    ]
+    for text, surface, expected in cases:
+        assert _lemma_of(text, "fr", surface) == expected, f"{text}: {surface}'"
+
+
+def test_french_s_before_il_is_si_not_se():
+    """s' is `se` (reflexive) almost always, but `si` before il/ils — and
+    "s'il vous plaît" is common enough to be worth disambiguating."""
+    assert _lemma_of("s'il vous plaît", "fr", "s") == "si"
+    assert _lemma_of("s'ils viennent", "fr", "s") == "si"
+    assert _lemma_of("s'appelle", "fr", "s") == "se"
+
+
+def test_the_displayed_surface_is_unchanged():
+    """Only the lookup key moves; the caption still reads what it read."""
+    from loom_core.romanize import _generic_tokens
+    words = [t[0] for t in _generic_tokens("qu'il arrive", "fr")]
+    assert words[0] == "qu"
+
+
+def test_stem_after_the_clitic_is_unaffected():
+    assert _lemma_of("l'école", "fr", "école") == "école"
+
+
+def test_genuine_apostrophe_words_are_not_split():
+    from loom_core.romanize import _generic_tokens
+    words = [t[0] for t in _generic_tokens("aujourd'hui", "fr")]
+    assert words == ["aujourd'hui"]
+
+
+def test_a_non_elided_word_keeps_its_own_lemma():
+    """The mapping must fire ONLY for a peeled clitic, never for the same
+    letters standing as a normal word."""
+    assert _lemma_of("un chat", "fr", "un") == "un"
+
+
+def test_italian_clitics_map_too():
+    assert _lemma_of("d'accordo", "it", "d") == "di"
+    assert _lemma_of("c'è un problema", "it", "c") == "ci"

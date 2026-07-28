@@ -23,7 +23,9 @@ and corpus stores though — a down DB degrades to "not found", never a 500.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass, field
@@ -323,6 +325,62 @@ def _lookup_ja_decomposition(
     return exact
 
 
+class _TTLMemo:
+    """Single-value, time-bounded memo with stampede protection.
+
+    For `capabilities()`, whose answer changes only when someone runs an
+    ingest but whose query is a full scan of the ~8.5M-row / ~3GB
+    `dictionary_entry` (no index covers `gloss_lang` — the composite one was
+    dropped to free disk).  The extension calls it once per session, so before
+    this every activation cost a heap scan while holding one of only FOUR pool
+    connections; a handful at once starved the pool, which trips the result
+    cache's 30-second breaker and turns a DB blip into a CPU stampede.
+
+    A failed/empty computation is NOT cached: a down DB answers "no languages",
+    and remembering that would leave every word un-clickable for the whole TTL
+    after the DB came back.  The lock keeps N concurrent callers to ONE scan.
+    """
+
+    def __init__(self, ttl: float, clock=time.time):
+        self._ttl = ttl
+        self._clock = clock
+        self._at = 0.0
+        self._value = None
+        self._lock = threading.Lock()
+
+    def get(self, compute):
+        now = self._clock()
+        value = self._value
+        if value is not None and (now - self._at) < self._ttl:
+            return value
+        with self._lock:
+            # Re-check: another thread may have refreshed while we waited.
+            now = self._clock()
+            if self._value is not None and (now - self._at) < self._ttl:
+                return self._value
+            fresh = compute()
+            if fresh:                      # never cache a failure
+                self._value = fresh
+                self._at = now
+            return fresh
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._value = None
+
+
+# How long a capabilities() answer is reused. Env-tunable like the other caps;
+# an ingest becomes visible within this window without a redeploy.
+CAPABILITIES_TTL_SECONDS = float(os.environ.get("LOOM_CAPABILITIES_TTL", "900"))
+
+
+# Decomposition cost caps (see _lookup_with_decomposition).  Both the word
+# length and the word count are request-controlled, and substring generation is
+# O(len²) per word, so these bound an otherwise unbounded allocation.
+_ZH_DECOMPOSE_MAX_WORD_LEN = 12    # longest plausible CC-CEDICT phrase entry
+_ZH_DECOMPOSE_MAX_SUBS = 5000      # total candidate substrings per request
+
+
 def _lookup_with_decomposition(
     lang: str,
     words: Sequence[str],
@@ -350,14 +408,39 @@ def _lookup_with_decomposition(
     if not missed:
         return exact
 
-    # Every substring of every missed word (words are short → bounded), minus
-    # the missed words themselves (already known absent), in one batch query.
+    # Every substring of every missed word, minus the missed words themselves
+    # (already known absent), in one batch query.
+    #
+    # BOUNDED DELIBERATELY.  This used to assume "words are short" — but both
+    # the length and the count are REQUEST-controlled: /define/batch admits 200
+    # words × (1 + 16 alt_keys) candidates of up to _MAX_WORD_LENGTH (64) chars,
+    # and generation is O(len²) per word.  A ~2 MB body (well under the 10 MB
+    # cap, costing one rate-limit slot) produced ~416k substrings in testing and
+    # scales to millions — enough to OOM the single worker before the query even
+    # ran.  The caps are far above real usage: a paused caption line is ~20
+    # tokens, of which few miss, and CC-CEDICT's longest real entries are short
+    # phrases — so legitimate decomposition is unaffected.
     subs: set[str] = set()
+    skipped_long = 0
     for w in missed:
+        if len(w) > _ZH_DECOMPOSE_MAX_WORD_LEN:
+            skipped_long += 1          # not a word; nothing to decompose into
+            continue
         chars = list(w)
         for a in range(len(chars)):
             for b in range(a + 1, len(chars) + 1):
                 subs.add("".join(chars[a:b]))
+        if len(subs) >= _ZH_DECOMPOSE_MAX_SUBS:
+            break
+    if skipped_long or len(subs) >= _ZH_DECOMPOSE_MAX_SUBS:
+        # Never truncate silently — a quietly-capped result looks identical to
+        # "the dictionary has no parts for this".
+        logger.warning(
+            "loom.dictionary zh decomposition capped: %d missed, %d over %d chars, "
+            "%d candidate substrings (cap %d)",
+            len(missed), skipped_long, _ZH_DECOMPOSE_MAX_WORD_LEN,
+            len(subs), _ZH_DECOMPOSE_MAX_SUBS,
+        )
     subs.difference_update(missed)
     sub_defs = exact_lookup(sorted(subs)) if subs else {}
 
@@ -507,6 +590,7 @@ class PostgresDictionaryStore:
 
         self._pool = get_pool(dsn)
         self._backoff_until = 0.0
+        self._caps_memo = _TTLMemo(CAPABILITIES_TTL_SECONDS)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
@@ -574,8 +658,18 @@ class PostgresDictionaryStore:
         return out
 
     def capabilities(self) -> Capabilities:
+        # Memoized: this is a full heap scan of ~8.5M rows (no index covers
+        # gloss_lang) and the extension calls it once per session, so an
+        # un-cached version burned a scan + one of four pool connections per
+        # activation.  The answer only changes on an ingest.  See _TTLMemo —
+        # failures aren't cached, so a DB blip doesn't blank capabilities for
+        # the whole TTL.
+        cached = self._caps_memo.get(self._compute_capabilities)
+        return cached or Capabilities(source_langs=(), gloss_langs=())
+
+    def _compute_capabilities(self) -> Optional[Capabilities]:
         if self._down():
-            return Capabilities(source_langs=(), gloss_langs=())
+            return None
         try:
             with self._pool.connection(timeout=2.5) as conn:
                 # One DISTINCT (lang, gloss_lang) scan gives all three views:
@@ -585,7 +679,7 @@ class PostgresDictionaryStore:
                     "ORDER BY lang, gloss_lang").fetchall()
         except Exception:
             self._trip("capabilities")
-            return Capabilities(source_langs=(), gloss_langs=())
+            return None
         by_source: dict[str, list[str]] = {}
         glosses: list[str] = []
         for lang, gloss in pairs:

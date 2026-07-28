@@ -123,6 +123,107 @@ def test_zh_no_decomposition_when_nothing_matches(mem_store):
     assert "虚构词" not in mem_store.lookup("zh", ["虚构词"])
 
 
+# --------------------------------------------------------------------------- #
+# Decomposition cost bound.  Substring generation is O(len²) PER WORD and the
+# route admits up to 200 words × (1 + 16 alt_keys) × 64 chars — the code's
+# "words are short → bounded" assumption is a request-controlled quantity, so
+# a ~2 MB body (well under the 10 MB cap, one rate-limit slot) could generate
+# millions of strings and OOM the single worker before the query even ran.
+# --------------------------------------------------------------------------- #
+
+def _pathological_words(n: int = 200, length: int = 64):
+    """n DISTINCT max-length CJK "words" — what 200 words × 16 alt_keys can
+    expand to in the candidate union the route passes down."""
+    base = 0x4E00
+    return ["".join(chr(base + (i * length + j) % 20000) for j in range(length))
+            for i in range(n)]
+
+
+def _recording_lookup():
+    """exact_lookup stub that records how many keys it was asked for."""
+    seen = {"max_batch": 0, "total": 0}
+
+    def lookup(words):
+        n = len(list(words))
+        seen["max_batch"] = max(seen["max_batch"], n)
+        seen["total"] += n
+        return {}
+
+    return lookup, seen
+
+
+def test_zh_decomposition_key_count_is_bounded_for_pathological_input():
+    from loom_api.dictionary import _lookup_with_decomposition
+
+    lookup, seen = _recording_lookup()
+    words = _pathological_words()      # the worst request the route allows
+    _lookup_with_decomposition("zh", words, lookup)
+    # Unbounded generation would be ~200 × 2080 distinct substrings.
+    assert seen["max_batch"] < 6000, f"generated {seen['max_batch']} keys in one query"
+
+
+def test_zh_decomposition_completes_promptly_for_pathological_input():
+    import time
+    from loom_api.dictionary import _lookup_with_decomposition
+
+    lookup, _ = _recording_lookup()
+    words = _pathological_words()
+    t0 = time.time()
+    _lookup_with_decomposition("zh", words, lookup)
+    assert time.time() - t0 < 2.0
+
+
+# --------------------------------------------------------------------------- #
+# capabilities() memoization.  The query is SELECT DISTINCT lang, gloss_lang
+# over ~8.5M rows / ~3GB with no covering index (the composite was dropped to
+# free disk), i.e. a full heap scan — and the extension calls it once per
+# session, holding one of only four pool connections each time.
+# --------------------------------------------------------------------------- #
+
+def test_capabilities_memo_recomputes_only_after_ttl():
+    from loom_api.dictionary import _TTLMemo
+
+    now = [1000.0]
+    calls = []
+    memo = _TTLMemo(ttl=900, clock=lambda: now[0])
+
+    def compute():
+        calls.append(1)
+        return "CAPS"
+
+    assert memo.get(compute) == "CAPS"
+    assert memo.get(compute) == "CAPS"
+    assert len(calls) == 1, "second call within the TTL must not re-query"
+    now[0] += 901
+    assert memo.get(compute) == "CAPS"
+    assert len(calls) == 2
+
+
+def test_capabilities_memo_does_not_cache_a_failed_result():
+    """A down DB returns an empty answer; caching that would keep every word
+    un-clickable for the whole TTL after the DB recovers."""
+    from loom_api.dictionary import _TTLMemo
+
+    memo = _TTLMemo(ttl=900, clock=lambda: 1000.0)
+    calls = []
+
+    def failing():
+        calls.append(1)
+        return None
+
+    memo.get(failing)
+    memo.get(failing)
+    assert len(calls) == 2
+
+
+def test_zh_decomposition_still_works_for_real_words(mem_store):
+    """The bound must not break the case it exists for."""
+    mem_store.add("zh", "一", "yī", [{"gloss": ["one"]}], source="cc-cedict")
+    mem_store.add("zh", "顶", "dǐng", [{"gloss": ["measure word"]}], source="cc-cedict")
+    d = mem_store.lookup("zh", ["一顶"])["一顶"]
+    assert [p.word for p in d.parts] == ["一", "顶"]
+
+
 def test_ja_no_decomposition_for_ordinary_miss(mem_store):
     # A plain missing word (no honorific suffix) still just misses — the JA
     # fallback only peels honorifics, it doesn't segment arbitrarily.

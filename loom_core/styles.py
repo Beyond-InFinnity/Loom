@@ -55,6 +55,28 @@ _ISO639_ALIAS = {
     "heb": "he", "yid": "yi",
     # Vietnamese (Latin, so no romanization, but the font default matters)
     "vie": "vi",
+    # Latin-script languages.  Irrelevant while this map only served
+    # romanization (these need none), but they became DEFINABLE in the Tier-1/
+    # Tier-2 dictionary batches, and cache_lang() now also decides which code
+    # gets word tokens + which ENGINE_VERSIONS applies.  Without these, a track
+    # ffprobe labels `spa`/`fre`/`ger` (the desktop + web paths read exactly
+    # these) fell through as its own language: no clickable words at all, plus
+    # a fragmented cache.  Both ISO 639-2/B (fre/ger/dut/cze/rum — what
+    # Matroska and ffprobe usually emit) and /T (fra/deu/nld/ces/ron) forms.
+    "eng": "en",
+    "spa": "es",
+    "fra": "fr", "fre": "fr",
+    "deu": "de", "ger": "de",
+    "ita": "it",
+    "por": "pt",
+    "nld": "nl", "dut": "nl",
+    "swe": "sv",
+    "pol": "pl",
+    "ces": "cs", "cze": "cs",
+    "ron": "ro", "rum": "ro",
+    "dan": "da",
+    "tur": "tr",
+    "ind": "id",
 }
 
 # ---------------------------------------------------------------------------

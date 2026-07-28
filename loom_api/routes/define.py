@@ -22,6 +22,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from loom_core.romanize import hepburn_from_kana, is_token_supported
+from loom_core.styles import _normalize_lang_code
 from loom_core.grammar import (
     analyze_grammar,
     extract_form_of_lemma,
@@ -277,9 +278,32 @@ def define_capabilities() -> DefineCapabilities:
     )
 
 
+def dictionary_lang(code: str) -> str:
+    """Canonical `dictionary_entry.lang` for a requested language code.
+
+    Every other route canonicalizes; this one used to do `.strip().lower()` and
+    pass the result straight into `WHERE lang = %s`.  Rows are stored under
+    'ja' / 'zh' / 'ko', so `ja-JP`, `jpn` or `zh-Hant` matched NOTHING and the
+    caller got 200 OK with every word `found:false` — indistinguishable from
+    "not in the dictionary" — and silently lost the lang-gated branches too (ZH
+    decomposition, JA honorific peel).  The extension normalizes client-side
+    (define-lang.ts), so it was latent there but live for the Loom Player, the
+    web app, and any direct caller.
+
+    Mirrors the client: alias-normalize, take the primary subtag, and collapse
+    every Chinese variant (including yue) onto 'zh', which is how the CC-CEDICT
+    rows are stored.
+    """
+    normalized = _normalize_lang_code((code or "").strip())
+    primary = normalized.split("-")[0].split("_")[0].lower()
+    if primary in ("zh", "yue", "cmn", "wuu", "nan", "hak"):
+        return "zh"
+    return primary
+
+
 @router.post("/define/batch", response_model=DefineResponse)
 def define_batch(req: DefineRequest) -> DefineResponse:
-    lang = req.lang.strip().lower()
+    lang = dictionary_lang(req.lang)
     gloss_lang = (req.gloss_lang or "en").strip().lower().split("-")[0].split("_")[0] or "en"
 
     # Per-word candidate keys (primary + alternates), then ONE batched lookup

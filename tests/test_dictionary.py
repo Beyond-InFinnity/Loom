@@ -595,3 +595,47 @@ def test_aligned_list_length_caps_are_validated(define_handler):
     _, Req = define_handler
     with _pytest.raises(pydantic.ValidationError):
         Req(lang="ja", words=["犬"], readings=["いぬ"] * (_MAX_WORDS + 1))
+
+
+# --------------------------------------------------------------------------- #
+# /define/batch language normalization.
+#
+# Every other route canonicalizes its lang code; define only did .strip().lower()
+# and passed that straight into WHERE lang = %s.  Rows are stored under 'ja'/'zh',
+# so a caller sending 'ja-JP', 'jpn' or 'zh-Hant' got 200 OK with every word
+# found:false — indistinguishable from "not in the dictionary" — plus no ZH
+# decomposition and no JA honorific peel, since those branch on lang == "zh"/"ja".
+# The extension normalizes client-side (define-lang.ts), so this is latent there
+# but live for the Loom Player, the web app and any direct caller.
+# --------------------------------------------------------------------------- #
+
+class TestDefineLangNormalization:
+    def test_region_variant_resolves(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("ja", "猫", "ねこ", [{"gloss": ["cat"]}], source="jmdict")
+        r = handler(Req(lang="ja-JP", words=["猫"])).results[0]
+        assert r.found is True and r.senses[0].gloss == ["cat"]
+
+    def test_iso639_2_alias_resolves(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("ja", "猫", "ねこ", [{"gloss": ["cat"]}], source="jmdict")
+        assert handler(Req(lang="jpn", words=["猫"])).results[0].found is True
+
+    def test_chinese_script_variants_resolve_to_zh(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("zh", "猫", "māo", [{"gloss": ["cat"]}], source="cc-cedict")
+        for code in ("zh-Hant", "zh-CN", "cmn", "zh-TW"):
+            assert handler(Req(lang=code, words=["猫"])).results[0].found is True, code
+
+    def test_zh_decomposition_survives_a_variant_code(self, mem_store, define_handler):
+        """The lang-gated branches must see the canonical code too."""
+        handler, Req = define_handler
+        mem_store.add("zh", "一", "yī", [{"gloss": ["one"]}], source="cc-cedict")
+        mem_store.add("zh", "顶", "dǐng", [{"gloss": ["MW"]}], source="cc-cedict")
+        r = handler(Req(lang="zh-Hans", words=["一顶"])).results[0]
+        assert [p.word for p in r.parts] == ["一", "顶"]
+
+    def test_canonical_codes_unchanged(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("ko", "사람", None, [{"gloss": ["person"]}], source="krdict")
+        assert handler(Req(lang="ko", words=["사람"])).results[0].found is True

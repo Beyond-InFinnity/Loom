@@ -476,3 +476,50 @@ class TestCacheLangDedupIntegration:
         a = handler(Req(texts=[text], lang_code="zh")).results[0].tokens
         b = handler(Req(texts=[text], lang_code="zh-yue")).results[0].tokens
         assert [t.word for t in a] == [t.word for t in b]
+
+
+# --------------------------------------------------------------------------- #
+# engine_version must share cache_lang's canonicalization
+#
+# The cache key pairs cache_lang(code) with engine_version(code).  cache_lang
+# aliases jpn->ja and cmn->zh-Hans, but engine_version split the RAW code, so
+# `jpn` resolved to the DEFAULT version (1) while `ja` was at 7.  Since the
+# version is part of the key, alias-coded rows were never invalidated by a
+# bump: a `jpn` row written before the ja v5/v6/v7 fixes (speaker-label
+# stripping, ます word-grouping) is still served today, with the known-broken
+# output those bumps existed to flush.  ffprobe hands the desktop/web paths
+# exactly these 3-letter codes.
+# --------------------------------------------------------------------------- #
+
+class TestEngineVersionCanonicalization:
+    def test_iso639_2_aliases_track_their_canonical_language(self):
+        from loom_core.romanize import engine_version
+
+        for alias, canonical in (("jpn", "ja"), ("kor", "ko"), ("cmn", "zh"),
+                                 ("zho", "zh"), ("rus", "ru"), ("hin", "hi")):
+            assert engine_version(alias) == engine_version(canonical), (
+                f"{alias} is immune to {canonical}'s ENGINE_VERSIONS bumps"
+            )
+
+    def test_region_variants_track_their_canonical_language(self):
+        from loom_core.romanize import engine_version
+
+        for variant, canonical in (("ja-JP", "ja"), ("zh-CN", "zh"), ("ko-KR", "ko")):
+            assert engine_version(variant) == engine_version(canonical)
+
+    def test_hk_uses_the_cantonese_version_not_mandarin(self):
+        """cache_lang(zh-HK) is `yue`, so its version must come from yue —
+        otherwise a future yue-only bump leaves every zh-HK row stale."""
+        from loom_core.romanize import engine_version
+        from loom_core.styles import cache_lang
+
+        assert cache_lang("zh-HK") == "yue"
+        assert engine_version("zh-HK") == engine_version("yue")
+
+    def test_canonical_codes_are_unchanged(self):
+        """The fix must not move any EXISTING key — that would orphan the
+        whole live cache."""
+        from loom_core.romanize import ENGINE_VERSIONS, engine_version
+
+        for code in ("ja", "ko", "zh", "yue", "hi", "ru", "es", "fr", "de"):
+            assert engine_version(code) == ENGINE_VERSIONS[code]

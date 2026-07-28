@@ -170,9 +170,26 @@ ENGINE_VERSIONS: dict[str, int] = {
 
 
 def engine_version(lang_code: str) -> int:
-    """Cache-key version for *lang_code* (primary subtag, case-insensitive)."""
-    primary = (lang_code or "").split("-")[0].lower()
-    return ENGINE_VERSIONS.get(primary, _ENGINE_VERSION_DEFAULT)
+    """Cache-key version for *lang_code*.
+
+    Canonicalized through the SAME `cache_lang` the other half of the cache key
+    uses.  Splitting the raw code instead made alias codes immune to version
+    bumps: `cache_lang` aliases jpn->ja, but a raw split left `jpn` on the
+    DEFAULT version while `ja` moved to 7 — and since the version is part of
+    the key, those rows were never invalidated.  A `jpn` row written before the
+    ja v5/v6/v7 fixes still served the output those bumps existed to flush.
+    ffprobe hands the desktop/web paths exactly these 3-letter codes.
+
+    Chinese collapses back to the ENGINE_VERSIONS key: cache_lang returns the
+    script variant (zh-Hans/zh-Hant/yue), the version table is keyed zh / yue.
+    That also fixes zh-HK, whose version previously came from `zh` even though
+    it romanizes as Cantonese.
+    """
+    from .styles import cache_lang  # lazy: styles imports this module
+
+    clang = cache_lang(lang_code or "")
+    key = clang.split("-")[0].lower()
+    return ENGINE_VERSIONS.get(key, _ENGINE_VERSION_DEFAULT)
 
 
 # Matches ASS override tag blocks: {...}

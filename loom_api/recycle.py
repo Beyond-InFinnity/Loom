@@ -47,6 +47,16 @@ from .limits import _env_bool, _env_int
 
 logger = logging.getLogger("loom.recycle")
 
+# Uvicorn/gunicorn configure only their own loggers; without a handler the
+# stdlib lastResort drops anything below WARNING. Attach one (idempotent) so
+# INFO telemetry actually emits — the same fix result_cache.py carries.
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
+
+
 # Read once at worker boot; override via Railway env (restart to apply).
 IDLE_RECYCLE_ENABLED = _env_bool("LOOM_IDLE_RECYCLE", True)
 IDLE_RECYCLE_SECONDS = _env_int("LOOM_IDLE_RECYCLE_SECONDS", 1800)     # 30 min

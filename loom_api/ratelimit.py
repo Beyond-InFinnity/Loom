@@ -37,6 +37,16 @@ from .auth import bypass_keys_from_env, is_bypass_key
 
 logger = logging.getLogger("loom.ratelimit")
 
+# Uvicorn/gunicorn configure only their own loggers; without a handler the
+# stdlib lastResort drops anything below WARNING. Attach one (idempotent) so
+# INFO telemetry actually emits — the same fix result_cache.py carries.
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
+
+
 DEFAULT_RATE_LIMIT = "30/minute,2000/day"
 
 _PERIODS = {"second": 1, "minute": 60, "hour": 3600, "day": 86400}

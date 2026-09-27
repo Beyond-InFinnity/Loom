@@ -156,6 +156,91 @@ def test_ja_ellipsis_between_words_keeps_both_clean():
     assert "か" in words
 
 
+# Katakana MeCab doesn't know is shredded into fragments that are themselves
+# REAL headwords — アルミン → アルミ ("aluminium") + ン (a particle), ミカサ → ミ (the
+# honorific prefix 御) + カサ ("umbrella"), リヴァイ → リ + ヴァ + イ (symbols).
+# resolve_spans re-joins them into one word, but the token used to inherit the
+# FIRST fragment's lemma.  The extension looks the lemma up BEFORE the surface
+# (words:[lemma], alt_keys:[[surface]]), so the card confidently answered
+# "aluminium" for a character's name.  A re-joined word's lemma is the word
+# itself — a JMdict miss then gives an honest empty card.
+@pytest.mark.parametrize("text, name", [
+    ("アルミン", "アルミン"),                    # アルミ(aluminium) + ン(particle)
+    ("ミカサ", "ミカサ"),                        # ミカ + サ(suffix)
+    ("ミカサが来た", "ミカサ"),                  # ミ(御, prefix) + カサ(傘) in context
+    ("エレンとミカサとアルミン", "ミカサ"),
+    ("エレンとミカサとアルミン", "アルミン"),    # アル + ミン
+    ("リヴァイ", "リヴァイ"),                    # リ + ヴァ + イ, all 記号
+    ("フリーレン", "フリーレン"),                # フリー(free) + レン
+    ("ユーベルが来た", "ユーベル"),              # ユー(you) + ベル(bell)
+    ("コンピューターウイルス", "コンピューターウイルス"),  # two real nouns → the compound
+    # A name whose LAST syllable MeCab reads as an inflecting morpheme is still
+    # a name, not a predicate: the fragment can't attach to what precedes it.
+    ("ヒナタ", "ヒナタ"),                        # ヒナ(雛, noun) + タ(past た) — た needs a predicate
+    ("ヒナタ！", "ヒナタ"),                      # the vocative, a name's commonest use
+    ("ヒナタ、大丈夫？", "ヒナタ"),
+    ("カナタ", "カナタ"),                        # カナ(仮名) + タ(た)
+    ("イツキ", "イツキ"),                        # イツ(何時, pronoun) + キ(来る) — no suru-noun
+    ("ヒマリ", "ヒマリ"),                        # ヒマ(暇) + リ(classical り)
+    ("ソウタ！", "ソウタ"),                      # ソウ(そう, adverb) + タ(た)
+    ("アラタ！", "アラタ"),                      # アラ(あら, interjection) + タ(た)
+    ("ソノダが来た", "ソノダ"),                  # ソノ(其の, adnominal) + ダ(copula) — no host
+    ("イケダ！", "イケダ"),                      # イケ(行く) + ダ — the copula never follows a verb
+    ("ナルトとオサム", "オサム"),                # オサ(押す) + ム(classical む)
+])
+def test_ja_rejoined_katakana_word_lemma_is_the_whole_word(text, name):
+    spans, toks = _tokens("ja", text)
+    _assert_aligned(spans, toks)
+    by_word = {t[0]: t for t in toks}
+    assert name in by_word, f"expected one {name} token, got {list(by_word)}"
+    assert by_word[name][1] == name
+
+
+def test_ja_rejoined_katakana_name_keeps_its_honorific_grouping():
+    # ミカサさん is one word (suffix さん merges backward); its lemma is the name —
+    # never 御, the prefix MeCab read ミ as.  /define's honorific peel still
+    # splits さん off when the whole word misses.
+    spans, toks = _tokens("ja", "ミカサさん")
+    _assert_aligned(spans, toks)
+    assert [(t[0], t[1]) for t in toks] == [("ミカサさん", "ミカサ")]
+
+
+@pytest.mark.parametrize("text, word, lemma", [
+    ("エレン", "エレン", "エレン"),                        # ONE MeCab token — its own lemma
+    ("シュタルクが", "シュタルク", "シュタルク"),          # シュタルク-stark, cleaned
+    ("テレビを見た", "テレビ", "テレビ"),                  # single-token loanwords keep theirs
+    ("コンピューター", "コンピューター", "コンピューター"),
+    # A predicate WRITTEN in katakana is a real chain: the head's dictionary form
+    # is still the right lookup, exactly as for its kana/kanji spelling.
+    ("ワカリマシタ", "ワカリマシタ", "分かる"),            # verb + ます + た
+    ("ダメダ", "ダメダ", "駄目"),                          # noun + copula
+    ("ソウデスネ", "ソウデスネ", "そう"),                  # adverb + です + ね
+    ("ヨカッタ", "ヨカッタ", "良い"),                      # i-adjective + た
+    ("イイデス", "イイデス", "良い"),                      # i-adjective + です
+    ("ワカラナイ", "ワカラナイ", "分かる"),                # verb + ない
+    ("ワカラン", "ワカラン", "分かる"),                    # verb + ん (negative ず)
+    ("サボッタ", "サボッタ", "サボる"),                    # verb + た
+    ("ヤラレタ", "ヤラレタ", "遣る"),                      # verb + passive れる + た
+    ("バカダ", "バカダ", "馬鹿"),                          # noun + copula
+    ("イヤダ", "イヤダ", "嫌"),                            # na-adjective + copula
+    ("オッケーデス", "オッケーデス", "オーケー"),          # noun + です
+])
+def test_ja_katakana_lemma_kept_for_real_words_and_predicate_chains(text, word, lemma):
+    spans, toks = _tokens("ja", text)
+    _assert_aligned(spans, toks)
+    by_word = {t[0]: t for t in toks}
+    assert by_word[word][1] == lemma
+
+
+def test_ja_rejoined_katakana_lemma_does_not_touch_romaji():
+    # The merged lemma only feeds the word token; the romaji line (merge mask,
+    # particle は) is computed exactly as before.
+    from loom_core.romanize import get_japanese_pipeline
+    resolve_spans, spans_to_romaji = get_japanese_pipeline()
+    assert spans_to_romaji(resolve_spans("ミカサが来た")) == "Mikasa ga kita"
+    assert spans_to_romaji(resolve_spans("アルミンは？")) == "Arumin wa?"
+
+
 # --------------------------------------------------------------------------- #
 # Chinese
 # --------------------------------------------------------------------------- #

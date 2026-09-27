@@ -28,6 +28,11 @@ from loom_core.romanize import get_annotation_func  # noqa: E402
 A = "今日はいい天気ですね散歩に行きましょうか"
 B = "彼女は昨日図書館で本を読みましたそれから公園を歩きました"
 C = "食べさせられた"
+# Speaker markup: resolve_spans parses each marker and each stretch of dialogue
+# SEPARATELY, several MeCab parses inside one borrow_ja_tagger() hold — every
+# segment's Nodes must be materialized before the next parse, under the lock.
+D = "（金田）今日はいい天気ですね散歩に行きましょうか"
+E = "-（新田）彼女は昨日本を読んだ\n-（虎杖）はい\n（足音）\nそれから公園を歩きました"
 
 
 def _run_threads(targets):
@@ -52,6 +57,26 @@ def test_annotation_spans_are_stable_under_concurrency():
     _run_threads([
         lambda: worker(A, truth_a), lambda: worker(B, truth_b),
         lambda: worker(A, truth_a), lambda: worker(B, truth_b),
+    ])
+    assert not bad, f"{len(bad)} corrupted annotation results, e.g. {bad[0][1][:4]}"
+
+
+def test_marked_up_annotation_spans_are_stable_under_concurrency():
+    # The multi-parse path (one parse per speaker marker / dialogue stretch)
+    # racing against itself and against the single-parse path.
+    spans = get_annotation_func("ja")
+    truth = {t: list(spans(t)) for t in (A, B, D, E)}
+    bad = []
+
+    def worker(text, n=600):
+        for _ in range(n):
+            got = list(spans(text))
+            if got != truth[text]:
+                bad.append((text, got))
+
+    _run_threads([
+        lambda: worker(D), lambda: worker(E), lambda: worker(D), lambda: worker(E),
+        lambda: worker(A), lambda: worker(B),
     ])
     assert not bad, f"{len(bad)} corrupted annotation results, e.g. {bad[0][1][:4]}"
 

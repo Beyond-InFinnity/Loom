@@ -197,6 +197,66 @@ class TestJapaneseLongVowelMode:
         assert "ō" not in out
 
 
+class TestJapaneseLongVowelModeSparesLatin:
+    """The long-vowel pass rewrites doubled vowels — ou→ō, oo→ō/o, ee→ē/e — and it
+    used to run over the WHOLE romanized token, including text that was already
+    Latin in the source: "Thank you って言った" came out "Thank yō", "Loom"
+    "Lōm", "Good morning" "Gōd morning" (and "God morning" unmarked).  Only
+    romaji the kana table PRODUCED has long vowels to mark; source Latin passes
+    through verbatim in every mode."""
+
+    @pytest.mark.parametrize("mode", ["macrons", "doubled", "unmarked"])
+    @pytest.mark.parametrize("text, expected", [
+        ("Thank you って言った", "Thank you tte itta"),
+        ("Loomを使う", "Loom wo tsukau"),
+        ("Good morning", "Good morning"),
+        ("Zoomで会議", "Zoom de kaigi"),
+        ("See you tomorrow", "See you tomorrow"),
+        ("NHKとDNA", "NHK to DNA"),
+    ])
+    def test_source_latin_is_untouched(self, batch_handler, mode, text, expected):
+        handler, Req = batch_handler
+        resp = handler(Req(texts=[text], lang_code="ja", long_vowel_mode=mode))
+        assert resp.results[0].romanized == expected
+
+    @pytest.mark.parametrize("mode, expected", [
+        ("macrons", "OK, ikō"), ("doubled", "OK, ikou"), ("unmarked", "OK, iko"),
+    ])
+    def test_kana_next_to_latin_still_gets_the_mode(self, batch_handler, mode, expected):
+        handler, Req = batch_handler
+        resp = handler(Req(texts=["OK、行こう"], lang_code="ja", long_vowel_mode=mode))
+        assert resp.results[0].romanized == expected
+
+    @pytest.mark.parametrize("mode, expected", [
+        ("macrons", "Loomtō"), ("doubled", "Loomtou"), ("unmarked", "Loomto"),
+    ])
+    def test_kana_to_romaji_marks_only_the_kana_run(self, mode, expected):
+        # Latin glued to kana inside ONE token: the kana run is still marked.
+        from loom_core.romanize import _kana_to_romaji
+        assert _kana_to_romaji("Loomとう", mode) == expected
+
+    @pytest.mark.parametrize("mode", ["macrons", "doubled", "unmarked"])
+    @pytest.mark.parametrize("text, by_mode", [
+        # A chōon (ー) is KANA: the length it adds to a Latin vowel is Japanese
+        # pronunciation, and follows the mode like any other long vowel.
+        ("Noー！", {"macrons": "Nō!", "doubled": "Noo!", "unmarked": "No!"}),
+        ("aー", {"macrons": "Ā", "doubled": "Aa", "unmarked": "A"}),
+        ("cafeー", {"macrons": "Cafē", "doubled": "Cafee", "unmarked": "Cafe"}),
+    ])
+    def test_choon_after_a_latin_vowel_follows_the_mode(self, mode, text, by_mode):
+        from loom_core.styles import get_lang_config
+        cfg = get_lang_config("ja")
+        resolve, to_romaji = cfg["resolve_spans_func"], cfg["spans_to_romaji_func"]
+        assert to_romaji(resolve(text), mode) == by_mode[mode]
+
+    def test_card_hepburn_of_a_latin_word_is_the_word(self):
+        # The definition card romanizes the clicked token's reading, which for an
+        # embedded English word is the word itself.
+        from loom_core.romanize import hepburn_from_kana
+        assert hepburn_from_kana("Loom") == ("Loom", "Loom")
+        assert hepburn_from_kana("とうきょう") == ("Tōkyō", "Toukyou")
+
+
 # ---------------------------------------------------------------------------
 # Response-root metadata
 # ---------------------------------------------------------------------------

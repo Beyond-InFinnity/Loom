@@ -513,8 +513,37 @@ def _strip_reverse_furigana(text: str) -> str:
     decorative meaning hint — the opposite of standard inline furigana.
     The parenthetical kanji is redundant in a resolved-kana pipeline and
     should be dropped rather than romanized.
+
+    Only a parenthetical GLUED to a preceding word is one.  The convention
+    glosses the word it follows, so a (kanji) with no word before it — at the
+    start of the line, after whitespace/a newline, behind a speaker-turn dash,
+    or right after another bracket — glosses nothing: it is a kanji speaker /
+    SFX label or stage direction — （金田）, （藤沼弟）, （足音）, （金田(かなだ)）
+    once the inline reading is stripped, the （小声） of "（金田）（小声）" — the
+    same markup as a katakana （フリーレン）, and it is KEPT, exactly like the
+    katakana one.  The extension renders the Top line from the spans this text
+    becomes, so deleting it erased the label from the display (and a mid-cue
+    "\\n（金田）\\n" left a blank row behind).  Downstream it is handled as
+    markup, not vocabulary: build_word_tokens drops its tokens and
+    strip_speaker_markup drops it from the romaji line.  (The romaji route runs
+    on strip_speaker_markup's output, where "（小声）おい" opens the line — so
+    the display must keep the bracket-adjacent case too, or the romaji line
+    spells a label the Top line doesn't show.)
     """
-    return REVERSE_FURIGANA_RE.sub('', text)
+    markers = None
+
+    def _repl(m):
+        nonlocal markers
+        s = m.start()
+        if s == 0 or text[s - 1].isspace() or text[s - 1] in '）)】]':
+            return m.group(0)          # nothing to gloss: a label / SFX
+        if markers is None:
+            markers = [mm.span() for mm in _SPEAKER_TURN_MARKER.finditer(text)]
+        if any(a <= s < b for a, b in markers):
+            return m.group(0)          # a label behind a turn dash: -（金田）
+        return ''
+
+    return REVERSE_FURIGANA_RE.sub(_repl, text)
 
 
 def _apply_macrons(romaji: str) -> str:
@@ -662,9 +691,13 @@ def _kana_to_romaji(kana_string: str, long_vowel_mode: str = "macrons") -> str:
         punctuation, spaces, Latin).
     long_vowel_mode : str
         One of "macrons" (ō, ū, etc.), "doubled" (ou, uu — no change),
-        or "unmarked" (o, u — collapsed).
+        or "unmarked" (o, u — collapsed).  Applied to the romaji the kana
+        table PRODUCED only — passthrough text is never rewritten.
     """
     parts: list[str] = []
+    # Indices of `parts` that are SOURCE text copied through verbatim (the
+    # passthrough branch below) rather than romaji the kana table produced.
+    passthrough: set[int] = set()
     n = len(kana_string)
     i = 0
 
@@ -705,6 +738,11 @@ def _kana_to_romaji(kana_string: str, long_vowel_mode: str = "macrons") -> str:
                     if c in 'aeiouāīūēō':
                         # Append the base vowel (strip macron if already applied)
                         base = {'ā': 'a', 'ī': 'i', 'ū': 'u', 'ē': 'e', 'ō': 'o'}.get(c, c)
+                        # ー is KANA: the length it gives a source Latin vowel
+                        # ("Noー！", "cafeー") is Japanese pronunciation, so that
+                        # vowel joins the kana-derived run and the pair is
+                        # marked like any long vowel — "Nō!" / "Noo!" / "No!".
+                        passthrough.discard(len(parts) - 1)
                         parts.append(base)
                         break
             i += 1
@@ -738,18 +776,39 @@ def _kana_to_romaji(kana_string: str, long_vowel_mode: str = "macrons") -> str:
             continue
 
         # --- Passthrough (punctuation, spaces, Latin, etc.) ---
+        passthrough.add(len(parts))
         parts.append(ch)
         i += 1
 
-    raw = ''.join(parts)
-
-    # Apply long vowel mode post-processing
+    # Apply long vowel mode post-processing — to KANA-DERIVED romaji only.
+    # The macron / unmarked passes are blind string rewrites (ou→ō, oo→ō, ee→ē
+    # …), so run over the whole token they also rewrote text that was ALREADY
+    # Latin in the source: "Thank you って言った" → "Thank yō", "Loom" → "Lōm",
+    # "Good morning" → "Gōd morning" / "God morning".  Source Latin has no
+    # Japanese long vowels to mark; only runs the kana table produced do.  Each
+    # maximal run of table output is transformed on its own (so a long vowel
+    # spanning two kana — と+う → "tou" → "tō" — still collapses), and
+    # passthrough runs are copied verbatim.
     if long_vowel_mode == "macrons":
-        return _apply_macrons(raw)
+        mark = _apply_macrons
     elif long_vowel_mode == "unmarked":
-        return _collapse_long_vowels(raw)
-    # "doubled" — return raw (ou, oo, etc. preserved as-is)
-    return raw
+        mark = _collapse_long_vowels
+    else:
+        # "doubled" — return raw (ou, oo, etc. preserved as-is)
+        return ''.join(parts)
+    out: list[str] = []
+    run: list[str] = []
+    run_is_source = False
+    for k, part in enumerate(parts):
+        is_source = k in passthrough
+        if run and is_source != run_is_source:
+            out.append(''.join(run) if run_is_source else mark(''.join(run)))
+            run = []
+        run.append(part)
+        run_is_source = is_source
+    if run:
+        out.append(''.join(run) if run_is_source else mark(''.join(run)))
+    return ''.join(out)
 
 
 def _strip_ass(text: str) -> str:
@@ -1121,6 +1180,71 @@ def _surface_offsets(text: str, surfaces: list) -> "list | None":
     return starts
 
 
+# UniDic pos1 of the morphemes that INFLECT: a katakana run built on them may be
+# a predicate written in katakana (ワカリマシタ, ダメダ) rather than a shredded
+# unknown word (see _merge_katakana_fragments / _ja_katakana_run_is_predicate).
+_JA_CONJUGATING_POS = frozenset({'動詞', '形容詞', '助動詞'})
+
+# 助動詞 lemmas a predicate written IN KATAKANA actually inflects with — modern
+# colloquial speech (the robot / foreigner / shouted stylization).  UniDic also
+# carries the CLASSICAL auxiliaries (む, り, けり, べし …), and an unknown name's
+# last syllable is exactly what gets misread as one: オサム → 押す + む, ヒマリ →
+# 暇 + り.  (ず is here because UniDic lemmatizes the negative ん / ぬ to it:
+# ワカラン → 分かる + ず.)
+_JA_KATAKANA_AUX = frozenset({
+    'た', 'だ', 'です', 'ます', 'ない', 'ず', 'れる', 'られる', 'せる', 'させる',
+    'たい', 'う', 'よう', 'まい', 'らしい', 'てる', 'ちゃう', 'へん',
+})
+_JA_COPULA = frozenset({'だ', 'です'})
+# What the copula attaches to: a noun-like head (ダメダ, ホントウダ, ソウデス,
+# ハイデス) — and, for です only, an i-adjective or auxiliary (イイデス, ナイデス).
+_JA_COPULA_HOSTS = frozenset({'名詞', '代名詞', '形状詞', '副詞', '感動詞'})
+_JA_DESU_EXTRA_HOSTS = frozenset({'形容詞', '助動詞'})
+# Verbs that attach straight to a noun: the light verb of a suru-noun (ゲットスル),
+# incl. its honorific / humble forms (ゴメンナサイ = 御免 + 為さる, シツレイイタシマス).
+_JA_LIGHT_VERBS = frozenset({'為る', '出来る', '為さる', '致す'})
+
+
+def _ja_katakana_run_is_predicate(frags: list) -> bool:
+    """Whether a katakana run MeCab split into ``frags`` — (pos1, pos2, lemma)
+    per fragment — reads as one predicate: a head plus inflection each piece of
+    which can GRAMMATICALLY follow the piece before it.
+
+    Containing an inflecting morpheme is not enough: MeCab will read a name's
+    last syllable as one, and the run then kept its first fragment's lemma — the
+    wrong word.  ヒナタ → 雛 ("chick") + た, カナタ → 仮名 + た, イツキ → 何時 + 来る,
+    ソノダ → 其の + だ, イケダ → 行く + だ.  Each has a piece that cannot attach where
+    it sits: past た needs a predicate before it, never a noun / adverb /
+    interjection; the copula follows a noun-like word, never a verb or 其の; a
+    verb follows a noun only as the light verb of a suru-noun.  Real katakana
+    predicates attach cleanly all the way — ワカリ|マシ|タ (verb, ます, た), ダメ|ダ
+    (noun, copula), ソウ|デス|ネ (adverb, です, particle), ヨカッ|タ, イイ|デス."""
+    if not any(p in _JA_CONJUGATING_POS for p, _, _ in frags):
+        return False
+    for k in range(1, len(frags)):
+        pos1, _pos2, lemma = frags[k]
+        if pos1 not in _JA_CONJUGATING_POS:
+            continue                     # a particle / noun tail attaches anywhere
+        prev_pos1, prev_pos2, _ = frags[k - 1]
+        if pos1 == '助動詞':
+            if lemma not in _JA_KATAKANA_AUX:
+                return False
+            if lemma in _JA_COPULA:
+                ok = prev_pos1 in _JA_COPULA_HOSTS or (
+                    lemma == 'です' and prev_pos1 in _JA_DESU_EXTRA_HOSTS)
+            else:
+                ok = prev_pos1 in _JA_CONJUGATING_POS
+        elif pos1 == '動詞':
+            ok = (prev_pos1 == '動詞'                                  # compound verb
+                  or (prev_pos1 == '助詞' and prev_pos2 == '接続助詞')  # テ + イル
+                  or (prev_pos1 == '名詞' and lemma in _JA_LIGHT_VERBS))
+        else:  # 形容詞 after the head: negative ナイ on a verb / auxiliary / particle
+            ok = prev_pos1 in ('動詞', '助動詞', '助詞')
+        if not ok:
+            return False
+    return True
+
+
 def _make_japanese_pipeline():
     """Shared Japanese pipeline — one MeCab tagger instance, two consumers.
 
@@ -1188,6 +1312,27 @@ def _make_japanese_pipeline():
         A fragment never merges across one: "エレン ミカサ" is two names, and
         the merged span has to be a contiguous slice of the line for the
         annotation spans to reconstruct it (see resolve_spans Phase 4).
+
+        LEMMA of a merged run: the fragments MeCab shreds an unknown word into
+        are themselves real headwords — アルミン → アルミ ("aluminium") + ン (a
+        particle), ミカサ → ミ (the honorific prefix 御) + カサ ("umbrella"),
+        リヴァイ → リ + ヴァ + イ (symbols) — so inheriting the FIRST fragment's
+        lemma made the word token look up the wrong word, and /define answered
+        it with confidence (the extension tries the lemma before the surface).
+        A re-joined unknown word's lemma is therefore the merged surface itself
+        (a JMdict miss then gives an honest empty card).  The one exception is a
+        PREDICATE written in katakana — ワカリマシタ (分かる+ます+た), ダメダ (駄目 +
+        copula), ソウデスネ (そう+です+ね): a run containing a conjugating morpheme
+        (verb / i-adjective / auxiliary) is a real inflection chain, and its
+        head's dictionary form is the right lookup exactly as for the same word
+        in kana or kanji, so it keeps the head lemma.  Containing an inflecting
+        morpheme is not proof of a predicate, though: MeCab reads a name's last
+        syllable as one too — ヒナタ → 雛 + past た, イツキ → 何時 + 来る — so the
+        chain must also be one that GRAMMAR allows, each inflecting piece
+        attaching to the piece before it (_ja_katakana_run_is_predicate).  The
+        lemma feeds only the word tokens: the romaji merge rules read POS, and
+        their one lemma check (ます/です) only looks at a token whose pos1 is 助動詞
+        — a run this never re-lemmatizes — so the romaji line is unchanged.
         """
         if not tokens:
             return tokens
@@ -1198,17 +1343,25 @@ def _make_japanese_pipeline():
             if _is_katakana_token(surface):
                 group_s = [surface]
                 group_k = [kana if kana else surface]
+                group_f = [(pos1, pos2, lemma)]
                 j = i + 1
                 while j < len(tokens) and j not in breaks:
-                    ns, nk, _, _, _ = tokens[j]
+                    ns, nk, np1, np2, nl = tokens[j]
                     if _is_katakana_token(ns):
                         group_s.append(ns)
                         group_k.append(nk if nk else ns)
+                        group_f.append((np1, np2, nl))
                         j += 1
                     else:
                         break
                 if len(group_s) > 1:
-                    merged.append((''.join(group_s), ''.join(group_k), pos1, pos2, lemma))
+                    word = ''.join(group_s)
+                    # A run headed by an auxiliary keeps its lemma: the romaji
+                    # merge rules read an auxiliary's lemma (ます/です), and there
+                    # is no head word to look up in such a misparse anyway.
+                    keep = pos1 == '助動詞' or _ja_katakana_run_is_predicate(group_f)
+                    merged.append((word, ''.join(group_k), pos1, pos2,
+                                   lemma if keep else word))
                 else:
                     merged.append(tokens[i])
                 i = j
@@ -1290,12 +1443,15 @@ def _make_japanese_pipeline():
         position.  Every index-keyed consumer (merge mask, particle-は, token
         metadata, the speaker-markup detector, the word grouping) sees the same
         interleaved index space; see Phase 4.
+
+        Over a speaker label only the AUTHOR's reading is shown (Phase 5).
         """
         if not text:
             _romaji_meta['merge_mask'] = []
             _romaji_meta['particle_ha'] = set()
             _romaji_meta['token_meta'] = []
             _romaji_meta['layout'] = frozenset()
+            _romaji_meta['markup_kana'] = {}
             return []
         # Tier 1: extract author annotations from the raw text (before stripping).
         inline_map = _extract_inline_furigana(text)
@@ -1305,37 +1461,49 @@ def _make_japanese_pipeline():
         # tagger's lattice, so materializing outside the lock races with any
         # other thread's parse (see borrow_ja_tagger).
         # Tokens are 5-tuples: (surface, kana, pos1, pos2, lemma)
+        #
+        # Speaker markup is parsed ON ITS OWN (_split_off_speaker_markup).  A
+        # label is metadata, not part of the sentence, but MeCab reads the
+        # line as one sentence and takes the word after "）" as a clause
+        # continuation: （虎杖）は？ read は as the topic particle instead of
+        # "huh?", （新田）ん？ as the nominalizer の, （武田）ある日 as the verb
+        # 有る.  Parsed separately, the dialogue gets exactly the analysis it
+        # has with no label — the same text the romaji line is built from (the
+        # routes strip the markup first).  A line without markup is one parse,
+        # as before.  Each segment's words are materialized before the next
+        # parse (a new parse invalidates the previous Nodes).
         raw_tokens = []
         with borrow_ja_tagger() as shared:
-            words = (shared or tagger)(clean)
-            for word in words:
-                surface = word.surface
-                if not surface:
-                    continue
-                kana = pos1 = pos2 = lemma = None
-                try:
-                    kana = word.feature.kana
-                    if kana is None or kana == '*':
-                        kana = None
-                except (AttributeError, IndexError):
-                    pass
-                try:
-                    pos1 = word.feature.pos1 or ''
-                except (AttributeError, IndexError):
-                    pos1 = ''
-                try:
-                    pos2 = word.feature.pos2 or ''
-                except (AttributeError, IndexError):
-                    pos2 = ''
-                try:
-                    lemma = word.feature.lemma or ''
-                except (AttributeError, IndexError):
-                    lemma = ''
-                # Override: 私 defaults to ワタクシ in UniDic — ワタシ is the
-                # modern standard reading used in virtually all anime/media.
-                if surface == '私' and kana == 'ワタクシ':
-                    kana = 'ワタシ'
-                raw_tokens.append((surface, kana, pos1, pos2, lemma))
+            for segment in _split_off_speaker_markup(clean):
+                words = (shared or tagger)(segment)
+                for word in words:
+                    surface = word.surface
+                    if not surface:
+                        continue
+                    kana = pos1 = pos2 = lemma = None
+                    try:
+                        kana = word.feature.kana
+                        if kana is None or kana == '*':
+                            kana = None
+                    except (AttributeError, IndexError):
+                        pass
+                    try:
+                        pos1 = word.feature.pos1 or ''
+                    except (AttributeError, IndexError):
+                        pos1 = ''
+                    try:
+                        pos2 = word.feature.pos2 or ''
+                    except (AttributeError, IndexError):
+                        pos2 = ''
+                    try:
+                        lemma = word.feature.lemma or ''
+                    except (AttributeError, IndexError):
+                        lemma = ''
+                    # Override: 私 defaults to ワタクシ in UniDic — ワタシ is the
+                    # modern standard reading used in virtually all anime/media.
+                    if surface == '私' and kana == 'ワタクシ':
+                        kana = 'ワタシ'
+                    raw_tokens.append((surface, kana, pos1, pos2, lemma))
 
         # Phase 2: Merge adjacent katakana fragments (fixes name splitting) —
         # but never across source whitespace (a gap before token j).
@@ -1351,6 +1519,7 @@ def _make_japanese_pipeline():
         token_meta = []  # per-span (lemma, pos1) for word-level vocab tokens
         particle_ha = set()
         merge_mask = []
+        author_read = set()  # spans whose reading is the author's (tier 1)
 
         for idx, (surface, kana, pos1, pos2, lemma) in enumerate(tokens):
             has_kanji = any(_is_cjk(c) for c in surface)
@@ -1377,6 +1546,7 @@ def _make_japanese_pipeline():
                         particle_ha.add(len(result))
                 result.append((surface, None))
             elif surface in inline_map:
+                author_read.add(len(result))
                 result.append((surface, inline_map[surface]))   # tier 1: author wins
             else:
                 # tier 3: MeCab reading (katakana → hiragana)
@@ -1432,20 +1602,20 @@ def _make_japanese_pipeline():
         # Only INTERIOR whitespace comes back.  Whitespace at the EDGES of the
         # line is dropped, as it always was: the routes strip the input
         # (normalize_text), so edge whitespace only ever reaches this point as
-        # the remnant of content a stripper removed — above all a kanji-only
-        # （名）/（SFX） label, which _strip_reverse_furigana deletes outright.
-        # Rendered, that remnant is a blank first row ("（金田）\n聞いてんのか"),
-        # a cue of stripped labels ("（銃声）\n（悲鳴）") becomes a span list of
-        # nothing but "\n" — which the client renders as a BLANK cue instead of
-        # falling back to rawText on [] — and a trailing "\n" stops a whole-cue
-        # SFX marker from covering the cue.  So the spans tile `clean` minus its
-        # MeCab-unsurfaced edge whitespace (MeCab-SURFACED whitespace, e.g. an
-        # ideographic space 空白 token, is a morpheme like any other and stays).
-        # The tail after a NUL is real text, not a remnant, and is kept.
+        # the remnant of content a stripper removed — an ASS override block or
+        # \N (_strip_ass turns it into a space).  (Kanji （名）/（SFX） labels were
+        # the big source until _strip_reverse_furigana learned to keep them.)
+        # Rendered, such a remnant is a blank first row, a cue reduced to
+        # whitespace becomes a span list the client renders as a BLANK cue
+        # instead of falling back to rawText on [], and a trailing one stops a
+        # whole-cue SFX marker from covering the cue.  So the spans tile `clean`
+        # minus its MeCab-unsurfaced edge whitespace (MeCab-SURFACED whitespace,
+        # e.g. an ideographic space 空白 token, is a morpheme like any other and
+        # stays).  The tail after a NUL is real text, not a remnant, and is kept.
         layout = set()
         starts = _surface_offsets(clean, [s for s, _ in result])
         if starts is not None:
-            spans_out, meta_out, mask_out, ha_out = [], [], [], set()
+            spans_out, meta_out, mask_out, ha_out, author_out = [], [], [], set(), set()
             cur = 0
             for k, pos in enumerate(starts):
                 if pos > cur and k:  # interior gap (a leading one is dropped)
@@ -1455,6 +1625,8 @@ def _make_japanese_pipeline():
                     mask_out.append(merge_mask[k - 1])
                 if k in particle_ha:
                     ha_out.add(len(spans_out))
+                if k in author_read:
+                    author_out.add(len(spans_out))
                 spans_out.append(result[k])
                 meta_out.append(token_meta[k])
                 mask_out.append(merge_mask[k])
@@ -1468,11 +1640,35 @@ def _make_japanese_pipeline():
                 meta_out.append((None, ''))
                 mask_out.append(False)
             result, token_meta, merge_mask, particle_ha = spans_out, meta_out, mask_out, ha_out
+            author_read = author_out
+
+        # Phase 5: over a speaker label, only the AUTHOR's reading.  A kept
+        # kanji label — （新田）, （伏黒）, （藤沼弟） — got MeCab's tier-3 furigana,
+        # and a label is mostly a NAME, MeCab's weakest case: 新田 read しんでん
+        # (Nitta), 伏黒 split into 伏[ふく]黒[くろ] (Fushiguro), 真人 しんじん
+        # (Mahito) — shown over a main character's name on every line he speaks.
+        # A wrong reading is worse than none, and a label is metadata (not a
+        # clickable word), so its generated readings are dropped; an author
+        # inline reading (（金田(かなだ)）) is ground truth and stays.  Exactly the
+        # spans whose word tokens build_word_tokens drops as markup — a cue that
+        # is NOTHING but markup is content (_ja_speaker_markup_span_indices),
+        # so a whole-cue （足音） keeps its ruby.  DISPLAY only: the dropped kana
+        # is kept aside for spans_to_romaji, so any romaji line that pronounces
+        # the label (the desktop generator romanizes whole cues; a route line
+        # can open on a bracket once the leading label is stripped) says what it
+        # always said instead of spelling raw kanji.
+        markup_kana = {}
+        for i in _ja_speaker_markup_span_indices(result):
+            surface, reading = result[i]
+            if reading and i not in author_read:
+                markup_kana[i] = reading
+                result[i] = (surface, None)
 
         _romaji_meta['merge_mask'] = merge_mask
         _romaji_meta['particle_ha'] = particle_ha
         _romaji_meta['token_meta'] = token_meta
         _romaji_meta['layout'] = frozenset(layout)
+        _romaji_meta['markup_kana'] = markup_kana
         return result
 
     def spans_to_romaji(spans: list, long_vowel_mode: str = "macrons") -> str:
@@ -1492,6 +1688,9 @@ def _make_japanese_pipeline():
         merge_mask = _romaji_meta.get('merge_mask', [])
         particle_ha = _romaji_meta.get('particle_ha', set())
         layout = _romaji_meta.get('layout', frozenset())
+        # Readings resolve_spans hid from a label's display (Phase 5) — still
+        # the label's pronunciation.
+        markup_kana = _romaji_meta.get('markup_kana', {})
 
         # Build kana tokens, applying particle は → わ.  Layout spans (source
         # whitespace resolve_spans interleaved) contribute NOTHING: an empty
@@ -1505,7 +1704,7 @@ def _make_japanese_pipeline():
             elif i in particle_ha:
                 kana_tokens.append('わ')
             else:
-                kana_tokens.append(reading if reading else orig)
+                kana_tokens.append(reading or markup_kana.get(i) or orig)
 
         # Merge tokens according to merge mask (verb/auxiliary chains)
         merged = []
@@ -4254,11 +4453,61 @@ _LEADING_SPEAKER_LABEL = re.compile(
 )
 
 
+def _sub_speaker_markers(pattern: "re.Pattern", text: str, repl: str, count: int = 0) -> str:
+    """``pattern.sub(repl, text, count=count)``, matched against the label AS
+    DISPLAYED — i.e. with author inline-furigana READINGS removed.
+
+    Japanese subtitles gloss a name inside its own speaker label: "（金田(かなだ)）
+    おい". A label body is "anything up to the first closing bracket", so the
+    reading's ")" closed the label early — the match was "（金田(かなだ)" and the
+    romaji line kept the stray "）" (") Oi, mate") — and the 16-char body cap
+    counted the reading, so a long name with a long gloss stopped being a label
+    at all.  Matching over the view that drops each INLINE_FURIGANA_RE reading
+    (the same shape resolve_spans strips before display) sees "（金田）"; each
+    match is then mapped back and removed from the ORIGINAL text, so inline
+    furigana OUTSIDE the markup survives for the romanizer's tier-1 readings.
+
+    A line with no inline furigana — author furigana needs KANA glued to a
+    kanji, so this is every zh/ko line — takes ``pattern.sub`` itself, byte for
+    byte: those languages aren't engine-bumped with this fix, and their romaji
+    cache is keyed on this function's output.
+    """
+    if not INLINE_FURIGANA_RE.search(text):
+        return pattern.sub(repl, text, count=count)
+    # view = text minus each "(reading)"; index[k] = text position of view[k].
+    # Only the characters right after a kanji are ever dropped, so "^" and the
+    # "(?<=\n)" lookbehind see the same line starts in the view as in the text.
+    view_parts: list[str] = []
+    index: list[int] = []
+    cur = 0
+    for m in INLINE_FURIGANA_RE.finditer(text):
+        view_parts.append(text[cur:m.end(1)])   # through the kanji…
+        index.extend(range(cur, m.end(1)))
+        cur = m.end()                           # …the "(reading)" is skipped
+    view_parts.append(text[cur:])
+    index.extend(range(cur, len(text)))
+    view = "".join(view_parts)
+    out: list[str] = []
+    cur = 0
+    for k, m in enumerate(pattern.finditer(view)):
+        if count and k >= count:
+            break
+        # Both marker patterns consume at least a bracket or dash (never empty),
+        # and end on a bracket, dash or whitespace — never on a kanji — so a
+        # reading glued to the label's last kanji lies INSIDE [start, end).
+        start, end = index[m.start()], index[m.end() - 1] + 1
+        out.append(text[cur:start])
+        out.append(repl)
+        cur = end
+    out.append(text[cur:])
+    return "".join(out)
+
+
 def strip_leading_speaker_label(text: str) -> str:
     """Return *text* with a single leading （名）/【名】/[名] speaker/SFX label removed.
     A cue that is ENTIRELY a label is returned unchanged (no dialogue body to
     prefer).  See strip_speaker_markup for the multi-speaker generalization."""
-    stripped = _LEADING_SPEAKER_LABEL.sub("", text or "", count=1)
+    stripped = _sub_speaker_markers(_LEADING_SPEAKER_LABEL, text or "", "", count=1)
     return stripped if stripped.strip() else (text or "")
 
 
@@ -4266,12 +4515,29 @@ def strip_speaker_markup(text: str) -> str:
     """Remove ALL speaker-turn markers (leading label + each newline-leading
     dash/label) from *text* for the romanization line (a separate display line,
     so no per-char misalignment).  A cue that is ENTIRELY markup is returned
-    unchanged.  Newlines are preserved; runs of spaces collapse to one."""
+    unchanged.  Newlines are preserved; runs of spaces collapse to one.  A label
+    carrying author inline furigana — （金田(かなだ)） — is removed whole
+    (_sub_speaker_markers)."""
     if not text:
         return text
-    out = _SPEAKER_TURN_MARKER.sub(" ", text)
+    out = _sub_speaker_markers(_SPEAKER_TURN_MARKER, text, " ")
     out = re.sub(r"[ \t　]{2,}", " ", out).strip()
     return out if out.strip() else text
+
+
+def _split_off_speaker_markup(text: str) -> list:
+    """*text* cut at both edges of every speaker-turn marker, so each marker and
+    each stretch of dialogue between markers can be morphologically analyzed on
+    its own (see resolve_spans Phase 1); ``"".join()`` of the result is *text*.
+    ``[text]`` when there is no markup — or a NUL, where MeCab stops reading and
+    resolve_spans keeps the unread tail as one span, which a cut would break."""
+    if not text or "\x00" in text:
+        return [text]
+    cuts = {0, len(text)}
+    for m in _SPEAKER_TURN_MARKER.finditer(text):
+        cuts.update(m.span())
+    cuts = sorted(cuts)
+    return [text[a:b] for a, b in zip(cuts, cuts[1:])]
 
 
 def _speaker_markup_span_indices(spans: list) -> frozenset:
@@ -4301,11 +4567,35 @@ def _speaker_markup_span_indices(spans: list) -> frozenset:
     return frozenset(drop)
 
 
-def _drop_speaker_markup_tokens(tokens: list, spans: list) -> list:
+def _ja_speaker_markup_span_indices(spans: list) -> frozenset:
+    """Japanese: _speaker_markup_span_indices, except that a cue made of NOTHING
+    but markup is content — none of its markers is dropped.
+
+    The shared rule only spares a single marker that is the whole cue.  Several
+    markers that together are the whole cue — an SFX line plus a label line,
+    "（ため息）\\n（金田）", "（ドアが開く）\\n（アルミン）" — have no dialogue to
+    prefer either, and the romaji route already treats them as content:
+    strip_speaker_markup returns an all-markup cue unchanged and the line reads
+    "(Tameiki)(Kaneda)".  Dropping every token left that cue with a romaji line
+    and not one clickable word.  This is the same test (the text left once
+    every marker is removed is blank).  Japanese-only: the zh/ko token paths
+    keep the shared rule, byte for byte (their cache is not engine-bumped for
+    it).  resolve_spans hides generated readings on exactly these spans too.
+    """
+    drop = _speaker_markup_span_indices(spans)
+    if drop:
+        full = "".join((s[0] or "") for s in spans)
+        if not _SPEAKER_TURN_MARKER.sub("", full).strip():
+            return frozenset()
+    return drop
+
+
+def _drop_speaker_markup_tokens(tokens: list, spans: list, indices=None) -> list:
     """Drop word-tokens whose starting span falls within a speaker-turn marker.
     `tokens` are (word, lemma, pos, reading, start, length); `start` is a span
-    index.  No-op when there is no markup."""
-    drop = _speaker_markup_span_indices(spans)
+    index.  No-op when there is no markup.  `indices` picks the marker-span rule
+    (default _speaker_markup_span_indices)."""
+    drop = (indices or _speaker_markup_span_indices)(spans)
     if not drop:
         return tokens
     return [t for t in tokens if t[4] not in drop]
@@ -4346,7 +4636,8 @@ def build_word_tokens(text: str, lang_code: str, spans: list, annotation_func) -
     a lookup dead-end."""
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
     if primary == "ja":
-        return _drop_speaker_markup_tokens(_japanese_tokens(spans, annotation_func), spans)
+        return _drop_speaker_markup_tokens(_japanese_tokens(spans, annotation_func), spans,
+                                           indices=_ja_speaker_markup_span_indices)
     if primary in ("zh", "yue"):
         return _drop_speaker_markup_tokens(_chinese_tokens(text, spans, lang_code), spans)
     if primary == "ko":

@@ -104,9 +104,9 @@ def test_ja_whitespace_spans_are_plain():
 def test_ja_edge_whitespace_is_not_a_span():
     # Only INTERIOR whitespace is layout.  The routes strip the ends
     # (normalize_text), so edge whitespace only ever reaches resolve_spans as
-    # the remnant of content a stripper removed (a kanji-only （名） label the
-    # reverse-furigana pass deletes, an ASS \N) — rendering it would open the
-    # line with a blank row.  HEAD never emitted it either.
+    # the remnant of content a stripper removed (an ASS tag block or \N) —
+    # rendering it would open the line with a blank row.  HEAD never emitted
+    # it either.
     from loom_core.romanize import get_japanese_pipeline
     resolve_spans, _ = get_japanese_pipeline()
     spans = resolve_spans(" 先頭\t\n")
@@ -132,38 +132,51 @@ def test_ja_text_after_nul_is_kept():
     "（拍手） （歓声）",
     "（金田）",
 ])
-def test_ja_cue_of_stripped_labels_has_no_spans(text):
-    # A cue made only of kanji （SFX） labels is emptied by the reverse-furigana
-    # stripper; what's left is the whitespace between them.  Returning that as
-    # the span list made the client render a BLANK cue (it renders spans in
-    # preference to rawText whenever there are any) — [] lets it fall back to
-    # rawText, exactly as on HEAD.
-    spans, toks = _analyze("ja", text)
-    assert spans == [] and toks == []
-
-
-@ja
-@pytest.mark.parametrize("text, body", [
-    ("（金田）\n聞いてんのか", "聞いてんのか"),
-    ("（新田）\nご両親に伺ったんすけど―", "ご両親に伺ったんすけど―"),
-    ("（藤沼弟）\n卒業ぶりですね 伏黒さん", "卒業ぶりですね 伏黒さん"),
-])
-def test_ja_stripped_label_line_leaves_no_blank_first_line(text, body):
-    # Real Netflix JJK cues (spike/netflix/netflix-ja.vtt): a kanji speaker label
-    # on its own line.  The label is stripped from the spans (pre-existing), and
-    # the newline that followed it must not become a leading blank row.
+def test_ja_cue_of_kanji_labels_is_displayed_whole(text):
+    # A cue made only of kanji （SFX） labels.  The reverse-furigana stripper used
+    # to delete every one of them, leaving only the whitespace between — which,
+    # as a span list, made the client render a BLANK cue (it renders spans in
+    # preference to rawText whenever there are any).  A label glued to no word
+    # is not reverse furigana, so it now stays: the spans tile the whole cue and
+    # can never be whitespace-only.
     spans, _toks = _analyze("ja", text)
-    assert not spans[0][0].isspace()
-    assert _joined(spans) == body
+    assert _joined(spans) == text
+    assert not all(s[0].isspace() for s in spans)
 
 
 @ja
-def test_ja_trailing_stripped_label_keeps_whole_cue_sfx_tokens():
-    # （金田） is stripped, leaving a trailing "\n": as a span it made the SFX
-    # marker stop covering the whole cue, so ALL its tokens were dropped.
-    spans, toks = _analyze("ja", "（ドアが開く）\n（金田）")
-    assert _joined(spans) == "（ドアが開く）"
-    assert [t[0] for t in toks] == ["ドア", "が", "開く"]
+@pytest.mark.parametrize("text", [
+    "（金田）\n聞いてんのか",
+    "（新田）\nご両親に伺ったんすけど―",
+    "（藤沼弟）\n卒業ぶりですね 伏黒さん",
+])
+def test_ja_label_line_is_kept_with_no_blank_first_line(text):
+    # Real Netflix JJK cues (spike/netflix/netflix-ja.vtt): a kanji speaker label
+    # on its own line.  The label is displayed (it used to be deleted, and the
+    # newline after it had to be dropped so it didn't open the cue with a blank
+    # row); the newline is now an interior line break.  The label is markup, so
+    # none of its words is clickable.
+    spans, toks = _analyze("ja", text)
+    assert not spans[0][0].isspace()
+    assert _joined(spans) == text
+    label = text[1:text.index("）")]
+    assert all(t[0] not in label for t in toks)
+
+
+@ja
+def test_ja_kanji_label_behaves_like_a_katakana_label():
+    # （金田） is now kept, so this cue is an SFX marker plus a speaker label on
+    # its own line — exactly the katakana label's position.  A cue made of
+    # nothing but markup has no dialogue to prefer, so, like a single whole-cue
+    # （戦闘音）, it is content: every word stays clickable (the SFX words too —
+    # which is what this test pinned while （金田） was deleted and its leftover
+    # "\n" stopped the SFX marker covering the cue).
+    kanji_spans, kanji_toks = _analyze("ja", "（ドアが開く）\n（金田）")
+    kata_spans, kata_toks = _analyze("ja", "（ドアが開く）\n（アルミン）")
+    assert _joined(kanji_spans) == "（ドアが開く）\n（金田）"
+    assert [t[0] for t in kanji_toks] == ["ドア", "が", "開く", "金田"]
+    assert [t[0] for t in kata_toks] == ["ドア", "が", "開く", "アルミン"]
+    assert len(kanji_spans) == len(kata_spans)
 
 
 @ja

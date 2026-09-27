@@ -279,14 +279,37 @@ ENGINE_VERSIONS: dict[str, int] = {
     #       leaving a bare ます that dead-ended into 枡 (masu, "measuring box",
     #       noun).  Spans + romaji are byte-identical; only the annotate `tokens`
     #       change, so bump to flush stale token rows.
-    "ja": 7,
+    #   2026-09 server fixes (review 2026-09-26):
+    #   ja v8: annotation spans keep the source's interior whitespace/newlines
+    #       (MeCab's white_space was dropped, so two-line cues fused and
+    #       embedded English ran together); spans/tokens/romaji change for any
+    #       line with interior whitespace.  Whitespace-free lines are
+    #       byte-identical.
+    #   yue v6: same whitespace fix for the Jyutping annotator (spaced lines had
+    #       ZERO tokens), plus word-grouped Jyutping under pycantonese 5 (prod's
+    #       pin split syllables inside a word); also flushes (yue, 'Pinyin') rows
+    #       that zh-HK + a foreign phonetic_system poisoned with Jyutping.
+    #   th v2: flushes (th, 'Paiboon+ (with tones)') rows poisoned with tone-less
+    #       RTGS by a phonetic_system that isn't a Thai system (the extension
+    #       sends one global override to every language), and (th, 'IPA') rows
+    #       written while the IPA probe's failure was memoized.
+    #   fr v5 / it v5: elided-clitic lemmas — it m'/t'/s'/n'/v' -> mi/ti/si/ne/
+    #       vi (was the bare letter), fr s' before a word merely starting 'il'
+    #       (s'illumine) -> se (was si).
+    #   (zh-Hant +1 lives in _ENGINE_VERSION_VARIANT_BUMPS below: poisoned
+    #   (zh-Hant, 'Pinyin') rows, without cold-starting zh-Hans.  Explicit-
+    #   Jyutping rows under zh-Hans are NOT flushed — their only change is
+    #   syllable grouping/whitespace, and a 'zh' bump would recompute every
+    #   Mandarin row to fix a niche setting.)
+    "ja": 8,
     "zh": 5,
-    "yue": 5,
+    "yue": 6,
+    "th": 2,
     "ko": 4,
     "es": 3,
-    "fr": 4,
+    "fr": 5,
     "de": 3,
-    "it": 4,
+    "it": 5,
     "pt": 3,
     "sv": 3,
     "nl": 3,
@@ -324,7 +347,11 @@ ENGINE_VERSIONS: dict[str, int] = {
 #     there is by primary only, so it would be silently IGNORED;
 #   - values only go UP and entries are never removed: either would move the
 #     version back onto rows written by older code.
-_ENGINE_VERSION_VARIANT_BUMPS: dict[str, int] = {}
+_ENGINE_VERSION_VARIANT_BUMPS: dict[str, int] = {
+    # +1 (2026-09): flush (zh-Hant, 'Pinyin') romanize rows poisoned with
+    # Zhuyin by a phonetic_system that isn't a Chinese system.
+    "zh-Hant": 1,
+}
 
 
 def engine_version(lang_code: str) -> int:

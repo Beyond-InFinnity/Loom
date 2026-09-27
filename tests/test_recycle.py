@@ -125,7 +125,9 @@ def test_middleware_counts_a_real_request_then_releases():
     s = RecycleState()
     app = _App()
     before = s.snapshot()[0]
-    time.sleep(0.01)
+    # > 2 ticks of Windows' ~15.6 ms time.monotonic() resolution, or both
+    # timestamps can read identical and the strict > below flakes.
+    time.sleep(0.05)
     _run(IdleActivityTracker(app, s), _http("/annotate/batch"))
     last_activity, in_flight = s.snapshot()
     assert app.calls == 1

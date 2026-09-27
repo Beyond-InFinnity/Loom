@@ -60,6 +60,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
+          # setuptools >= 82 removed pkg_resources.  macOS runners ship
+          # setuptools 65 in the framework Python, and upgrading past 82 leaves
+          # an empty pkg_resources stub, so jieba's `import pkg_resources`
+          # succeeds and its dictionary load then fails on resource_stream.
+          # Pinning below 82 gives every runner a real pkg_resources.  Prod
+          # builds a fresh venv with no pkg_resources at all, where jieba's
+          # ImportError fallback reads the dictionary file directly.
+          pip install "setuptools<82"
 
       # ─── Playwright + Chromium (cached — ~150MB per platform) ──────────
       - name: Cache Playwright browsers

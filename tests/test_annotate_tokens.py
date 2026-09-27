@@ -628,3 +628,31 @@ def test_a_non_elided_word_keeps_its_own_lemma():
 def test_italian_clitics_map_too():
     assert _lemma_of("d'accordo", "it", "d") == "di"
     assert _lemma_of("c'è un problema", "it", "c") == "ci"
+
+
+def test_italian_pronoun_clitics_look_up_their_full_form():
+    """The first pass mapped only d/c/l/un, so Italian m' t' s' n' v' still
+    looked up the bare letter — `t'` in t'amo answered "The name of the Latin
+    script letter T" (Wiktionary's Italian `t` entry)."""
+    cases = [
+        ("m'ha detto", "m", "mi"),          # mi ha — clitic me / to me
+        ("t'amo", "t", "ti"),               # ti amo
+        ("s'è fatto tardi", "s", "si"),     # si è — reflexive / impersonal si
+        ("n'è valsa la pena", "n", "ne"),   # ne è — partitive "of it"
+        ("v'è gente", "v", "vi"),           # vi è — "there is"
+    ]
+    for text, surface, expected in cases:
+        assert _lemma_of(text, "it", surface) == expected, f"{text}: {surface}'"
+
+
+def test_french_s_is_si_only_before_exactly_il_or_ils():
+    """`si` before il/ils — but only the PRONOUN il/ils.  A prefix check sent
+    every s'il…-initial verb to `si`: s'illumine / s'illustre are reflexive se."""
+    assert _lemma_of("s'illumine", "fr", "s") == "se"
+    assert _lemma_of("S'illustre", "fr", "S") == "se"
+    assert _lemma_of("S'il te plaît", "fr", "S") == "si"
+    assert _lemma_of("s'ils viennent", "fr", "s") == "si"
+    # The generic word regex keeps internal hyphens, so the informal/fansub
+    # spelling arrives as ONE next piece — still the pronoun il.
+    assert _lemma_of("s'il-vous-plaît", "fr", "s") == "si"
+    assert _lemma_of("S'il-te-plaît", "fr", "S") == "si"

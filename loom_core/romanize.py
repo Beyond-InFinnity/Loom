@@ -1074,6 +1074,26 @@ def get_shared_ja_tagger():
     return _shared_ja_tagger
 
 
+def _surface_offsets(text: str, surfaces: list) -> "list | None":
+    """Start offset of each of *surfaces* in *text*, in order — or None.
+
+    For re-inserting what a tokenizer consumed but never surfaced (MeCab
+    reports inter-token whitespace only in fugashi's ``white_space``).  Every
+    gap BEFORE a surface must be whitespace-only — anything else means the
+    surfaces are not the text's own slices, and the caller must not guess at
+    positions.  The tail after the last surface is unconstrained (MeCab stops
+    reading at a NUL, so it can be real text)."""
+    starts = []
+    cur = 0
+    for s in surfaces:
+        pos = text.find(s, cur) if s else -1
+        if pos < 0 or (pos > cur and not text[cur:pos].isspace()):
+            return None
+        starts.append(pos)
+        cur = pos + len(s)
+    return starts
+
+
 def _make_japanese_pipeline():
     """Shared Japanese pipeline — one MeCab tagger instance, two consumers.
 
@@ -1130,12 +1150,17 @@ def _make_japanese_pipeline():
                 return False
         return has_letter
 
-    def _merge_katakana_fragments(tokens: list) -> list:
+    def _merge_katakana_fragments(tokens: list, breaks=frozenset()) -> list:
         """Merge adjacent katakana-only token fragments into single tokens.
 
         MeCab splits unknown katakana names (e.g. ミカサ → ミカ+サ).
         Re-joining consecutive katakana fragments restores the original name.
         Tokens are 5-tuples: (surface, kana, pos1, pos2, lemma).
+
+        ``breaks`` holds the indices of tokens that source WHITESPACE precedes.
+        A fragment never merges across one: "エレン ミカサ" is two names, and
+        the merged span has to be a contiguous slice of the line for the
+        annotation spans to reconstruct it (see resolve_spans Phase 4).
         """
         if not tokens:
             return tokens
@@ -1147,7 +1172,7 @@ def _make_japanese_pipeline():
                 group_s = [surface]
                 group_k = [kana if kana else surface]
                 j = i + 1
-                while j < len(tokens):
+                while j < len(tokens) and j not in breaks:
                     ns, nk, _, _, _ = tokens[j]
                     if _is_katakana_token(ns):
                         group_s.append(ns)
@@ -1229,10 +1254,21 @@ def _make_japanese_pipeline():
 
         Also populates _romaji_meta with merge mask and particle-は indices
         for the paired spans_to_romaji call.
+
+        The spans TILE the cleaned line: ``''.join(s for s, _ in spans)`` is the
+        ASS/furigana-stripped input, interior whitespace and newlines included
+        (edge whitespace is dropped — see Phase 4).  MeCab never surfaces
+        whitespace — fugashi only records it in ``white_space`` — so it comes
+        back as plain LAYOUT spans (reading None) interleaved at its source
+        position.  Every index-keyed consumer (merge mask, particle-は, token
+        metadata, the speaker-markup detector, the word grouping) sees the same
+        interleaved index space; see Phase 4.
         """
         if not text:
             _romaji_meta['merge_mask'] = []
             _romaji_meta['particle_ha'] = set()
+            _romaji_meta['token_meta'] = []
+            _romaji_meta['layout'] = frozenset()
             return []
         # Tier 1: extract author annotations from the raw text (before stripping).
         inline_map = _extract_inline_furigana(text)
@@ -1274,8 +1310,14 @@ def _make_japanese_pipeline():
                     kana = 'ワタシ'
                 raw_tokens.append((surface, kana, pos1, pos2, lemma))
 
-        # Phase 2: Merge adjacent katakana fragments (fixes name splitting)
-        tokens = _merge_katakana_fragments(raw_tokens)
+        # Phase 2: Merge adjacent katakana fragments (fixes name splitting) —
+        # but never across source whitespace (a gap before token j).
+        raw_starts = _surface_offsets(clean, [t[0] for t in raw_tokens])
+        breaks = frozenset() if raw_starts is None else frozenset(
+            j for j in range(1, len(raw_tokens))
+            if raw_starts[j] > raw_starts[j - 1] + len(raw_tokens[j - 1][0])
+        )
+        tokens = _merge_katakana_fragments(raw_tokens, breaks)
 
         # Phase 3: Build spans + compute romaji metadata
         result = []
@@ -1334,9 +1376,76 @@ def _make_japanese_pipeline():
                     pos1, pos2, next_surface, next_pos1, next_pos2, next_lemma)
             merge_mask.append(should_merge)
 
+        # Phase 4: Put back the text MeCab never surfaced.  Phases 1-3 run in
+        # MORPHEME space exactly as before; this interleaves the source's
+        # whitespace (and newlines) as plain LAYOUT spans, so the span list
+        # tiles `clean`.  It is load-bearing for display, not cosmetic: the
+        # extension renders the Top line FROM these spans (rawText is ignored
+        # whenever spans exist), so a dropped "\n" fused every two-line cue, a
+        # dropped " " fused embedded English ("Thankyouverymuchって言った"), and
+        # the newline-anchored speaker-turn detector never saw the second
+        # speaker's （名）.
+        #
+        # Every per-span side table is re-keyed into the interleaved index
+        # space so its consumers stay aligned:
+        #   * token_meta   — layout spans get (None, '') (no lemma, no POS);
+        #   * particle_ha  — shifted to the は's new span index;
+        #   * merge_mask   — a layout span inherits the mask of the morpheme
+        #     BEFORE it, so it is TRANSPARENT to the verb-chain merge: MeCab
+        #     analyses straight through whitespace (言っ|た is still one
+        #     predicate), and the romaji line and the word grouping follow it;
+        #   * layout       — the set of layout indices, which spans_to_romaji
+        #     reads as empty kana (so the romaji line is exactly what it was:
+        #     whitespace is layout, not pronunciation — a newline reads as the
+        #     ordinary word gap, as on the Pinyin line) and _japanese_tokens
+        #     keeps out of a word's surface/reading.
+        # If the surfaces somehow don't tile `clean` in order, fall back to the
+        # morpheme-only list rather than guess at positions.
+        #
+        # Only INTERIOR whitespace comes back.  Whitespace at the EDGES of the
+        # line is dropped, as it always was: the routes strip the input
+        # (normalize_text), so edge whitespace only ever reaches this point as
+        # the remnant of content a stripper removed — above all a kanji-only
+        # （名）/（SFX） label, which _strip_reverse_furigana deletes outright.
+        # Rendered, that remnant is a blank first row ("（金田）\n聞いてんのか"),
+        # a cue of stripped labels ("（銃声）\n（悲鳴）") becomes a span list of
+        # nothing but "\n" — which the client renders as a BLANK cue instead of
+        # falling back to rawText on [] — and a trailing "\n" stops a whole-cue
+        # SFX marker from covering the cue.  So the spans tile `clean` minus its
+        # MeCab-unsurfaced edge whitespace (MeCab-SURFACED whitespace, e.g. an
+        # ideographic space 空白 token, is a morpheme like any other and stays).
+        # The tail after a NUL is real text, not a remnant, and is kept.
+        layout = set()
+        starts = _surface_offsets(clean, [s for s, _ in result])
+        if starts is not None:
+            spans_out, meta_out, mask_out, ha_out = [], [], [], set()
+            cur = 0
+            for k, pos in enumerate(starts):
+                if pos > cur and k:  # interior gap (a leading one is dropped)
+                    layout.add(len(spans_out))
+                    spans_out.append((clean[cur:pos], None))
+                    meta_out.append((None, ''))
+                    mask_out.append(merge_mask[k - 1])
+                if k in particle_ha:
+                    ha_out.add(len(spans_out))
+                spans_out.append(result[k])
+                meta_out.append(token_meta[k])
+                mask_out.append(merge_mask[k])
+                cur = pos + len(result[k][0])
+            tail = clean[cur:]
+            if tail and not tail.isspace():
+                # Everything after a NUL, where MeCab stops reading (trailing
+                # whitespace-only remnants are dropped, see above).
+                layout.add(len(spans_out))
+                spans_out.append((tail, None))
+                meta_out.append((None, ''))
+                mask_out.append(False)
+            result, token_meta, merge_mask, particle_ha = spans_out, meta_out, mask_out, ha_out
+
         _romaji_meta['merge_mask'] = merge_mask
         _romaji_meta['particle_ha'] = particle_ha
         _romaji_meta['token_meta'] = token_meta
+        _romaji_meta['layout'] = frozenset(layout)
         return result
 
     def spans_to_romaji(spans: list, long_vowel_mode: str = "macrons") -> str:
@@ -1355,11 +1464,18 @@ def _make_japanese_pipeline():
             return ''
         merge_mask = _romaji_meta.get('merge_mask', [])
         particle_ha = _romaji_meta.get('particle_ha', set())
+        layout = _romaji_meta.get('layout', frozenset())
 
-        # Build kana tokens, applying particle は → わ
+        # Build kana tokens, applying particle は → わ.  Layout spans (source
+        # whitespace resolve_spans interleaved) contribute NOTHING: an empty
+        # entry vanishes inside a merged chain (言っ|\n|た → "itta") and is
+        # dropped by the join below when it stands alone — so the romaji line
+        # is exactly the morpheme-only line, with the usual one-space word gap.
         kana_tokens = []
         for i, (orig, reading) in enumerate(spans):
-            if i in particle_ha:
+            if i in layout:
+                kana_tokens.append('')
+            elif i in particle_ha:
                 kana_tokens.append('わ')
             else:
                 kana_tokens.append(reading if reading else orig)
@@ -1388,6 +1504,7 @@ def _make_japanese_pipeline():
         'token_meta': _romaji_meta.get('token_meta', []),     # per-span (lemma, pos1)
         'merge_mask': _romaji_meta.get('merge_mask', []),     # merge span i with i+1?
         'particle_ha': _romaji_meta.get('particle_ha', set()),  # spans where は is pronounced わ
+        'layout': _romaji_meta.get('layout', frozenset()),    # source-whitespace spans
     }
 
     return resolve_spans, spans_to_romaji
@@ -1568,6 +1685,110 @@ def _make_zhuyin_annotation_func():
 _JP_SYLLABLE_RE = re.compile(r'[a-z]+[1-6]')
 
 
+def _is_han(char: str) -> bool:
+    """True for a CJK unified/compatibility ideograph, INCLUDING the
+    supplementary-plane extensions (unlike _is_cjk): written Cantonese uses
+    Ext-B characters (𠵱, 𨋢, 𡃁…) that pycantonese does read."""
+    cp = ord(char)
+    return (0x4e00 <= cp <= 0x9fff or 0x3400 <= cp <= 0x4dbf
+            or 0xf900 <= cp <= 0xfaff or 0x20000 <= cp <= 0x323af)
+
+
+def _jyutping_pairs(clean: str) -> tuple:
+    """pycantonese's (word, jyutping) pairs for *clean*, made version-proof and
+    re-aligned onto the source text.  Returns ``(pairs, owner, rank)``.
+
+    Prod pins pycantonese 5.0.0 while 3.4 is what a dev env resolves, and the
+    two segment + format differently in ways that silently changed the live
+    Jyutping line.  Everything is fixed HERE so the annotator and the
+    romanizer can't drift apart:
+
+    1. Intra-word spaces.  5.0 SPACE-SEPARATES the syllables inside a word —
+       ('香港人', 'hoeng1 gong2 jan4') — where 3.4 glued them
+       ('hoeng1gong2jan4').  The romanization line joins parts with ' ', so
+       under 5.0 it lost its word grouping ("hoeng1 gong2 jan4" instead of the
+       intended Pinyin-like "hoeng1gong2jan4").  Each pair's Jyutping is
+       normalized to the glued form; the per-character syllable split
+       (_JP_SYLLABLE_RE) reads both shapes identically.
+
+    2. Whitespace.  pycantonese NEVER sees any: it is called once per maximal
+       non-whitespace run.  Given whitespace, 3.4 drops spaces and newlines,
+       and 5.0 drops ASCII spaces but GLUES a U+3000 / tab / NBSP / "\r" onto
+       the neighbouring hanzi as one unreadable word — ('好　', None),
+       ('大文　你', None) — so the characters beside it lost their readings and
+       raw hanzi leaked into the romanization line.  Both versions also joined
+       words ACROSS a dropped space ("一 二 三" → '一二三').  Per-run calls make
+       source whitespace a hard word boundary under both (the Pinyin line's
+       contract).  A whitespace-free line is ONE run, i.e. the exact call it
+       always was.
+
+    3. Glued symbols.  5.0's segmenter does the same gluing with symbols it has
+       no reading for — ♪ (every lyric line), the name interpunct in 哈利·波特,
+       ⋯⋯, 』, ／, 〜, @: ('♪我愛', None), ('哈利·波特', None) — and its
+       lookup then fails for the whole word (one unknown character voids it).
+       3.4 splits those symbols off.  An unreadable word that mixes hanzi with
+       non-hanzi is split back into hanzi / non-hanzi runs and the hanzi runs
+       are converted on their own.  3.4 never produces such a word, so it is
+       untouched; nor is an all-hanzi unknown word or a Latin/digit token.
+
+    The pairs are then aligned onto `clean` with a cursor that may skip only
+    whitespace, because the spans must TILE the line: the extension renders the
+    Top line from them, and _chinese_tokens — which needs one span per
+    character — bailed on a mismatch, so ANY Jyutping line containing a space
+    or newline had ZERO clickable words.
+
+    ``owner[i]`` is the index into ``pairs`` of the word covering source char
+    i, or -1 for whitespace; ``rank[i]`` is char i's position inside its word.
+    ``owner`` is None when the pairs are not the line's own characters in order
+    (nothing observed does this — a defensive fallback so the callers keep the
+    raw pairs rather than guess at positions)."""
+    import pycantonese  # lazy import
+
+    to_jyutping = pycantonese.characters_to_jyutping
+
+    def unglue(word: str) -> list:
+        han = [_is_han(ch) for ch in word]
+        if all(han) or not any(han):
+            return [(word, None)]
+        out = []
+        k = 0
+        while k < len(word):
+            j = k
+            while j < len(word) and han[j] == han[k]:
+                j += 1
+            piece = word[k:j]
+            out.extend(to_jyutping(piece) if han[k] else [(piece, None)])
+            k = j
+        return out
+
+    raw = []
+    for m in re.finditer(r'\S+', clean):
+        for word, jp in to_jyutping(m.group()):
+            if not word:
+                continue
+            if jp is None and len(word) > 1:
+                raw.extend(unglue(word))
+            else:
+                raw.append((word, jp))
+    pairs = [(word, "".join(jp.split()) if jp else jp) for word, jp in raw if word]
+    n = len(clean)
+    owner = [-1] * n
+    rank = [0] * n
+    cur = 0
+    for w, (word, _jp) in enumerate(pairs):
+        for r, ch in enumerate(word):
+            while cur < n and clean[cur] != ch and clean[cur].isspace():
+                cur += 1
+            if cur >= n or clean[cur] != ch:
+                return pairs, None, None
+            owner[cur] = w
+            rank[cur] = r
+            cur += 1
+    if clean[cur:].strip():
+        return pairs, None, None
+    return pairs, owner, rank
+
+
 def _make_jyutping_annotation_func():
     """Return a Cantonese per-character Jyutping annotation span producer.
 
@@ -1577,31 +1798,53 @@ def _make_jyutping_annotation_func():
     matches the character count (1:1).  Falls back to keeping the whole
     word as one unit when the split doesn't match.
 
-    Non-CJK characters pass through with reading=None.
+    Non-CJK characters pass through with reading=None, and so does source
+    whitespace — the spans tile the line (see _jyutping_pairs), one span per
+    character except the whole-word fallback.
     """
-    import pycantonese  # lazy import
+    import pycantonese  # noqa: F401 — lazy import; a missing dep fails here, as before
 
     def get_spans(text: str) -> list:
         if not text:
             return []
         clean = _strip_ass(text)
+        pairs, owner, rank = _jyutping_pairs(clean)
         spans = []
-        pairs = pycantonese.characters_to_jyutping(clean)
-        for word, jyutping in pairs:
+        if owner is None:
+            # Unalignable output (defensive) — the raw pairs, as before.
+            for word, jyutping in pairs:
+                syllables = _JP_SYLLABLE_RE.findall(jyutping) if jyutping else []
+                if jyutping is None:
+                    spans.extend((char, None) for char in word)
+                elif len(syllables) == len(word):
+                    spans.extend(zip(word, syllables))
+                else:
+                    spans.append((word, jyutping))
+            return spans
+        i, n = 0, len(clean)
+        while i < n:
+            w = owner[i]
+            if w < 0:
+                spans.append((clean[i], None))  # source whitespace, verbatim
+                i += 1
+                continue
+            word, jyutping = pairs[w]
+            syllables = _JP_SYLLABLE_RE.findall(jyutping) if jyutping else []
             if jyutping is None:
                 # Non-CJK or unrecognized — pass through character by character
-                for char in word:
-                    spans.append((char, None))
-                continue
-            # Try to split word-level Jyutping into per-character syllables
-            syllables = _JP_SYLLABLE_RE.findall(jyutping)
-            if len(syllables) == len(word):
-                for char, syl in zip(word, syllables):
-                    spans.append((char, syl))
+                spans.append((clean[i], None))
+                i += 1
+            elif len(syllables) == len(word):
+                # Word-level Jyutping split into per-character syllables
+                spans.append((clean[i], syllables[rank[i]]))
+                i += 1
             else:
                 # Fallback: keep as one unit (rare — mismatch between char count
-                # and syllable count indicates a compound or segmentation edge case)
+                # and syllable count indicates a compound or segmentation edge
+                # case).  A word never straddles whitespace (pycantonese only
+                # ever sees whitespace-free runs), so it is contiguous here.
                 spans.append((word, jyutping))
+                i += len(word)
         return spans
 
     return get_spans
@@ -1612,21 +1855,39 @@ def _make_jyutping_romanizer():
 
     Similar to _make_pinyin_romanizer() but uses pycantonese.  Produces
     space-separated Jyutping output suitable for display as a single
-    Romanized text line.
+    Romanized text line: syllables of one word glued, words separated
+    (under both pycantonese 3.4 and 5.0 — see _jyutping_pairs).  Source
+    whitespace and newlines are word gaps, exactly as on the Pinyin line.
     """
-    import pycantonese  # lazy import
+    import pycantonese  # noqa: F401 — lazy import; a missing dep fails here, as before
 
     def romanize(text: str) -> str:
         if not text:
             return ''
         clean = _strip_ass(text)
-        pairs = pycantonese.characters_to_jyutping(clean)
+        pairs, owner, _rank = _jyutping_pairs(clean)
         parts = []
-        for word, jyutping in pairs:
+        if owner is None:
+            # Unalignable output (defensive) — the raw pairs, as before.
+            for word, jyutping in pairs:
+                if jyutping:
+                    parts.append(jyutping)
+                elif word.strip():
+                    parts.append(word)
+            return _polish_romaji(' '.join(parts), capitalize=True)
+        i, n = 0, len(clean)
+        while i < n:
+            w = owner[i]
+            if w < 0:
+                i += 1  # source whitespace = a word gap
+                continue
+            word, jyutping = pairs[w]
+            j = i + len(word)  # contiguous: a word never straddles whitespace
             if jyutping:
                 parts.append(jyutping)
-            else:
+            elif word.strip():
                 parts.append(word)
+            i = j
         return _polish_romaji(' '.join(parts), capitalize=True)
 
     return romanize
@@ -3449,6 +3710,14 @@ def _japanese_tokens(spans: list, annotation_func) -> list:
     token_meta = meta.get('token_meta', [])
     merge_mask = meta.get('merge_mask', [])
     particle_ha = meta.get('particle_ha', set())
+    # Source-whitespace spans resolve_spans interleaved (see its Phase 4).  They
+    # are transparent to the grouping — the merge mask already carries a chain
+    # through them, and the auxiliary absorption below looks past them — so a
+    # predicate MeCab read straight through a line break (言っ\nた) stays ONE
+    # word.  They never start or end a word (the punctuation trim drops them),
+    # and they are kept out of its surface + reading: the span range still
+    # covers the layout, the lookup word does not ("言った", never "言っ\nた").
+    layout = meta.get('layout', frozenset())
 
     tokens = []
     n = len(spans)
@@ -3471,30 +3740,40 @@ def _japanese_tokens(spans: list, annotation_func) -> list:
         # 風邪 + らしい, not collapse to 風邪 ("a cold") and silently drop the
         # evidential (nouns get no grammar pill).  After a predicate the mask
         # already merges らしい, so this exclusion only affects the noun case.
-        while (
-            j < n - 1
-            and (j + 1) < len(token_meta)
-            and token_meta[j + 1][1] == '助動詞'
-            and token_meta[j + 1][0] not in _JA_CONTENT_AUX_LEMMAS
-        ):
-            j += 1
+        # The next MORPHEME is looked for past any layout whitespace, so
+        # "聞こえて ます" absorbs its ます exactly like 聞こえてます.
+        while True:
+            k = j + 1
+            while k < n and k in layout:
+                k += 1
+            if (
+                k < n
+                and k < len(token_meta)
+                and token_meta[k][1] == '助動詞'
+                and token_meta[k][0] not in _JA_CONTENT_AUX_LEMMAS
+            ):
+                j = k
+            else:
+                break
         # Trim leading/trailing punctuation-only spans so the clickable word is
         # the word itself, not the word plus its trailing ellipsis/quote (は… →
         # は, そうか… → か).  A span is "content" if it holds any alnum/CJK char;
         # a merged 補助記号 like … is not, so it drops out of the surface.
+        # Layout spans are trimmed the same way (they are never a word's edge).
         lo, hi = i, j
-        while lo <= hi and not _is_lookupable_word(spans[lo][0]):
+        while lo <= hi and (lo in layout or not _is_lookupable_word(spans[lo][0])):
             lo += 1
-        while hi >= lo and not _is_lookupable_word(spans[hi][0]):
+        while hi >= lo and (hi in layout or not _is_lookupable_word(spans[hi][0])):
             hi -= 1
         if lo <= hi:
             group = spans[lo:hi + 1]
-            word = "".join(s[0] for s in group)
+            word = "".join(s[0] for off, s in enumerate(group) if (lo + off) not in layout)
             # Contextual reading: kanji spans carry a kana reading; kana spans
             # read as themselves; particle は → わ.
             reading = "".join(
                 "わ" if (lo + off) in particle_ha else (rdg or surf)
                 for off, (surf, rdg) in enumerate(group)
+                if (lo + off) not in layout
             )
             head_lemma, head_pos = token_meta[lo] if lo < len(token_meta) else (None, '')
             lemma = _clean_ja_lemma(head_lemma) or word
@@ -3742,10 +4021,21 @@ def _split_elision(word: str, offset: int, primary: str) -> list:
 # nothing: French l' is le OR la, and Italian l' is il/lo/la — but any article
 # beats a letter-of-the-alphabet entry.  ca/oc are deliberately absent: the
 # splitter serves them, but nothing has been measured there to justify a guess.
+#
+# Italian's object/adverbial clitics elide exactly like French's (m'ha = mi ha,
+# t'amo = ti amo, s'è = si è, n'è = ne è, v'è = vi è) and were left on the
+# bare-letter path — `t'` answered "The name of the Latin script letter T".
+# n' is `ne` (the partitive "of it/of them" — n'ho, n'è valsa la pena), not
+# `non`, whose elision is archaic/poetic; v' is `vi` ("there" in v'è, "you" in
+# v'ho detto), both senses on the one Wiktionary headword.  The articulated
+# prepositions (dell', all', nell', quest'…) are NOT peeled at all — their
+# stems exceed the ≤2-letter rule — so they miss the dictionary rather than
+# answer wrongly; peeling them would mean a second splitter rule, out of scope.
 _ELISION_LEMMA = {
     "fr": {"qu": "que", "l": "le", "d": "de", "j": "je", "c": "ce",
            "n": "ne", "m": "me", "t": "te", "s": "se"},
-    "it": {"d": "di", "c": "ci", "l": "il", "un": "una"},
+    "it": {"d": "di", "c": "ci", "l": "il", "un": "una",
+           "m": "mi", "t": "ti", "s": "si", "n": "ne", "v": "vi"},
 }
 
 
@@ -3758,9 +4048,13 @@ def _elision_lemma(clitic: str, primary: str, parts: list, idx: int) -> str:
         return _generic_lemma(clitic, primary) or clitic
     # French s' is `se` (reflexive) nearly always, but `si` before il/ils —
     # and "s'il vous plaît" is common enough to be worth the special case.
+    # EXACT match on the pronoun, not a prefix: s'illumine / s'illustre are
+    # reflexive `se` + a verb that merely begins with "il".  Compared on the
+    # first hyphen-separated component, because the word regex keeps internal
+    # hyphens and the informal "s'il-vous-plaît" arrives as one piece.
     if primary == "fr" and key == "s":
         nxt = parts[idx + 1][0].lower() if idx + 1 < len(parts) else ""
-        if nxt.startswith("il"):
+        if nxt.split("-")[0] in ("il", "ils"):
             return "si"
     return full
 

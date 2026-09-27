@@ -82,6 +82,20 @@ def _build_synthetic_ttf(path: Path, family_name: str, style_name: str,
     fb.save(str(path))
 
 
+@pytest.fixture(autouse=True)
+def _no_persisted_capabilities(monkeypatch):
+    """Keep the dictionary store's persisted capabilities file OUT of tests.
+
+    PostgresDictionaryStore writes its last good /define/capabilities answer to
+    ``tempfile.gettempdir()/loom-capabilities.json`` by default (so a gunicorn
+    worker recycle serves instantly instead of re-running a 3 GB scan).  A test
+    that builds one would otherwise leak that file into every later test — and
+    into a developer's real /tmp.  Tests that exercise persistence opt back in
+    with ``monkeypatch.setenv("LOOM_CAPABILITIES_CACHE_FILE", str(tmp_path/...))``.
+    """
+    monkeypatch.setenv("LOOM_CAPABILITIES_CACHE_FILE", "off")
+
+
 @pytest.fixture(scope="session")
 def synthetic_font_dir(tmp_path_factory) -> Path:
     """Directory of synthetic TTFs for font-scanner tests.

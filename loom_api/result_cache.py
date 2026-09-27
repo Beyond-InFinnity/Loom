@@ -11,7 +11,9 @@ Design rules (all load-bearing — see ROMANIZATION_CACHE.md §6):
 - **Fail-open.**  The cache is an accelerator, never a dependency.  The
   Postgres impl catches every DB error internally, logs it, and answers as
   an empty cache (with a short backoff so a dead DB doesn't add per-request
-  connect timeouts).  Routes never see cache exceptions.
+  connect timeouts — but NOT for a pool-contention timeout, which degrades
+  only the request that hit it; see pool_is_saturated).  Routes never see
+  cache exceptions.
 - **Version-stamped keys.**  ``loom_core.romanize.engine_version(lang)`` and
   ``NORMALIZATION_VERSION`` are part of every key.  Fixing a romanizer =
   bump the version there; stale rows become unreachable, no invalidation.
@@ -154,6 +156,55 @@ class InMemoryResultCache:
             self.store.setdefault(row.key, row.output)
 
 
+# ---------------------------------------------------------------------------
+# Pool contention vs. outage — shared with loom_api/dictionary.py
+# ---------------------------------------------------------------------------
+# Every Postgres-backed store borrows from ONE process-wide ConnectionPool
+# (loom_api/db.py, max_size=4) with a 2.5 s wait.  When all four connections
+# are busy — a cold /define/capabilities scan, a big put_many, a slow disk —
+# the next borrower gets psycopg_pool.PoolTimeout.  Treating that like a dead
+# database (the 30 s breaker) turns a moment of saturation into 30 s of
+# found:false for every definition and full misses for every batch, long after
+# the pool has freed up.  So a PoolTimeout under contention degrades ONLY the
+# request that hit it.
+#
+# But psycopg_pool raises the SAME PoolTimeout when the database is down
+# (measured on psycopg_pool 3.3.1: a refused connection is retried in the
+# background while the borrower just waits out its timeout).  That IS an
+# outage, and the breaker exists precisely so a dead DB doesn't add a 2.5 s
+# wait to every request — so the two are told apart by the pool itself.
+
+def pool_timeout_types() -> tuple:
+    """``psycopg_pool.PoolTimeout`` as an except-clause tuple, or ``()`` —
+    which matches nothing — where psycopg_pool isn't installed (the desktop
+    sidecar and CI install requirements.txt; no Postgres store is ever built
+    there).  Resolved when a store is constructed, never at import, so this
+    module stays importable without the driver."""
+    try:
+        from psycopg_pool import PoolTimeout  # lazy: web-only dep
+    except Exception:
+        return ()
+    return (PoolTimeout,)
+
+
+def pool_is_saturated(pool) -> bool:
+    """True when a PoolTimeout on *pool* means CONTENTION, not an outage.
+
+    psycopg_pool grows one connection at a time and counts an in-flight or
+    retrying connect attempt in ``pool_size``.  So when every slot is filled
+    (``pool_size >= pool_max``) the borrower was waiting for a PEER to hand a
+    live connection back — contention.  When the database is unreachable the
+    pool never fills: it sits at (live connections) + the one retrying attempt
+    — measured ``pool_size=1`` of 4 with the server down.  Anything unexpected
+    reads as an outage (False), i.e. the pre-existing trip behaviour."""
+    try:
+        stats = pool.get_stats()
+        size, cap = int(stats.get("pool_size", 0)), int(stats.get("pool_max", 0))
+    except Exception:
+        return False
+    return cap > 0 and size >= cap
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS romanization_cache (
     key_hash        BYTEA PRIMARY KEY,
@@ -182,6 +233,7 @@ class PostgresResultCache:
 
         # Shared process-wide pool (min_size=0 — first use connects).
         self._pool = get_pool(dsn)
+        self._pool_timeout = pool_timeout_types()
         self._backoff_until = 0.0
         self._ensure_schema()
 
@@ -202,6 +254,18 @@ class PostgresResultCache:
         logger.warning("result cache: %s failed (fail-open, %ss backoff)", op, self._BACKOFF_SECONDS, exc_info=True)
         self._backoff_until = time.monotonic() + self._BACKOFF_SECONDS
 
+    def _pool_timed_out(self, op: str) -> None:
+        """PoolTimeout: contention degrades only this request; an unreachable
+        database still trips the breaker (see pool_is_saturated)."""
+        if pool_is_saturated(self._pool):
+            logger.warning(
+                "result cache: %s gave up waiting for a pooled connection — pool "
+                "CONTENDED (every connection busy); this request runs uncached, no backoff",
+                op,
+            )
+        else:
+            self._trip(op)
+
     # -- ResultCache -------------------------------------------------------
 
     def get_many(self, keys: Sequence[bytes]) -> dict[bytes, Any]:
@@ -214,6 +278,9 @@ class PostgresResultCache:
                     (list(keys),),
                 ).fetchall()
             return {bytes(k): v for k, v in rows}
+        except self._pool_timeout:
+            self._pool_timed_out("get_many")
+            return {}
         except Exception:
             self._trip("get_many")
             return {}
@@ -246,6 +313,8 @@ class PostgresResultCache:
                             for r in rows
                         ],
                     )
+        except self._pool_timeout:
+            self._pool_timed_out("put_many")
         except Exception:
             self._trip("put_many")
 

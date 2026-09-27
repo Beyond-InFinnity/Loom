@@ -30,6 +30,7 @@ from .body_limit import BodySizeLimit
 from .client_version import ClientVersionLog
 from .cors import ALLOW_ORIGIN_REGEX, resolve_exact_origins
 from .deps import get_corpus_store, get_dictionary_store, get_result_cache
+from .dictionary import start_capabilities_warmup
 from .ratelimit import RateLimit
 from .recycle import IdleActivityTracker, start_idle_recycler
 from .routes import annotate, corpus, debug, define, health, language, romanize, styles
@@ -134,6 +135,15 @@ app.add_middleware(IdleActivityTracker)
 get_result_cache()
 get_corpus_store()
 get_dictionary_store()
+
+# Warm /define/capabilities on a daemon thread at worker boot.  Its answer is a
+# full DISTINCT scan of the ~3 GB dictionary (30–48 s cold in prod) that the
+# extension AWAITS before fetching furigana; the store serves a persisted copy
+# (instant) or the last good answer while it refreshes in the background, so
+# after this no user request should ever wait on the scan — except the very
+# first after a fresh deploy that lands before the warm-up finishes.  Never
+# under pytest; never raises.  See loom_api/dictionary.py::_TTLMemo.
+start_capabilities_warmup(get_dictionary_store())
 
 # Arm idle-aware worker recycling (P3): sheds accumulated NLP-dictionary RAM
 # when the worker is BOTH idle and bloated, so the average RSS (= the Railway

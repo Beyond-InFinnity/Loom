@@ -4,7 +4,10 @@ The extension calls this on a click (or to prefetch a paused line's tokens):
 one request, a list of words in one language, back come merged definitions.
 The words are LEMMAS/surface forms the client already has from the annotate
 tokens — this endpoint does NOT tokenize or lemmatize; it looks up exactly the
-strings given (matching either the ``headword`` or ``reading`` column).
+strings given (matching the ``headword`` column, or for Japanese either the
+``headword`` or ``reading`` column).  For the simplemma (Wiktextract)
+languages it also reads the caption ``surfaces`` entry, because a wrong
+lemma must not beat a correct surface (see _surface_choice).
 
 Contract mirrors the batch endpoints:
 
@@ -15,13 +18,14 @@ Contract mirrors the batch endpoints:
   client can zip them straight back onto the clicked tokens.
 """
 
+import re
 import unicodedata
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from loom_core.romanize import hepburn_from_kana, is_token_supported
+from loom_core.romanize import _ELISION_LEMMA, hepburn_from_kana, is_token_supported
 from loom_core.styles import _normalize_lang_code
 from loom_core.grammar import (
     analyze_grammar,
@@ -31,12 +35,10 @@ from loom_core.grammar import (
 )
 
 from ..deps import get_dictionary_store
-
-# Bumped if the capabilities response SHAPE changes; the client refetches per
-# session so a new dictionary needs no bump — this is only for wire-format.
-#   v2: added gloss_langs_by_source (per-source gloss availability for the
-#       "Dictionary language" picker).
-CAPABILITIES_VERSION = 2
+# Wire-format version of /define/capabilities.  Lives with the store (which
+# also stamps it into its persisted copy) and is re-exported here.
+from ..dictionary import CAPABILITIES_VERSION  # noqa: F401
+from ..dictionary import DEFAULT_GLOSS_LANG
 
 router = APIRouter(tags=["define"])
 
@@ -265,6 +267,26 @@ def define_capabilities() -> DefineCapabilities:
     to offer — so a NEW dictionary is a pure server change, no extension update.
     A source language is included only if it has both data AND a tokenizer."""
     caps = get_dictionary_store().capabilities()
+    if caps is None:
+        # No answer at all: never computed (fresh container, no persisted copy)
+        # and this attempt failed — or one failed within the last ~30 s, whose
+        # failure is shared rather than re-run per caller (_TTLMemo).
+        # Deliberately NOT a 200 with empty lists:
+        # the live 0.5.1 client (packages/player-ui/src/annotate/
+        # capabilities.ts) caches whatever array a 200 carries for the WHOLE
+        # tab session, so an "authoritative" [] during a DB blip left every
+        # Latin-script video with no clickable words until reload.  On any
+        # non-2xx, openapi-fetch resolves {error} with no `data`, so
+        # fetchCapabilities() falls through to its build-time FALLBACK —
+        # sourceLangs {ja, zh}, glossLangs ["en"] — exactly what it does when
+        # the server is unreachable.  HTTPException (not a bare Response) so
+        # the error still exits through CORSMiddleware: a Chrome-MV3 content
+        # script sees a real 503 instead of an opaque CORS failure.
+        raise HTTPException(
+            status_code=503,
+            detail="dictionary capabilities temporarily unavailable",
+            headers={"Retry-After": "30"},
+        )
     supported = {l for l in caps.source_langs if is_token_supported(l)}
     return DefineCapabilities(
         source_langs=sorted(supported),
@@ -301,6 +323,14 @@ def dictionary_lang(code: str) -> str:
     return primary
 
 
+# Languages whose lemma comes from a real morphological analyzer (MeCab /
+# jieba / kiwipiepy) and whose dictionaries (JMdict / CC-CEDICT / KRDict) carry
+# no Wiktionary form-of links: their lemma is trusted outright.  Every other
+# definable language is a Wiktextract language lemmatized by simplemma — a
+# context-free lookup table that is sometimes simply wrong (see _surface_choice).
+_ANALYZER_LEMMA_LANGS = frozenset({"ja", "zh", "ko"})
+
+
 @router.post("/define/batch", response_model=DefineResponse)
 def define_batch(req: DefineRequest) -> DefineResponse:
     lang = dictionary_lang(req.lang)
@@ -312,7 +342,17 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         _candidates(w, req.alt_keys[i] if req.alt_keys and i < len(req.alt_keys) else None)
         for i, w in enumerate(req.words)
     ]
-    union = sorted({c for cands in cand_lists for c in cands})
+    # For a simplemma language whose caption SURFACE differs from the lemma, the
+    # surface's own entry is consulted too (_surface_choice) — its keys (exact,
+    # then the lowercase fallback) ride the same batched lookup.
+    surface_cands = [
+        _candidates(req.surfaces[i], None)
+        if (req.surfaces and i < len(req.surfaces)
+            and _surface_may_override(lang, req.surfaces[i], w))
+        else []
+        for i, w in enumerate(req.words)
+    ]
+    union = sorted({c for cands in (*cand_lists, *surface_cands) for c in cands})
     store = get_dictionary_store()
     found = store.lookup(lang, union, gloss_lang) if union else {}
 
@@ -323,14 +363,21 @@ def define_batch(req: DefineRequest) -> DefineResponse:
     # Hindi / Spanish / French / German / Russian / … inflected words get handled.
     chosens: list = []
     fo_targets: list = []  # per word: (lemma, tags) or None
+    links: list = []       # per word: the surface's form-of sense naming the lemma, or None
     lemma_keys: set = set()
-    for w, cands in zip(req.words, cand_lists):
+    for w, cands, s_cands in zip(req.words, cand_lists, surface_cands):
         direct = next((found[c] for c in cands if found.get(c) and found[c].senses), None)
         chosen = direct or next(
             (found[c] for c in cands if found.get(c) and found[c].parts), None
         )
+        surface_defn, link = _surface_choice(
+            [found[c] for c in s_cands if found.get(c) and found[c].senses], w)
+        use_surface = surface_defn is not None
+        if use_surface:
+            chosen = surface_defn
+        links.append(link)
         chosens.append(chosen)
-        fo = _form_of(chosen)
+        fo = _form_of(chosen, strict=use_surface)
         fo_targets.append(fo)
         if fo:
             lemma_keys.add(key(fo[0]))
@@ -376,6 +423,12 @@ def define_batch(req: DefineRequest) -> DefineResponse:
             req.surface_continuations and i < len(req.surface_continuations)
         ) else ""
         grammar = _grammar_model(surface, lang, cont)
+        if grammar is None and links[i] is not None:
+            # The lemma was kept because the surface's own entry names it
+            # (fr est → "3rd-person singular present indicative of être"); that
+            # sense's tags ARE the surface's grammar.
+            target, tags = links[i]
+            grammar = _to_grammar_model(grammar_from_tags(tags, target))
 
         if chosen is None:
             # Even a miss shows the reading + its Hepburn in the header.
@@ -400,21 +453,203 @@ def define_batch(req: DefineRequest) -> DefineResponse:
     return DefineResponse(lang=lang, results=results)
 
 
-def _form_of(defn) -> Optional[tuple]:
+def _form_of(defn, *, strict: bool = False) -> Optional[tuple]:
     """If *defn*'s first sense is a Wiktionary inflected form ("form-of"), return
     (lemma, tags) so the route can resolve the real definition + grammar; else
-    None.  Guards against a form-of entry whose lemma can't be parsed."""
+    None.  Guards against a form-of entry whose lemma can't be parsed.
+
+    ``strict`` parses the target with _form_of_target instead of the raw
+    extract_form_of_lemma.  It is used exactly where the route now DEPARTS
+    from the lemma the client sent (_surface_choice): a wrong hop there is a
+    confidently wrong answer the old code never gave.  The ordinary path keeps
+    its long-standing parse on purpose — applying the stricter one everywhere
+    also changes cards for words simplemma leaves unchanged, e.g. de "Essen"
+    ("gerund of essen; eating" would resolve to essen "to eat" and drop its own
+    "meal / food" senses), which is a separate decision from H-9."""
     if defn is None or not defn.senses:
         return None
-    s0 = defn.senses[0]
-    misc = [m.lower() for m in (s0.misc or [])]
-    if "form-of" not in misc and "form of" not in misc:
+    return _form_of_sense(defn.senses[0], strict=strict)
+
+
+def _is_form_of_sense(sense) -> bool:
+    misc = [m.lower() for m in (sense.misc or [])]
+    return "form-of" in misc or "form of" in misc
+
+
+def _form_of_sense(sense, *, strict: bool = False) -> Optional[tuple]:
+    """(target lemma, tags) if *sense* is a form-of sense with a parseable
+    target (a trustworthy one when ``strict``), else None."""
+    if not _is_form_of_sense(sense):
         return None
-    gloss = s0.gloss[0] if s0.gloss else ""
-    lemma = extract_form_of_lemma(gloss)
+    gloss = sense.gloss[0] if sense.gloss else ""
+    lemma = _form_of_target(gloss) if strict else extract_form_of_lemma(gloss)
     if not lemma:
         return None
-    return (lemma, s0.misc)
+    return (lemma, sense.misc)
+
+
+# Mirrors loom_core.grammar's split: the target follows the LAST "of".
+_FORM_OF_OF = re.compile(r"\bof\s+", re.IGNORECASE)
+_LEADING_PAREN = re.compile(r"^\s*\([^)]*\)")
+
+
+def _form_of_target(gloss: str) -> Optional[str]:
+    """The lemma a form-of gloss points at, or None when it can't be trusted.
+
+    extract_form_of_lemma takes the FIRST word when the text after the last
+    "of" runs on, and that word is only the target when the gloss marks where
+    the target ends (all shapes measured on real kaikki rows):
+
+      "… of ser; you are" · "plural of notre; our" · "… of der: the"
+          → the delimiter is kept on the word ("ser;") and never matched a
+            headword, so the lemma hop silently missed — strip it;
+      "… of avere and (obsolete) havere" · "… of un (“a / an”), the …"
+          → a conjunction, or a parenthetical then punctuation — trusted;
+      "form of the article i (“the”) used before a vowel, …"   (it: gli)
+          → prose: the "target" is the English word "the", which resolved to
+            Italian "the" = "misspelling of tè".  Rejected (the surface entry
+            is shown instead of a confidently wrong one);
+      "plural of de la (“some”, …)"
+          → a multi-word lemma; its first word alone is wrong — rejected."""
+    raw = extract_form_of_lemma(gloss)
+    if not raw:
+        return None
+    target = raw.rstrip(":;,.").strip()
+    if not target:
+        return None
+    if target != raw:
+        return target                  # the gloss delimits it: "ser;" / "der:"
+    tail = _FORM_OF_OF.split(gloss)[-1].strip()
+    # extract_form_of_lemma drops pedagogical stress marks (чита́ть → читать).
+    bare = tail.replace("\u0301", "").replace("\u0300", "")
+    if not bare.startswith(raw):
+        return target                  # can't locate it; keep prior behaviour
+    rest = _LEADING_PAREN.sub("", bare[len(raw):]).strip()
+    if not rest or rest[0] in ":;,." or rest.split()[0].lower() in ("and", "or"):
+        return target
+    return None
+
+
+def _surface_may_override(lang: str, surface: Optional[str], lemma: str) -> bool:
+    """Is *lemma* one whose caption SURFACE entry gets a say (_surface_choice)?
+
+    Only where the lemma came from simplemma's context-free lookup table — so
+    never for ja/zh/ko (a real analyzer), and not for two kinds of token whose
+    lemma is right by construction and whose surface entry is a trap:
+
+    - **Same word up to case.**  The first word of every subtitle line is
+      capitalized; simplemma lowercases it (May → may) but the card sends the
+      capitalized surface, and Wiktextract is full of capitalized homographs —
+      months, surnames, villages, abbreviations, "honorific alternative
+      letter-case form of …".  Letting them in turned 27 of 60 common English
+      line-initial words wrong ("May I come in?" → "The fifth month …",
+      "Can you …" → a river in Essex), and fr On/Le, de Ich/Er/Es/So, pt Eu/Ele
+      likewise.  Case-only differences are orthography, not a different word.
+    - **A peeled elision clitic** (fr l' qu' d' j' c' n' m' t' s', it l' d' c'
+      un').  Its lemma is the curated full form from _ELISION_LEMMA (012dfb1),
+      and its surface is a bare letter whose own entry — "The twelfth letter of
+      the French alphabet", "alternative spelling of ku" — is exactly the wrong
+      answer 012dfb1 removed from 7.4% of French tokens.  Membership, not
+      equality with the table value: fr s' is `si` before il/ils."""
+    if lang in _ANALYZER_LEMMA_LANGS or not surface:
+        return False
+    s = key(surface).casefold()
+    if not s or s == key(lemma).casefold():
+        return False
+    return s not in _ELISION_LEMMA.get(lang, {})
+
+
+def _surface_relation(surface_defn, lemma: str) -> tuple[str, Optional[tuple]]:
+    """How Wiktionary relates one SURFACE entry to the client's lemma:
+
+    ("links", fo)    a form-of sense names the lemma — fo is its (target, tags);
+    ("other", None)  it inflects a DIFFERENT word, or it is a standalone
+                     headword Wiktionary doesn't tie to the lemma;
+    ("unknown", None) its relations can't be read, so nothing can be concluded.
+
+    Rules, in order (all measured on real kaikki rows):
+
+    1. Not English glosses → unknown.  Form-of targets are read by parsing the
+       English " … of X" shape.  A native-edition column (gloss_lang=es is
+       live) writes "Tercera persona del plural … de comer." — tagged form-of
+       or not, it can't be parsed, and treating it as a standalone headword put
+       that pointer text on the card in place of the lemma's meaning.
+    2. The FIRST sense is a form-of: naming the lemma → links (comieron → comer
+       + its tags as grammar); naming another word → other (eres → ser).  Its
+       target can't be read → unknown.
+    3. A LATER form-of sense names the lemma → links (fr est: "east" first,
+       then "… of être").  A later form-of whose target can't be read →
+       unknown (it may be the one naming the lemma).
+    4. Otherwise → other (fr te → "you", notre → "our", es se → reflexive).
+
+    The first sense decides BEFORE "any sense names the lemma" — measured, not
+    arbitrary: es "eres" has "second-person … of ser" first and "plural of ere"
+    (the letter R) second, and letting any-sense win answered "the letter R"
+    again.  The accepted cost is a surface whose first sense inflects another
+    word while simplemma's lemma was a correct later one — en "leaves" (plural
+    of leaf / 3sg of leave) now reads as leaf.  That one is genuinely ambiguous
+    without context (right either way about half the time); eres→ere is wrong
+    every time, and "eres" is among the most frequent words in Spanish
+    dialogue."""
+    if surface_defn.gloss_lang != DEFAULT_GLOSS_LANG:
+        return "unknown", None
+    want = key(lemma).casefold()
+    senses = surface_defn.senses
+    if _is_form_of_sense(senses[0]):
+        first = _form_of_sense(senses[0], strict=True)
+        if first is None:
+            return "unknown", None
+        return ("links", first) if key(first[0]).casefold() == want else ("other", None)
+    unreadable = False
+    for sense in senses[1:]:
+        if not _is_form_of_sense(sense):
+            continue
+        fo = _form_of_sense(sense, strict=True)
+        if fo is None:
+            unreadable = True
+        elif key(fo[0]).casefold() == want:
+            return "links", fo
+    return ("unknown", None) if unreadable else ("other", None)
+
+
+def _surface_choice(surface_defns: list, lemma: str) -> tuple:
+    """Should a simplemma language's SURFACE entry beat its lemma?  (H-9)
+
+    The card sends words=[lemma], alt_keys=[[surface]], and the first key that
+    hits wins — so a wrong simplemma lemma used to win outright whenever it
+    happened to be a headword: es eres→ere "the name of the letter R", fr
+    te/me→le "the", fr notre/votre/nos/vos/leur/mes/ses→son "sound", es se→él
+    "he".  Wiktionary itself says how a surface relates to its lemma — a
+    form-of sense names the word it inflects — so read the surface's entries
+    (*surface_defns*: the exact form, then its lowercase fallback) with
+    _surface_relation.  The surface overrides the lemma ONLY on positive,
+    readable evidence; anything short of that keeps today's lemma path:
+
+    - any entry "unknown" → keep the lemma;
+    - any entry "links" → keep the lemma, and hand back that sense so its tags
+      supply the grammar (fr est → être · present …; en "Is" → be, where the
+      capitalized "Is" is "plural of I" but lowercase "is" names be);
+    - every entry "other" → use the surface, whose form-of the route then
+      resolves as usual (eres → ser + grammar).  When the surface is
+      capitalized and its lowercase form has an entry too, the LOWERCASE one
+      is used: simplemma already changed this word beyond case, so the capital
+      is line-initial orthography, and the capitalized headword is the proper
+      noun / "alternative letter-case form" entry (it "La" → "alternative
+      letter-case form of la (“you”)" vs la's own article sense).  Lexically
+      capitalized words — German nouns — reach here with no lowercase entry, or
+      are settled earlier by a "links" (Häuser → plural of Haus).
+
+    Returns (surface_defn or None, link) — link is the (target, tags) of the
+    sense that tied the surface to the lemma.  No entries → (None, None): the
+    lemma path is used unchanged."""
+    relations = [(d, *_surface_relation(d, lemma)) for d in surface_defns]
+    if not relations or any(kind == "unknown" for _, kind, _ in relations):
+        return None, None
+    link = next((fo for _, kind, fo in relations if kind == "links"), None)
+    if link is not None:
+        return None, link
+    return next((d for d, _, _ in relations if d.word == d.word.lower()),
+                relations[0][0]), None
 
 
 def _to_grammar_model(gb) -> Optional[GrammarBreakdown]:

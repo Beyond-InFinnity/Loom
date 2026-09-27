@@ -7,9 +7,12 @@ Chinese, both CC-BY-SA); this module is the READ side the API queries.
 Two rules the ingest validation surfaced (VOCAB_LOOKUP.md §5.4), both handled
 in ``_merge_rows``:
 
-1. **Query headword OR reading.**  A kana-written Japanese word (たべる) lives
-   in the ``reading`` column of the 食べる row, not ``headword`` — so a lemma
-   the client hands us may hit either column.  Both are indexed.
+1. **Query headword OR reading — JAPANESE ONLY.**  A kana-written Japanese
+   word (たべる) lives in the ``reading`` column of the 食べる row, not
+   ``headword`` — so a lemma the client hands us may hit either column.  Both
+   are indexed.  Every other source stores something else there (KRDict: the
+   hangul pronunciation; Wiktextract: bare IPA; CC-CEDICT: numbered pinyin),
+   where a reading match merges HOMOPHONES — see _READING_MATCH_LANGS.
 2. **Multiple rows per (lang, headword)** — homographs, CC-CEDICT variant/
    cross-ref lines, JMdict multi-form words — are MERGED into one definition
    (sense lists concatenated, ``common`` rows first, duplicate glosses dropped).
@@ -18,18 +21,27 @@ Unlike the romanize/annotate result cache this is NOT cached: a lookup is one
 indexed query, not expensive compute, and the batch endpoint already collapses
 a whole paused line into a single query.  Same fail-open contract as the cache
 and corpus stores though — a down DB degrades to "not found", never a 500.
+(``capabilities()`` IS memoized — it is a full-table scan; see _TTLMemo.)
 """
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Protocol, Sequence
+
+# Pool contention vs. outage (PoolTimeout) — shared with the result cache,
+# which borrows from the same process-wide pool.
+from .result_cache import pool_is_saturated
 
 logger = logging.getLogger("loom.dictionary")
 if not logger.handlers:
@@ -64,6 +76,11 @@ class Definition:
     # direct hit.  ``senses`` empty + ``parts`` non-empty = "no direct entry,
     # here's the breakdown".
     parts: tuple["Definition", ...] = ()
+    # Language the ``senses`` glosses are actually written in — the requested
+    # gloss language, or English when this word fell back (_select_gloss_lang);
+    # None if the served rows mix languages.  Internal (not on the wire): the
+    # route only reads a surface's form-of relations out of English glosses.
+    gloss_lang: Optional[str] = "en"
 
 
 # A stored row as both impls hand it to the merge helper.
@@ -80,6 +97,15 @@ class _Row:
 # Universal fallback gloss language: when a word has no gloss in the user's
 # requested language, English is served instead (always ingested).
 DEFAULT_GLOSS_LANG = "en"
+
+# Source languages whose `reading` column is a legitimate LOOKUP KEY (rule 1 in
+# the module docstring).  Only JMdict's is: a kana-written word (たべる) must
+# find the 食べる row through it.  Everywhere else a reading match merges
+# homophones into the card — KRDict stores the hangul pronunciation (남우
+# "actor" is read 나무, so 나무 "tree" also showed "actor"; 동물 "animal" showed
+# 독물 "poison"), Wiktextract stores bare IPA (French des is /de/, so `de`
+# absorbed the plural-article senses of des), CC-CEDICT numbered pinyin.
+_READING_MATCH_LANGS = frozenset({"ja"})
 
 
 def _norm(word: str) -> str:
@@ -213,9 +239,11 @@ def _merge_rows(
         return None
     if lang == "zh":
         reading = cedict_pinyin_to_diacritics(reading)
+    served_gloss_langs = {r.gloss_lang for r in rows}
     return Definition(
         word=word, lang=lang, reading=reading,
         senses=tuple(senses), sources=tuple(sources),
+        gloss_lang=served_gloss_langs.pop() if len(served_gloss_langs) == 1 else None,
     )
 
 
@@ -325,53 +353,207 @@ def _lookup_ja_decomposition(
     return exact
 
 
+def _spawn_daemon(fn) -> None:
+    threading.Thread(target=fn, name="loom-capabilities-refresh", daemon=True).start()
+
+
 class _TTLMemo:
-    """Single-value, time-bounded memo with stampede protection.
+    """Single-value STALE-WHILE-REVALIDATE memo, for `capabilities()`.
 
-    For `capabilities()`, whose answer changes only when someone runs an
-    ingest but whose query is a full scan of the ~8.5M-row / ~3GB
+    Its answer changes only when someone runs an ingest (dictionary growth is
+    currently paused), but computing it is a full scan of the ~9M-row / ~3 GB
     `dictionary_entry` (no index covers `gloss_lang` — the composite one was
-    dropped to free disk).  The extension calls it once per session, so before
-    this every activation cost a heap scan while holding one of only FOUR pool
-    connections; a handful at once starved the pool, which trips the result
-    cache's 30-second breaker and turns a DB blip into a CPU stampede.
+    dropped to free disk), measured at 30–48 s cold in prod.  And the extension
+    AWAITS /define/capabilities before it fetches furigana, so a caller that
+    waits on that scan waits with a blank caption line.  Hence:
 
-    A failed/empty computation is NOT cached: a down DB answers "no languages",
-    and remembering that would leave every word un-clickable for the whole TTL
-    after the DB came back.  The lock keeps N concurrent callers to ONE scan.
+    - **A cached value is always returned at once.**  Past the TTL it is still
+      returned — stale — and ONE background refresh is started (single-flight:
+      any number of stale callers launch one scan); the fresh answer replaces
+      it when the scan finishes.  So the TTL only decides how often a scan runs
+      in the BACKGROUND, never whether a user waits for one.
+    - **A failed refresh keeps the stale value** (never degrade to nothing) and
+      is retried no sooner than ``retry_seconds`` later, so a failing scan is
+      not relaunched on every request.
+    - **Only the very first compute, with nothing to serve, blocks** — single-
+      flight under a lock, so N concurrent callers still cost ONE scan.  A
+      failed first compute (None) is NOT cached for the TTL: remembering "no
+      languages" would leave every word un-clickable for hours after the DB
+      came back.  The caller gets None (the route turns that into a 503).
+    - **…but a failed first compute is single-flight too.**  Callers that
+      queued on the lock behind it — and any arriving within the pause after it
+      — get None at once instead of each re-running the compute in turn.
+      Before, every failure tripped the store's 30 s breaker, which did this
+      implicitly; the scan's own statement_timeout and pool contention now
+      deliberately DON'T trip, and without this the Nth queued caller waited
+      N × (up to 180 s), each holding one of anyio's ~40 threadpool slots.  The
+      pause is ``first_retry_seconds`` (30 s — the route's Retry-After and the
+      breaker's backoff) or as long as the failed attempt took, whichever is
+      longer, so a scan that died at its 180 s bound isn't relaunched
+      back-to-back while a cheap failure (contention, a tripped breaker) is
+      retried soon.
+
+    ``spawn`` runs a refresh (default: a daemon thread; tests pass a queue).
+    ``on_store(value, at)`` fires after every successful compute — the
+    Postgres store persists the answer there so a recycled worker starts warm.
     """
 
-    def __init__(self, ttl: float, clock=time.time):
+    def __init__(self, ttl: float, clock=time.time, *, spawn=None, on_store=None,
+                 retry_seconds: Optional[float] = None,
+                 first_retry_seconds: float = 30.0):
         self._ttl = ttl
         self._clock = clock
+        self._spawn = spawn or _spawn_daemon
+        self._on_store = on_store
+        self.retry_seconds = min(ttl, 300.0) if retry_seconds is None else retry_seconds
+        self.first_retry_seconds = first_retry_seconds
         self._at = 0.0
         self._value = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()     # the blocking first compute
+        self._state = threading.Lock()    # background-refresh bookkeeping
+        self._refreshing = False
+        self._retry_at = 0.0
+        self._first_retry_at = 0.0        # guarded by _lock
 
     def get(self, compute):
-        now = self._clock()
         value = self._value
-        if value is not None and (now - self._at) < self._ttl:
+        if value is not None:
+            if self._clock() - self._at >= self._ttl:
+                self._refresh_in_background(compute)
             return value
         with self._lock:
-            # Re-check: another thread may have refreshed while we waited.
-            now = self._clock()
-            if self._value is not None and (now - self._at) < self._ttl:
+            if self._value is not None:   # filled while we waited for the lock
                 return self._value
-            fresh = compute()
-            if fresh:                      # never cache a failure
-                self._value = fresh
-                self._at = now
+            started = self._clock()
+            if started < self._first_retry_at:
+                return None                # a compute just failed; share it
+            try:
+                fresh = compute()
+            except Exception:
+                logger.warning("dictionary: capabilities compute failed", exc_info=True)
+                fresh = None
+            if fresh is not None:          # never cache a failure
+                self._store(fresh, started)
+            else:
+                finished = self._clock()
+                self._first_retry_at = finished + max(
+                    self.first_retry_seconds, finished - started)
             return fresh
+
+    def seed(self, value, at: float) -> None:
+        """Install a previously computed value as of *at* (a persisted copy);
+        its age is honoured, so an old one is served stale and refreshed."""
+        if value is not None:
+            self._at = at
+            self._value = value
 
     def invalidate(self) -> None:
         with self._lock:
             self._value = None
+            self._first_retry_at = 0.0
+
+    def _store(self, value, at: float) -> None:
+        # _at before _value: get() reads _value first, so it can never pair the
+        # new value with the old timestamp and launch a pointless refresh.
+        self._at = at
+        self._value = value
+        if self._on_store is not None:
+            try:
+                self._on_store(value, at)
+            except Exception:
+                logger.warning("dictionary: capabilities on_store failed", exc_info=True)
+
+    def _refresh_in_background(self, compute) -> None:
+        with self._state:
+            if self._refreshing or self._clock() < self._retry_at:
+                return
+            self._refreshing = True
+
+        def run() -> None:
+            started = self._clock()
+            fresh = None
+            try:
+                fresh = compute()
+                if fresh is not None:
+                    self._store(fresh, started)
+            except Exception:
+                logger.warning("dictionary: capabilities refresh failed; still serving "
+                               "the previous answer", exc_info=True)
+            finally:
+                with self._state:
+                    if fresh is None:
+                        self._retry_at = self._clock() + self.retry_seconds
+                    self._refreshing = False
+
+        try:
+            self._spawn(run)
+        except Exception:                  # e.g. "can't start new thread"
+            logger.warning("dictionary: could not start capabilities refresh", exc_info=True)
+            with self._state:
+                self._refreshing = False
 
 
-# How long a capabilities() answer is reused. Env-tunable like the other caps;
-# an ingest becomes visible within this window without a redeploy.
-CAPABILITIES_TTL_SECONDS = float(os.environ.get("LOOM_CAPABILITIES_TTL", "900"))
+# How long a capabilities() answer counts as fresh.  With stale-while-revalidate
+# this only sets how often the ~3 GB scan runs IN THE BACKGROUND (a request
+# never waits on it once any answer exists), so it is long: 6 h.  An ingest
+# becomes visible within this window without a redeploy.  Env-tunable like the
+# other caps.
+CAPABILITIES_TTL_SECONDS = float(os.environ.get("LOOM_CAPABILITIES_TTL", "21600"))
+
+# Upper bound on the DISTINCT scan itself (SET LOCAL statement_timeout), so a
+# stuck refresh can't pin one of the pool's FOUR connections indefinitely.
+# Cold prod scans measured 30–48 s; 180 s is generous headroom.
+CAPABILITIES_SCAN_TIMEOUT_SECONDS = float(
+    os.environ.get("LOOM_CAPABILITIES_SCAN_TIMEOUT", "180"))
+
+# Wire-format version of the /define/capabilities response.  Bumped if the
+# response SHAPE changes; the client refetches per session so a new dictionary
+# needs no bump.  Also stamped into the persisted capabilities file, so a file
+# written by an older shape is ignored.  (Re-exported by routes/define.py.)
+#   v2: added gloss_langs_by_source (per-source gloss availability for the
+#       "Dictionary language" picker).
+CAPABILITIES_VERSION = 2
+
+
+def capabilities_cache_path() -> Optional[str]:
+    """Where PostgresDictionaryStore persists its last good capabilities answer,
+    or None when disabled (``LOOM_CAPABILITIES_CACHE_FILE=off``/``0``).
+
+    Default: the system temp dir.  gunicorn recycles the worker every ~500
+    requests (plus idle-recycle), and each fresh worker would otherwise start
+    with nothing and run the scan again; the recycled worker lives in the SAME
+    container, so /tmp survives it.  A new deploy is a new container and starts
+    cold — the boot warm-up covers that."""
+    raw = (os.environ.get("LOOM_CAPABILITIES_CACHE_FILE") or "").strip()
+    if not raw:
+        return os.path.join(tempfile.gettempdir(), "loom-capabilities.json")
+    if raw.lower() in {"off", "0", "false"}:
+        return None
+    return raw
+
+
+def _warm_capabilities(store) -> None:
+    try:
+        store.capabilities()
+    except Exception:
+        logger.warning("dictionary: capabilities warm-up failed (continuing)", exc_info=True)
+
+
+def start_capabilities_warmup(store) -> bool:
+    """Compute ``store.capabilities()`` once on a daemon thread at worker boot,
+    so the first extension activation after a deploy doesn't pay the cold
+    scan (with a persisted copy this is instant — or a background refresh if
+    that copy is stale).  Never under pytest, like the idle recycler; never
+    raises.  Returns True iff the thread was started."""
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return False
+    try:
+        threading.Thread(target=_warm_capabilities, args=(store,),
+                         name="loom-capabilities-warm", daemon=True).start()
+    except Exception:
+        logger.warning("dictionary: could not start capabilities warm-up", exc_info=True)
+        return False
+    return True
 
 
 # Decomposition cost caps (see _lookup_with_decomposition).  Both the word
@@ -485,8 +667,11 @@ class DictionaryStore(Protocol):
         glosses in ``gloss_lang`` where available (English fallback).  Words with
         no entry are simply absent from the returned dict."""
 
-    def capabilities(self) -> Capabilities:
-        """Which source + gloss languages currently have data."""
+    def capabilities(self) -> Optional[Capabilities]:
+        """Which source + gloss languages currently have data — or None when
+        the store has no answer at all right now (never computed, and the
+        attempt failed).  None is NOT "no languages": the route answers 503
+        rather than an authoritative empty list the client would cache."""
 
 
 class NullDictionaryStore:
@@ -498,6 +683,8 @@ class NullDictionaryStore:
         return {}
 
     def capabilities(self) -> Capabilities:
+        # A real answer, not an outage: with no dictionary configured nothing
+        # is definable, so this stays a 200 with empty lists (never None/503).
         return Capabilities(source_langs=(), gloss_langs=())
 
 
@@ -530,6 +717,7 @@ class InMemoryDictionaryStore:
         wanted = {_norm(w) for w in words if _norm(w)}
         if not wanted:
             return {}
+        by_reading = lang in _READING_MATCH_LANGS
         out: dict[str, Definition] = {}
         for w in wanted:
             matches = [
@@ -537,7 +725,8 @@ class InMemoryDictionaryStore:
                      r.get("common", False), r["source"],
                      r.get("gloss_lang", DEFAULT_GLOSS_LANG))
                 for r in self.rows
-                if r["lang"] == lang and (r["headword"] == w or r.get("reading") == w)
+                if r["lang"] == lang
+                and (r["headword"] == w or (by_reading and r.get("reading") == w))
             ]
             merged = _merge_rows(w, lang, matches, gloss_lang)
             if merged is not None:
@@ -579,6 +768,51 @@ CREATE INDEX IF NOT EXISTS dictionary_entry_lang_reading ON dictionary_entry (la
 """
 
 
+# Postgres SQLSTATE for "canceling statement due to statement timeout".
+_SQLSTATE_QUERY_CANCELED = "57014"
+
+
+def _capabilities_to_json(caps: Capabilities, at: float, dsn_fingerprint: str) -> dict:
+    return {
+        "capabilities_version": CAPABILITIES_VERSION,
+        "dsn_fingerprint": dsn_fingerprint,
+        "computed_at": at,
+        "source_langs": list(caps.source_langs),
+        "gloss_langs": list(caps.gloss_langs),
+        "gloss_langs_by_source": {
+            lang: list(gl) for lang, gl in caps.gloss_langs_by_source.items()},
+    }
+
+
+def _capabilities_from_json(
+    payload: Any, dsn_fingerprint: str,
+) -> Optional[tuple[Capabilities, float]]:
+    """(Capabilities, computed_at) from a persisted payload, or None when it was
+    written for another database / response shape or is malformed in any way.
+    Strict on purpose: a wrong file is ignored (one scan), never trusted."""
+    if not isinstance(payload, dict):
+        return None
+    if (payload.get("capabilities_version") != CAPABILITIES_VERSION
+            or payload.get("dsn_fingerprint") != dsn_fingerprint):
+        return None
+    at = payload.get("computed_at")
+    src, gloss = payload.get("source_langs"), payload.get("gloss_langs")
+    by_source = payload.get("gloss_langs_by_source")
+
+    def strs(v) -> bool:
+        return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+    if (isinstance(at, bool) or not isinstance(at, (int, float))
+            or not strs(src) or not strs(gloss) or not isinstance(by_source, dict)
+            or not all(isinstance(k, str) and strs(v) for k, v in by_source.items())):
+        return None
+    caps = Capabilities(
+        source_langs=tuple(src), gloss_langs=tuple(gloss),
+        gloss_langs_by_source={k: tuple(v) for k, v in by_source.items()},
+    )
+    return caps, float(at)
+
+
 class PostgresDictionaryStore:
     """Railway-Postgres impl.  Same fail-open + backoff shape as
     PostgresResultCache / PostgresCorpusStore; shares the process pool."""
@@ -587,10 +821,20 @@ class PostgresDictionaryStore:
 
     def __init__(self, dsn: str) -> None:
         from .db import get_pool  # lazy: pool construction needs psycopg
+        from .result_cache import pool_timeout_types
 
         self._pool = get_pool(dsn)
+        self._pool_timeout = pool_timeout_types()
         self._backoff_until = 0.0
-        self._caps_memo = _TTLMemo(CAPABILITIES_TTL_SECONDS)
+        # The persisted capabilities copy is keyed to THIS database by a hash
+        # of the DSN (never the DSN itself — it carries the password), so
+        # repointing LOOM_DICTIONARY_URL at another store can't serve a stale
+        # language list from the old one.
+        self._caps_path = capabilities_cache_path()
+        self._dsn_fingerprint = hashlib.sha256(dsn.encode("utf-8")).hexdigest()[:16]
+        self._caps_memo = _TTLMemo(CAPABILITIES_TTL_SECONDS,
+                                   on_store=self._persist_capabilities)
+        self._load_persisted_capabilities()
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
@@ -607,6 +851,21 @@ class PostgresDictionaryStore:
     def _trip(self, op: str) -> None:
         logger.warning("dictionary: %s failed (fail-open, %ss backoff)", op, self._BACKOFF_SECONDS, exc_info=True)
         self._backoff_until = time.monotonic() + self._BACKOFF_SECONDS
+
+    def _pool_timed_out(self, op: str) -> None:
+        """PoolTimeout: when every pooled connection is busy it is CONTENTION —
+        degrade only this request (found:false / no capabilities this once).
+        Tripping would blank EVERY definition for 30 s, long after the pool
+        freed up.  A timeout because the database can't even be reached is an
+        outage and still trips.  See result_cache.pool_is_saturated."""
+        if pool_is_saturated(self._pool):
+            logger.warning(
+                "dictionary: %s gave up waiting for a pooled connection — pool "
+                "CONTENDED (every connection busy); degrading this request only, no backoff",
+                op,
+            )
+        else:
+            self._trip(op)
 
     def lookup(
         self, lang: str, words: Sequence[str], gloss_lang: str = DEFAULT_GLOSS_LANG,
@@ -626,28 +885,38 @@ class PostgresDictionaryStore:
         # gloss still shows English).  When gloss_lang IS English this is just
         # the one language.
         want_glosses = [gloss_lang] if gloss_lang == DEFAULT_GLOSS_LANG else [gloss_lang, DEFAULT_GLOSS_LANG]
+        # The reading column is a lookup key for Japanese only (docstring rule
+        # 1 / _READING_MATCH_LANGS); elsewhere it would merge homophones.
+        by_reading = lang in _READING_MATCH_LANGS
+        if by_reading:
+            match, params = "(headword = ANY(%s) OR reading = ANY(%s))", (lang, want_glosses, wanted, wanted)
+        else:
+            match, params = "headword = ANY(%s)", (lang, want_glosses, wanted)
         try:
             with self._pool.connection(timeout=2.5) as conn:
                 rows = conn.execute(
                     "SELECT headword, reading, senses, common, source, gloss_lang"
                     " FROM dictionary_entry"
                     " WHERE lang = %s AND gloss_lang = ANY(%s)"
-                    " AND (headword = ANY(%s) OR reading = ANY(%s))",
-                    (lang, want_glosses, wanted, wanted),
+                    " AND " + match,
+                    params,
                 ).fetchall()
+        except self._pool_timeout:
+            self._pool_timed_out("lookup")
+            return {}
         except Exception:
             self._trip("lookup")
             return {}
 
-        # Bucket each row under every query word it satisfies (a row can match
-        # by headword for one word and by reading for another).
+        # Bucket each row under every query word it satisfies (a Japanese row
+        # can match by headword for one word and by reading for another).
         wset = set(wanted)
         buckets: dict[str, list[_Row]] = {w: [] for w in wanted}
         for headword, reading, senses, common, source, g_lang in rows:
             row = _Row(headword, reading, senses, common, source, g_lang)
             if headword in wset:
                 buckets[headword].append(row)
-            if reading in wset and reading != headword:
+            if by_reading and reading in wset and reading != headword:
                 buckets[reading].append(row)
 
         out: dict[str, Definition] = {}
@@ -657,28 +926,84 @@ class PostgresDictionaryStore:
                 out[w] = merged
         return out
 
-    def capabilities(self) -> Capabilities:
-        # Memoized: this is a full heap scan of ~8.5M rows (no index covers
-        # gloss_lang) and the extension calls it once per session, so an
-        # un-cached version burned a scan + one of four pool connections per
-        # activation.  The answer only changes on an ingest.  See _TTLMemo —
-        # failures aren't cached, so a DB blip doesn't blank capabilities for
-        # the whole TTL.
-        cached = self._caps_memo.get(self._compute_capabilities)
-        return cached or Capabilities(source_langs=(), gloss_langs=())
+    def capabilities(self) -> Optional[Capabilities]:
+        # Memoized stale-while-revalidate (see _TTLMemo): this is a full heap
+        # scan of ~9M rows (no index covers gloss_lang) measured at 30–48 s
+        # cold, and the extension awaits it before fetching furigana.  Once any
+        # answer exists — computed, or loaded from the persisted file — no
+        # request waits on the scan again.  None = nothing available at all;
+        # the route answers 503, never an authoritative empty list.
+        return self._caps_memo.get(self._compute_capabilities)
+
+    def _load_persisted_capabilities(self) -> None:
+        if not self._caps_path:
+            return
+        try:
+            with open(self._caps_path, encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except FileNotFoundError:
+            return
+        except Exception:
+            logger.warning("dictionary: unreadable capabilities cache %s (ignored)",
+                           self._caps_path, exc_info=True)
+            return
+        loaded = _capabilities_from_json(payload, self._dsn_fingerprint)
+        if loaded is not None:
+            self._caps_memo.seed(*loaded)
+
+    def _persist_capabilities(self, caps: Capabilities, at: float) -> None:
+        """Atomically write the last good answer (temp file in the same dir +
+        os.replace), so a reader never sees a half-written file.  Best effort:
+        a failed write only costs the next worker one scan."""
+        if not self._caps_path:
+            return
+        payload = _capabilities_to_json(caps, at, self._dsn_fingerprint)
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(
+                prefix=".loom-capabilities.", suffix=".tmp",
+                dir=os.path.dirname(os.path.abspath(self._caps_path)))
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            os.replace(tmp, self._caps_path)
+            tmp = None
+        except Exception:
+            logger.warning("dictionary: could not persist capabilities to %s",
+                           self._caps_path, exc_info=True)
+        finally:
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
 
     def _compute_capabilities(self) -> Optional[Capabilities]:
         if self._down():
             return None
         try:
             with self._pool.connection(timeout=2.5) as conn:
-                # One DISTINCT (lang, gloss_lang) scan gives all three views:
-                # the source set, the gloss set, and the per-source gloss map.
-                pairs = conn.execute(
-                    "SELECT DISTINCT lang, gloss_lang FROM dictionary_entry "
-                    "ORDER BY lang, gloss_lang").fetchall()
-        except Exception:
-            self._trip("capabilities")
+                # SET LOCAL is transaction-scoped: it bounds this scan and ends
+                # with the transaction, so it can't leak onto whoever borrows
+                # the pooled connection next.
+                with conn.transaction():
+                    conn.execute("SET LOCAL statement_timeout = %d"
+                                 % int(CAPABILITIES_SCAN_TIMEOUT_SECONDS * 1000))
+                    # One DISTINCT (lang, gloss_lang) scan gives all three views:
+                    # the source set, the gloss set, and the per-source gloss map.
+                    pairs = conn.execute(
+                        "SELECT DISTINCT lang, gloss_lang FROM dictionary_entry "
+                        "ORDER BY lang, gloss_lang").fetchall()
+        except self._pool_timeout:
+            self._pool_timed_out("capabilities")
+            return None
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) == _SQLSTATE_QUERY_CANCELED:
+                # Our own bound fired: the scan was slow, the DB isn't down.
+                # Tripping would blank every definition for 30 s over it.
+                logger.warning(
+                    "dictionary: capabilities scan exceeded its %.0fs statement_timeout "
+                    "(no backoff; the previous answer, if any, keeps being served)",
+                    CAPABILITIES_SCAN_TIMEOUT_SECONDS)
+            else:
+                self._trip("capabilities")
             return None
         by_source: dict[str, list[str]] = {}
         glosses: list[str] = []

@@ -27,6 +27,8 @@ from pydantic import BaseModel, Field, field_validator
 from loom_core.romanize import (
     build_annotation_html,
     build_word_tokens,
+    degraded_output_mark,
+    degraded_since,
     engine_version,
     is_token_supported,
 )
@@ -173,6 +175,7 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
         raw_spans = [(s[0], s[1]) for s in hit["spans"]]
         raw_tokens = _tokens_from_cache(hit.get("tokens"))
     else:
+        mark = degraded_output_mark()
         raw_spans = annotation_func(norm) if annotation_func else []
         # Tokens are cached under the cache_lang key, so they MUST be a pure
         # function of clang — NOT req.lang_code.  build_word_tokens' Chinese
@@ -180,23 +183,28 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
         # codes sharing a clang (yue/yue-HK, zh/zh-yue) would otherwise store
         # divergent per-word tokens into the same cache entry (cache poisoning).
         raw_tokens = build_word_tokens(norm, clang, raw_spans, annotation_func)
-        cache.put_many(
-            [
-                CacheRow(
-                    key=key,
-                    kind="annotate",
-                    lang_code=clang,
-                    phonetic_system=system_name,
-                    mode="-",
-                    engine_version=eng_ver,
-                    input_text=norm,
-                    output={
-                        "spans": [[base, reading] for base, reading in raw_spans],
-                        "tokens": _tokens_to_cache(raw_tokens),
-                    },
-                )
-            ]
-        )
+        # Computed on a FALLBACK engine (Thai IPA while thaig2p is down →
+        # tone-less thai2rom)?  Return it, but never cache it: the row would
+        # serve the stand-in under the real system's key to every later
+        # reader, with no TTL.  See loom_core.romanize.degraded_since.
+        if not degraded_since(mark):
+            cache.put_many(
+                [
+                    CacheRow(
+                        key=key,
+                        kind="annotate",
+                        lang_code=clang,
+                        phonetic_system=system_name,
+                        mode="-",
+                        engine_version=eng_ver,
+                        input_text=norm,
+                        output={
+                            "spans": [[base, reading] for base, reading in raw_spans],
+                            "tokens": _tokens_to_cache(raw_tokens),
+                        },
+                    )
+                ]
+            )
     spans = [AnnotateSpan(base=base, reading=reading) for base, reading in raw_spans]
     html = build_annotation_html(raw_spans, mode=mode)
 
@@ -341,6 +349,7 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
     # normalized text -> (raw spans [(base, reading), ...], raw tokens)
     computed: dict[str, tuple[list, list]] = {}
     new_rows: list[CacheRow] = []
+    misses = 0
     for norm, key in unique.items():
         hit = found.get(key)
         if isinstance(hit, dict) and isinstance(hit.get("spans"), list):
@@ -349,11 +358,18 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
                 _tokens_from_cache(hit.get("tokens")),
             )
             continue
+        misses += 1
+        mark = degraded_output_mark()
         raw_spans = annotation_func(norm) if annotation_func else []
         # Tokens keyed on clang must be computed from clang (see the single
         # /annotate handler) — else yue/yue-HK, zh/zh-yue poison each other.
         raw_tokens = build_word_tokens(norm, clang, raw_spans, annotation_func)
         computed[norm] = (raw_spans, raw_tokens)
+        # Per ITEM, not per batch: the engine can recover (or degrade) mid-
+        # batch.  A fallback-engine line is returned but never cached — see
+        # the single /annotate handler.
+        if degraded_since(mark):
+            continue
         new_rows.append(
             CacheRow(
                 key=key,
@@ -377,8 +393,8 @@ def annotate_batch(req: AnnotateBatchRequest) -> AnnotateBatchResponse:
             req.lang_code,
             total=len(req.texts),
             unique=len(unique),
-            hits=len(unique) - len(new_rows),
-            misses=len(new_rows),
+            hits=len(unique) - misses,
+            misses=misses,
         )
 
     results: list[AnnotateBatchItem] = []

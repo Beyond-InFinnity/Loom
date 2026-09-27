@@ -3443,6 +3443,49 @@ def _thai_transliterate_cached(text: str, engine: str) -> str:
     return _thai_transliterate_memo(text, engine)
 
 
+# ---------------------------------------------------------------------------
+# Degraded output: returned to the caller, never cached
+# ---------------------------------------------------------------------------
+# An engine answering from a FALLBACK (today only Thai IPA: thaig2p down →
+# tone-less thai2rom, see _detect_thai_ipa_engine) still returns that output —
+# a legible transliteration beats an empty phonetic line — but it must never
+# be stored under the key of the system it stands in for.  The result cache is
+# insert-first-wins with no TTL, so one "IPA" row computed while thaig2p is
+# down serves tone-less RTGS to every later IPA reader of that line, forever.
+#
+# So the COMPUTATION reports it: the fallback path calls note_degraded_output(),
+# and a caller brackets ONE item's computation with degraded_output_mark() /
+# degraded_since(mark).  The counter is THREAD-LOCAL on purpose:
+#   * not a global "is the engine degraded right now?" flag — the probe's
+#     backoff can expire (or another request's probe succeed) between computing
+#     an item and reading the flag, so a global read caches a degraded line
+#     (read after recovery) or skips a healthy one;
+#   * not a process-wide counter — another request degrading on another thread
+#     while this item computes would make a HEALTHY item look degraded.
+# A route handler runs start-to-finish on one threadpool thread and the engines
+# are synchronous, so the thread-local delta is exactly "this item's own
+# computation touched a fallback" — per item, per request, whatever the others
+# are doing.
+_degraded_output = threading.local()
+
+
+def note_degraded_output() -> None:
+    """Mark the output being computed on this thread as served from a
+    fallback engine: fine to return, never to cache."""
+    _degraded_output.count = getattr(_degraded_output, "count", 0) + 1
+
+
+def degraded_output_mark() -> int:
+    """Opaque mark taken before a computation; see ``degraded_since``."""
+    return getattr(_degraded_output, "count", 0)
+
+
+def degraded_since(mark: int) -> bool:
+    """True if a computation on THIS thread used a fallback engine since
+    *mark* was taken — its output must not be written to a cache."""
+    return getattr(_degraded_output, "count", 0) != mark
+
+
 # Probed lazily on first use; both IPA functions below read it.  ``thaig2p``
 # is pythainlp's real Thai→IPA engine (neural g2p with tone contours). It
 # needs a one-time ~12MB corpus download on first use; if that fails or the
@@ -3456,7 +3499,8 @@ def _thai_transliterate_cached(text: str, engine: str) -> str:
 # cache key.  A failure now answers the fallback for the calls that hit it
 # and is re-probed after _THAI_IPA_PROBE_RETRY_SECONDS, so a persistent
 # failure costs one probe per window, not one (network-touching) probe per
-# token.
+# token.  What the fallback computes meanwhile is returned but never written
+# to the result cache (_thai_ipa_call reports it via note_degraded_output).
 _THAI_IPA_ENGINE = ('transliterate', 'thaig2p')
 _THAI_IPA_FALLBACK = ('romanize', 'thai2rom')
 _THAI_IPA_PROBE_RETRY_SECONDS = 60.0
@@ -3679,6 +3723,8 @@ def _thai_ipa_call(token: str, ipa_engine: "tuple[str, str] | None" = None) -> s
         raw = _thai_transliterate_cached(token, engine)
         return _compact_thaig2p(raw) if raw else ''
     # Fallback: thai2rom via romanize — loses tones but consonants right.
+    # Reported, so the route returns this line but never caches it as "IPA".
+    note_degraded_output()
     return _thai_romanize_cached(token, engine) or ''
 
 

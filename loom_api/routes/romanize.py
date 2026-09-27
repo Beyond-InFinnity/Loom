@@ -22,7 +22,12 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from loom_core.romanize import engine_version, strip_speaker_markup
+from loom_core.romanize import (
+    degraded_output_mark,
+    degraded_since,
+    engine_version,
+    strip_speaker_markup,
+)
 from loom_core.styles import cache_lang, get_lang_config
 
 from .. import limits
@@ -120,25 +125,31 @@ def romanize(req: RomanizeRequest) -> RomanizeResponse:
     if isinstance(hit, dict) and isinstance(hit.get("romanized"), str):
         romanized = hit["romanized"]
     else:
+        mark = degraded_output_mark()
         if has_japanese_path:
             spans = annotation_func(norm)
             romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
         else:
             romanized = romanize_func(norm)
-        cache.put_many(
-            [
-                CacheRow(
-                    key=key,
-                    kind="romanize",
-                    lang_code=clang,
-                    phonetic_system=system_name,
-                    mode=mode,
-                    engine_version=eng_ver,
-                    input_text=norm,
-                    output={"romanized": romanized},
-                )
-            ]
-        )
+        # Computed on a FALLBACK engine (Thai IPA while thaig2p is down →
+        # tone-less thai2rom)?  Return it, but never cache it: the row would
+        # serve the stand-in under the real system's key to every later
+        # reader, with no TTL.  See loom_core.romanize.degraded_since.
+        if not degraded_since(mark):
+            cache.put_many(
+                [
+                    CacheRow(
+                        key=key,
+                        kind="romanize",
+                        lang_code=clang,
+                        phonetic_system=system_name,
+                        mode=mode,
+                        engine_version=eng_ver,
+                        input_text=norm,
+                        output={"romanized": romanized},
+                    )
+                ]
+            )
 
     return RomanizeResponse(
         romanized=romanized,
@@ -283,17 +294,25 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
     found = cache.get_many(list(unique.values())) if unique else {}
     values: dict[str, str] = {}
     new_rows: list[CacheRow] = []
+    misses = 0
     for norm, key in unique.items():
         hit = found.get(key)
         if isinstance(hit, dict) and isinstance(hit.get("romanized"), str):
             values[norm] = hit["romanized"]
             continue
+        misses += 1
+        mark = degraded_output_mark()
         if has_japanese_path:
             spans = annotation_func(norm)
             romanized = spans_to_romaji_func(spans, req.long_vowel_mode)
         else:
             romanized = romanize_func(norm)
         values[norm] = romanized
+        # Per ITEM, not per batch: the engine can recover (or degrade) mid-
+        # batch.  A fallback-engine line is returned but never cached — see
+        # the single /romanize handler.
+        if degraded_since(mark):
+            continue
         new_rows.append(
             CacheRow(
                 key=key,
@@ -314,8 +333,8 @@ def romanize_batch(req: RomanizeBatchRequest) -> RomanizeBatchResponse:
             req.lang_code,
             total=len(req.texts),
             unique=len(unique),
-            hits=len(unique) - len(new_rows),
-            misses=len(new_rows),
+            hits=len(unique) - misses,
+            misses=misses,
         )
 
     results: list[RomanizeBatchItem] = []

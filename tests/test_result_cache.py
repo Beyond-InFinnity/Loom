@@ -523,3 +523,163 @@ class TestEngineVersionCanonicalization:
 
         for code in ("ja", "ko", "zh", "yue", "hi", "ru", "es", "fr", "de"):
             assert engine_version(code) == ENGINE_VERSIONS[code]
+
+
+# --------------------------------------------------------------------------- #
+# Per-variant engine-version bumps
+#
+# ENGINE_VERSIONS is keyed by PRIMARY subtag, but cache_lang keeps the three
+# Chinese script variants apart (zh-Hans / zh-Hant / yue).  So a fix that only
+# changes zh-Hant output (e.g. flushing rows poisoned under zh-Hant's "Pinyin"
+# key) could only be invalidated by bumping `zh` — cold-starting every zh-Hans
+# row too.  _ENGINE_VERSION_VARIANT_BUMPS adds a bump for ONE variant ON TOP of
+# its primary's version.
+#
+# Additive, not an override.  The first cut looked the full cache_lang up in
+# ENGINE_VERSIONS before the primary, so an absolute "zh-Hant": 6 SHADOWED
+# "zh": a later Mandarin-wide fix bumping zh 5->6 left zh-Hant at 6 and every
+# Traditional-Chinese row stale (zh-Hant shares the pinyin/zhuyin/jieba code) —
+# silently, the "why didn't my fix take?" the version table exists to prevent.
+# --------------------------------------------------------------------------- #
+
+# cache_lang of each code BEFORE the variant mechanism existed, captured from
+# HEAD 012dfb1.  Frozen (not recomputed from today's cache_lang) so the sweep
+# guards against a real HEAD -> now move, not against itself.
+_HEAD_CACHE_LANG = {
+    'ja': 'ja', 'ja-JP': 'ja', 'jpn': 'ja', 'ko': 'ko', 'ko-KR': 'ko',
+    'kor': 'ko', 'zh': 'zh-Hans', 'zh-Hans': 'zh-Hans', 'zh-Hant': 'zh-Hant',
+    'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant', 'zh-HK': 'yue', 'zh-SG': 'zh-Hans',
+    'zh-yue': 'zh-Hans', 'yue': 'yue', 'yue-HK': 'yue', 'cmn': 'zh-Hans',
+    'cmn-Hans': 'zh-Hans', 'cmn-Hant': 'zh-Hant', 'chi': 'zh-Hans',
+    'zho': 'zh-Hans', 'chs': 'zh-Hans', 'cht': 'zh-Hant',
+    'CantoCaptions': 'cantocaptions', 'th': 'th', 'tha': 'th', 'hi': 'hi',
+    'hin': 'hi', 'bn': 'bn', 'ta': 'ta', 'te': 'te', 'gu': 'gu', 'pa': 'pa',
+    'ru': 'ru', 'rus': 'ru', 'uk': 'uk', 'be': 'be', 'sr': 'sr', 'bg': 'bg',
+    'mk': 'mk', 'mn': 'mn', 'he': 'he', 'heb': 'he', 'ar': 'ar', 'fa': 'fa',
+    'ur': 'ur', 'vi': 'vi', 'es': 'es', 'spa': 'es', 'fr': 'fr', 'fre': 'fr',
+    'fra': 'fr', 'de': 'de', 'ger': 'de', 'deu': 'de', 'it': 'it', 'pt': 'pt',
+    'pt-BR': 'pt', 'sv': 'sv', 'nl': 'nl', 'pl': 'pl', 'ro': 'ro', 'da': 'da',
+    'cs': 'cs', 'tr': 'tr', 'id': 'id', 'en': 'en', 'en-US': 'en', 'eng': 'en',
+    '': '', None: '',
+}
+
+
+class TestEngineVersionVariantBumps:
+    def test_variant_bump_moves_only_that_variant(self, monkeypatch):
+        from loom_core import romanize as R
+
+        monkeypatch.setitem(R._ENGINE_VERSION_VARIANT_BUMPS, "zh-Hant", 1)
+        zh = R.ENGINE_VERSIONS["zh"]
+        # Every code whose cache_lang is zh-Hant moves...
+        for code in ("zh-Hant", "zh-TW", "cht", "cmn-Hant", "zh-Hant-TW"):
+            assert R.engine_version(code) == zh + 1, code
+        # ...and zh-Hans / yue stay on their own versions (no cold start).
+        for code in ("zh", "zh-Hans", "zh-CN", "chs", "cmn"):
+            assert R.engine_version(code) == zh, code
+        for code in ("yue", "zh-HK"):
+            assert R.engine_version(code) == R.ENGINE_VERSIONS["yue"], code
+
+    def test_a_later_primary_bump_still_moves_a_bumped_variant(self, monkeypatch):
+        """The shadowing trap: after a zh-Hant-only flush, a Mandarin-wide
+        output fix bumps `zh` — and zh-Hant must move with it."""
+        from loom_core import romanize as R
+
+        monkeypatch.setitem(R._ENGINE_VERSION_VARIANT_BUMPS, "zh-Hant", 1)
+        codes = ("zh-Hant", "zh-TW", "cht", "cmn-Hant", "zh", "zh-Hans")
+        before = {c: R.engine_version(c) for c in codes}
+        monkeypatch.setitem(R.ENGINE_VERSIONS, "zh", R.ENGINE_VERSIONS["zh"] + 1)
+        for code in codes:
+            assert R.engine_version(code) == before[code] + 1, code
+
+    def test_engine_versions_holds_only_primary_subtags(self):
+        """engine_version() looks ENGINE_VERSIONS up by PRIMARY subtag only, so
+        a variant key there ("zh-Hant": 6) would be silently ignored — and the
+        rows it was meant to flush would keep being served."""
+        from loom_core.romanize import ENGINE_VERSIONS
+
+        for key in ENGINE_VERSIONS:
+            assert key == key.lower() and "-" not in key and "_" not in key, (
+                f"ENGINE_VERSIONS[{key!r}] is never looked up: the table is keyed "
+                f"by primary subtag.  Bump a single script variant with "
+                f"_ENGINE_VERSION_VARIANT_BUMPS[{key!r}] = 1 (ADDED on top of "
+                f"its primary's version) instead.")
+
+    def test_variant_bump_keys_are_real_cache_lang_variants(self):
+        from loom_core.romanize import _ENGINE_VERSION_VARIANT_BUMPS
+
+        for key, bump in _ENGINE_VERSION_VARIANT_BUMPS.items():
+            # Spelled exactly as cache_lang returns it — "zh-hant" would
+            # silently never match.
+            assert cache_lang(key) == key, key
+            # A real VARIANT: primaries (yue, th, ...) belong in ENGINE_VERSIONS.
+            assert key.split("-")[0] != key, key
+            assert isinstance(bump, int) and bump > 0, key
+
+    def test_no_existing_version_moves(self):
+        """Against HEAD: every code keeps its cache_lang, and its version is
+        exactly the old primary-subtag lookup — plus a variant bump only where
+        one has been deliberately added.  Any other change would orphan live
+        cache rows.  Stays valid as the orchestrated th / yue / zh-Hant bumps
+        land."""
+        from loom_core.romanize import (
+            _ENGINE_VERSION_DEFAULT, _ENGINE_VERSION_VARIANT_BUMPS, ENGINE_VERSIONS,
+            engine_version)
+
+        for code, head_clang in _HEAD_CACHE_LANG.items():
+            assert cache_lang(code or "") == head_clang, code
+            primary = ENGINE_VERSIONS.get(head_clang.split("-")[0].lower(),
+                                          _ENGINE_VERSION_DEFAULT)
+            assert engine_version(code) == (
+                primary + _ENGINE_VERSION_VARIANT_BUMPS.get(head_clang, 0)), code
+
+
+# --------------------------------------------------------------------------- #
+# Legacy / ISO 639-2/B language codes the CLIENT already canonicalizes
+# (finding M-12).  YouTube still surfaces the pre-1989 codes iw (he), in (id),
+# ji (yi), jw (jv), mo (ro) — packages/player-ui lang-code.ts LANG_ALIASES maps
+# them — and Matroska emits 639-2/B `mac` for Macedonian.  The server did not:
+# `iw` fell through as its own language, so a Hebrew track came back with an
+# EMPTY romanization line.  Nothing was ever cached under these codes (they
+# produced no output), so no invalidation is needed.
+# --------------------------------------------------------------------------- #
+
+_LEGACY_ALIASES = [("iw", "he"), ("in", "id"), ("ji", "yi"), ("jw", "jv"),
+                   ("mo", "ro"), ("mac", "mk")]
+
+
+class TestLegacyLanguageAliases:
+    @pytest.mark.parametrize("alias,canonical", _LEGACY_ALIASES)
+    def test_alias_resolves_to_canonical(self, alias, canonical):
+        from loom_core.romanize import engine_version, is_token_supported
+
+        assert cache_lang(alias) == canonical
+        assert cache_lang(alias.upper()) == canonical
+        assert engine_version(alias) == engine_version(canonical)
+        assert is_token_supported(alias) == is_token_supported(canonical)
+
+    def test_region_forms_resolve(self):
+        assert cache_lang("iw-IL") == "he"
+        assert cache_lang("in-ID") == "id"
+
+    def test_canonical_codes_unchanged(self):
+        from loom_core.romanize import ENGINE_VERSIONS, _ENGINE_VERSION_DEFAULT, engine_version
+
+        for _, canonical in _LEGACY_ALIASES:
+            assert cache_lang(canonical) == canonical
+            assert engine_version(canonical) == ENGINE_VERSIONS.get(
+                canonical, _ENGINE_VERSION_DEFAULT)
+
+    def test_iw_hebrew_track_gets_its_romanization_line(self):
+        from loom_api.routes.romanize import RomanizeBatchRequest, romanize_batch
+
+        resp = romanize_batch(RomanizeBatchRequest(texts=["שלום עולם"], lang_code="iw"))
+        ref = romanize_batch(RomanizeBatchRequest(texts=["שלום עולם"], lang_code="he"))
+        assert resp.has_phonetic_layer
+        assert resp.results[0].romanized == ref.results[0].romanized != ""
+
+    def test_mac_macedonian_track_gets_its_romanization_line(self):
+        from loom_api.routes.romanize import RomanizeBatchRequest, romanize_batch
+
+        resp = romanize_batch(RomanizeBatchRequest(texts=["Здраво свету"], lang_code="mac"))
+        ref = romanize_batch(RomanizeBatchRequest(texts=["Здраво свету"], lang_code="mk"))
+        assert resp.results[0].romanized == ref.results[0].romanized != ""

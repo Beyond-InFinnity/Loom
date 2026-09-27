@@ -64,6 +64,7 @@ import contextlib
 import functools
 import re
 import threading
+import time
 
 # ---------------------------------------------------------------------------
 # Engine versions — cache-key discipline (ROMANIZATION_CACHE.md gotcha #1)
@@ -98,6 +99,134 @@ def normalize_phonetic_system(system: str | None) -> str | None:
     if not system:
         return None
     return system.strip().lower() or None
+
+
+# The phonetic systems each language's ENGINE actually honours — enumerated
+# from the engines, not from any UI list:
+#   Chinese (zh-Hans / zh-Hant / yue)  get_romanizer + get_annotation_func
+#                                      branch on pinyin / zhuyin / jyutping
+#   Thai                               _make_thai_{,paiboon_,ipa_}romanizer
+#   Arabic / Persian / Urdu            the keys of _ARABIC_TABLES /
+#                                      _PERSIAN_TABLES / _URDU_TABLES
+#                                      (anything else silently -> "learner")
+# Every other language (ja, ko, Cyrillic, Indic, Hebrew, Latin, ...) offers
+# no choice at all — its engine ignores the value.
+_CHINESE_PHONETIC_SYSTEMS = frozenset({"pinyin", "zhuyin", "jyutping"})
+_THAI_PHONETIC_SYSTEMS = frozenset({"rtgs", "paiboon", "ipa"})
+
+
+def _phonetic_systems_for(clang: str):
+    """The systems the engine for cache_lang *clang* honours (supports `in`).
+
+    The Arabic-script tables are defined further down this module; they are
+    looked up at call time, so the valid set can never drift from the tables
+    the romanizer actually selects from."""
+    if clang in ("zh-Hans", "zh-Hant", "yue"):
+        return _CHINESE_PHONETIC_SYSTEMS
+    if clang == "th":
+        return _THAI_PHONETIC_SYSTEMS
+    if clang == "ar":
+        return _ARABIC_TABLES      # learner / din / loose
+    if clang == "fa":
+        return _PERSIAN_TABLES     # learner / dmg
+    if clang == "ur":
+        return _URDU_TABLES        # learner / ala-lc
+    return ()
+
+
+def effective_phonetic_system(lang_code: str | None, system: str | None) -> str | None:
+    """The phonetic system a request ACTUALLY selects for *lang_code*: the
+    normalized *system* when that language's engine offers it, else None (=
+    the language's default).
+
+    LOAD-BEARING for cache integrity — the second half of what
+    normalize_phonetic_system started.  The cache key NAMES the system
+    (styles romanization_name / _annotation_system_name) while the engines
+    compute the output, and both used to accept ANY value: a system from
+    another family fell back to the language's default NAME on the key side
+    but to the engine's own auto-resolution on the compute side.  So th +
+    "pinyin" was named "Paiboon+ (with tones)" (the key every Thai viewer
+    reads) but computed tone-less RTGS; zh-Hant + "rtgs" was named "Pinyin" but
+    computed Zhuyin; zh-HK + "x" was named "Pinyin" but computed Jyutping —
+    insert-first-wins, no TTL.  Organic, not just hostile: the extension sends
+    ONE global phonetic-system override to every language, so a user who chose
+    Zhuyin for Chinese sends "zhuyin" with every Thai request.
+
+    get_lang_config, get_romanizer and get_annotation_func all resolve through
+    here, so the name and the engine are derived from the same effective value
+    by construction.  Family is decided by `cache_lang` (alias- and variant-
+    normalized), the same identity the cache key uses.
+    """
+    system = normalize_phonetic_system(system)
+    if system is None:
+        return None
+    from .styles import cache_lang  # lazy: styles imports this module
+
+    return system if system in _phonetic_systems_for(cache_lang(lang_code or "")) else None
+
+
+_LANG_SUBTAG_SPLIT = re.compile(r"[-_]")
+
+
+def classify_chinese_variant(lang_code: str | None) -> str | None:
+    """Classify a lang code into its Chinese script variant: "zh-Hans"
+    (Simplified — Pinyin default), "zh-Hant" (Traditional — Zhuyin default,
+    and the Traditional->Simplified bridge in front of jieba), "yue"
+    (Cantonese — Jyutping), or None for non-Chinese.
+
+    THE one classifier: styles (cache_lang, names, default font) and this
+    module (get_romanizer, get_annotation_func, word tokens) all ask it.  They
+    used to each carry an exact-string check (`lc in ("zh-hant", "zh-tw")`,
+    `lc == "zh-hk"`), so any tag with an extra subtag — zh-Hant-TW, zh-Hant-HK,
+    zh-MO, zh_TW — fell through every one of them to Simplified: Pinyin, the
+    zh-Hans cache key, and jieba on Traditional text without the bridge
+    (臺|灣的|颱|風季節).
+
+    Parses subtags (either separator; stops at a singleton, after which come
+    extensions / private use):
+      yue…                        -> yue
+      zh + script Hant            -> zh-Hant   (a script subtag beats a region)
+      zh + script Hans            -> zh-Hans
+      zh + region TW / MO         -> zh-Hant
+      zh + region HK, no script   -> yue       (HK subtitle tracks are Cantonese
+                                                in practice — see language.py's
+                                                Cantonese discriminator; callers
+                                                wanting Mandarin pass
+                                                phonetic_system pinyin/zhuyin)
+      any other zh                -> zh-Hans
+    Every code the old exact-string checks classified keeps its class — incl.
+    `zh-yue`, which has always been Simplified here (extlang subtags are not
+    read).  Expects an alias-normalized code (styles._normalize_lang_code maps
+    cht/cmn-Hant/… first); raw 3-letter primaries are not Chinese to it.
+
+    The PRIMARY subtag is read exactly as every engine-side extraction reads it
+    (`lower().split("-")[0].split("_")[0]` — no strip, no skipping a leading
+    empty subtag).  Stripping made ' zh-TW' / '-zh' Chinese to cache_lang but
+    unknown to the engines, which then wrote empty output under the (zh-*,
+    "Annotation") keys — a cache_lang-vs-engine divergence.
+    """
+    subtags = _LANG_SUBTAG_SPLIT.split((lang_code or "").lower())
+    if subtags[0] == "yue":
+        return "yue"
+    if subtags[0] != "zh":
+        return None
+    script = region = None
+    for sub in (s for s in subtags[1:] if s):
+        if len(sub) == 1:
+            break
+        if len(sub) == 4 and sub.isalpha():
+            script = script or sub
+        elif (len(sub) == 2 and sub.isalpha()) or (len(sub) == 3 and sub.isdigit()):
+            region = region or sub
+    if script == "hant":
+        return "zh-Hant"
+    if script == "hans":
+        return "zh-Hans"
+    if region in ("tw", "mo"):
+        return "zh-Hant"
+    if region == "hk":
+        return "yue"
+    return "zh-Hans"
 
 
 ENGINE_VERSIONS: dict[str, int] = {
@@ -173,6 +302,30 @@ ENGINE_VERSIONS: dict[str, int] = {
     "en": 3,
 }
 
+# cache_lang VARIANT -> extra versions ADDED on top of its primary's
+# ENGINE_VERSIONS entry.  cache_lang keeps the Chinese script variants apart
+# (zh-Hans / zh-Hant / yue), but ENGINE_VERSIONS is keyed by primary subtag, so
+# a fix confined to ONE variant (e.g. flushing rows poisoned under zh-Hant's
+# "Pinyin" key) could otherwise only be flushed by bumping `zh` — cold-starting
+# every zh-Hans row as well.  An entry here moves just that variant.
+#
+# ADDITIVE, NOT AN OVERRIDE — load-bearing.  An absolute per-variant version
+# would SHADOW its primary: with zh-Hant pinned at 6, a later Mandarin-wide fix
+# bumping zh 5->6 would leave zh-Hant at 6 and every Traditional-Chinese row
+# stale (zh-Hant shares the pinyin/zhuyin/jieba code) — silently, the "why
+# didn't my fix take?" this table exists to prevent.  primary + bump moves
+# whenever EITHER moves.
+#
+# Rules (tests/test_result_cache.py enforces the checkable ones):
+#   - keys are spelled exactly as cache_lang returns them ("zh-Hant", never
+#     "zh-hant" — a mis-cased key silently never matches), and are genuine
+#     variants; primaries (yue, th, ...) are bumped in ENGINE_VERSIONS;
+#   - a variant key must never be put in ENGINE_VERSIONS itself — the lookup
+#     there is by primary only, so it would be silently IGNORED;
+#   - values only go UP and entries are never removed: either would move the
+#     version back onto rows written by older code.
+_ENGINE_VERSION_VARIANT_BUMPS: dict[str, int] = {}
+
 
 def engine_version(lang_code: str) -> int:
     """Cache-key version for *lang_code*.
@@ -189,12 +342,18 @@ def engine_version(lang_code: str) -> int:
     script variant (zh-Hans/zh-Hant/yue), the version table is keyed zh / yue.
     That also fixes zh-HK, whose version previously came from `zh` even though
     it romanizes as Cantonese.
+
+    A single script variant can additionally be bumped on its own via
+    _ENGINE_VERSION_VARIANT_BUMPS (e.g. "zh-Hant", without cold-starting every
+    zh-Hans row), ADDED to the primary's version so it still moves with every
+    later primary bump — see that table for why it must not be an override.
+    With no variant entries the result is exactly the primary-subtag lookup.
     """
     from .styles import cache_lang  # lazy: styles imports this module
 
     clang = cache_lang(lang_code or "")
-    key = clang.split("-")[0].lower()
-    return ENGINE_VERSIONS.get(key, _ENGINE_VERSION_DEFAULT)
+    primary = ENGINE_VERSIONS.get(clang.split("-")[0].lower(), _ENGINE_VERSION_DEFAULT)
+    return primary + _ENGINE_VERSION_VARIANT_BUMPS.get(clang, 0)
 
 
 # Matches ASS override tag blocks: {...}
@@ -2735,13 +2894,90 @@ def _compact_thaig2p(raw: str) -> str:
     return '.'.join(s for s in syllables if s)
 
 
-# Probed lazily on first use and cached — both functions below read it
-# via the lru_cache. ``thaig2p`` is pythainlp's real Thai→IPA engine
-# (neural g2p with tone contours). It needs a one-time ~12MB corpus
-# download on first use; if that fails or the engine is otherwise
-# unavailable we fall back to ``thai2rom`` (RTGS-ish, no tones — still
-# a legible transliteration).
-@functools.lru_cache(maxsize=1)
+# ---------------------------------------------------------------------------
+# Memoized pythainlp model calls
+# ---------------------------------------------------------------------------
+# ``thai2rom`` (romanize) and ``thaig2p`` (transliterate) are torch seq2seq
+# models, ~5-10 ms per call, and the Thai romanizers call them once per
+# SYLLABLE (Paiboon+) or TOKEN (RTGS / IPA) with nothing in between: one
+# uncached 600-line episode took 78.8 s in review (19 s Paiboon+ / 36 s IPA on
+# an idle box) — against the extension's 60 s request timeout, past which the
+# whole Thai phonetic line silently fails.  Both models are deterministic in
+# their input (greedy decode, no sampling), so a per-(text, engine) memo
+# returns byte-identical output.  How much it saves depends on how repetitive
+# the vocabulary is: ~30x on an episode-like line set (a small syllable set
+# endlessly repeated — 19 s -> 0.7 s Paiboon+, 36 s -> 0.8 s IPA for 610
+# lines), but only ~1.6-2x from a cold memo on maximally diverse text (400
+# lines of random dictionary words: 28 -> 13 s Paiboon+, 26 -> 15 s RTGS,
+# 58 -> 36 s IPA), since every distinct syllable still costs one model call.
+# lru_cache is thread-safe (a concurrent miss may compute twice, harmlessly).
+# Exceptions are never cached — a failed call raises again next time.
+#
+# Bounded in BOTH entry count and key length, or it is a memory-amplification
+# path.  _thai_tokenize leaves a run of Thai digits, ฯ/๏ signs or stacked
+# combining marks as ONE token — up to a whole 5000-char line — and every path
+# hands that token straight to the model; memoized, a client streaming unique
+# ones retained ~10 KB per entry (~680 MB per memo at 65536 entries).  Keys
+# longer than _THAI_MODEL_MEMO_MAX_KEY_LEN are therefore answered uncached.
+# Real keys are syllables / short words: over random-dictionary-word lines the
+# longest was 7 codepoints.  Worst case with the cap, measured (32-char keys,
+# 100-char outputs): ~7 MB thai2rom + ~9 MB thaig2p at 16384 entries.  The 400
+# maximally-diverse lines above need only ~3.6k thai2rom / ~3.1k thaig2p keys,
+# so the LRU still holds several episodes' working set.
+_THAI_MODEL_MEMO_SIZE = 16384
+_THAI_MODEL_MEMO_MAX_KEY_LEN = 32
+
+
+@functools.lru_cache(maxsize=_THAI_MODEL_MEMO_SIZE)
+def _thai_romanize_memo(text: str, engine: str) -> str:
+    from pythainlp.transliterate import romanize as _thai_romanize
+    return _thai_romanize(text, engine=engine)
+
+
+@functools.lru_cache(maxsize=_THAI_MODEL_MEMO_SIZE)
+def _thai_transliterate_memo(text: str, engine: str) -> str:
+    from pythainlp.transliterate import transliterate as _translit
+    return _translit(text, engine=engine)
+
+
+def _thai_romanize_cached(text: str, engine: str) -> str:
+    """``pythainlp.transliterate.romanize(text, engine=engine)``, memoized
+    unless *text* is longer than _THAI_MODEL_MEMO_MAX_KEY_LEN."""
+    if len(text) > _THAI_MODEL_MEMO_MAX_KEY_LEN:
+        return _thai_romanize_memo.__wrapped__(text, engine)
+    return _thai_romanize_memo(text, engine)
+
+
+def _thai_transliterate_cached(text: str, engine: str) -> str:
+    """``pythainlp.transliterate.transliterate(text, engine=engine)``, memoized
+    unless *text* is longer than _THAI_MODEL_MEMO_MAX_KEY_LEN."""
+    if len(text) > _THAI_MODEL_MEMO_MAX_KEY_LEN:
+        return _thai_transliterate_memo.__wrapped__(text, engine)
+    return _thai_transliterate_memo(text, engine)
+
+
+# Probed lazily on first use; both IPA functions below read it.  ``thaig2p``
+# is pythainlp's real Thai→IPA engine (neural g2p with tone contours). It
+# needs a one-time ~12MB corpus download on first use; if that fails or the
+# engine is otherwise unavailable we fall back to ``thai2rom`` (RTGS-ish, no
+# tones — still a legible transliteration).
+#
+# Only SUCCESS is memoized.  This used to be ``@lru_cache(maxsize=1)``, which
+# cached the fallback too: ONE transient failure — typically that first-use
+# corpus download failing inside a user's request — switched the worker to
+# tone-less output for its whole life, all of it written under the "IPA"
+# cache key.  A failure now answers the fallback for the calls that hit it
+# and is re-probed after _THAI_IPA_PROBE_RETRY_SECONDS, so a persistent
+# failure costs one probe per window, not one (network-touching) probe per
+# token.
+_THAI_IPA_ENGINE = ('transliterate', 'thaig2p')
+_THAI_IPA_FALLBACK = ('romanize', 'thai2rom')
+_THAI_IPA_PROBE_RETRY_SECONDS = 60.0
+_thai_ipa_probe_lock = threading.Lock()
+_thai_ipa_engine_ok: "tuple[str, str] | None" = None     # memoized success
+_thai_ipa_probe_failed_at: "float | None" = None         # monotonic time
+
+
 def _detect_thai_ipa_engine() -> tuple[str, str]:
     """Return ``(function_name, engine_name)``: either
     ``('transliterate', 'thaig2p')`` for real IPA, or
@@ -2752,15 +2988,46 @@ def _detect_thai_ipa_engine() -> tuple[str, str]:
     engine — it mangles consonant clusters (ครับ → ``'khnap'`` instead of
     ``'kʰrap̚˦˥'``). This is why Thai IPA output was worthless before.
     """
-    try:
-        from pythainlp.transliterate import transliterate as _translit
-        # Triggers the one-time corpus download on fresh installs.
-        out = _translit('\u0e01', engine='thaig2p')
-        if out and out.strip():
-            return ('transliterate', 'thaig2p')
-    except Exception:
-        pass
-    return ('romanize', 'thai2rom')
+    global _thai_ipa_engine_ok, _thai_ipa_probe_failed_at
+    if _thai_ipa_engine_ok is not None:
+        return _thai_ipa_engine_ok
+    # Serialize probes: the first one may download the corpus, and N threads
+    # racing N downloads helps nobody.
+    with _thai_ipa_probe_lock:
+        if _thai_ipa_engine_ok is not None:
+            return _thai_ipa_engine_ok
+        failed_at = _thai_ipa_probe_failed_at
+        if failed_at is not None and time.monotonic() - failed_at < _THAI_IPA_PROBE_RETRY_SECONDS:
+            return _THAI_IPA_FALLBACK
+        try:
+            from pythainlp.transliterate import transliterate as _translit
+            # Triggers the one-time corpus download on fresh installs.
+            out = _translit('\u0e01', engine='thaig2p')
+            if out and out.strip():
+                _thai_ipa_engine_ok = _THAI_IPA_ENGINE
+                _thai_ipa_probe_failed_at = None
+                return _thai_ipa_engine_ok
+        except Exception as e:
+            import logging
+            logging.getLogger("loom.romanize").warning(
+                "thaig2p unavailable (%s: %s); Thai IPA serves the thai2rom "
+                "fallback, re-probing in %ss", type(e).__name__, e,
+                _THAI_IPA_PROBE_RETRY_SECONDS)
+        _thai_ipa_probe_failed_at = time.monotonic()
+        return _THAI_IPA_FALLBACK
+
+
+def _reset_thai_ipa_engine_probe() -> None:
+    """Forget the probe's memoized success and failure backoff (tests)."""
+    global _thai_ipa_engine_ok, _thai_ipa_probe_failed_at
+    with _thai_ipa_probe_lock:
+        _thai_ipa_engine_ok = None
+        _thai_ipa_probe_failed_at = None
+
+
+# Keeps the functools-style reset working for the review repro / ad-hoc tooling
+# written against the old @lru_cache version.
+_detect_thai_ipa_engine.cache_clear = _reset_thai_ipa_engine_probe
 
 
 def _make_thai_romanizer():
@@ -2771,8 +3038,6 @@ def _make_thai_romanizer():
     clusters like กล→kn, ปร→pn).  Tokenizes first via ``_thai_tokenize()``,
     romanizes each token, then joins with spaces.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
-
     def romanize(text: str) -> str:
         if not text:
             return ''
@@ -2781,7 +3046,7 @@ def _make_thai_romanizer():
         parts = []
         for token in tokens:
             if _has_thai(token):
-                parts.append(_thai_romanize(token, engine='thai2rom'))
+                parts.append(_thai_romanize_cached(token, 'thai2rom'))
             elif token.strip():
                 parts.append(token)
         return _polish_romaji(' '.join(p for p in parts if p.strip()),
@@ -2798,8 +3063,6 @@ def _make_thai_annotation_func():
     output with correct consonant clusters).
     Non-Thai tokens (Latin, numerals, spaces) pass through with reading=None.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
-
     def get_spans(text: str) -> list:
         if not text:
             return []
@@ -2810,7 +3073,7 @@ def _make_thai_annotation_func():
             if not token.strip():
                 spans.append((token, None))
             elif _has_thai(token):
-                rom = _thai_romanize(token, engine='thai2rom')
+                rom = _thai_romanize_cached(token, 'thai2rom')
                 spans.append((token, rom if rom else None))
             else:
                 spans.append((token, None))
@@ -2829,14 +3092,13 @@ def _make_thai_paiboon_romanizer():
     Vowel digraphs are remapped to Paiboon equivalents: ae→ɛ, ue→ɯ.
     Syllables within multi-syllabic words are joined with hyphens.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
     from pythainlp.tokenize import syllable_tokenize
     from pythainlp.util import tone_detector
 
     def _romanize_syllable(syl):
         if syl in _THAI_SPECIAL_CASES:
             return _THAI_SPECIAL_CASES[syl]
-        rom = _thai_romanize(syl, engine='thai2rom')
+        rom = _thai_romanize_cached(syl, 'thai2rom')
         rom = _paiboon_remap_vowels(rom)
         try:
             tone = tone_detector(syl)
@@ -2876,7 +3138,6 @@ def _make_thai_paiboon_annotation_func():
     Uses ``_thai_tokenize()`` (shared with the block romanizer) to segment
     Thai text, then romanizes each token with per-syllable Paiboon+ diacritics.
     """
-    from pythainlp.transliterate import romanize as _thai_romanize
     from pythainlp.tokenize import syllable_tokenize
     from pythainlp.util import tone_detector
 
@@ -2891,7 +3152,7 @@ def _make_thai_paiboon_annotation_func():
             if s in _THAI_SPECIAL_CASES:
                 syl_parts.append(_THAI_SPECIAL_CASES[s])
                 continue
-            rom = _thai_romanize(s, engine='thai2rom')
+            rom = _thai_romanize_cached(s, 'thai2rom')
             rom = _paiboon_remap_vowels(rom)
             try:
                 tone = tone_detector(s)
@@ -2921,18 +3182,17 @@ def _make_thai_paiboon_annotation_func():
     return get_spans
 
 
-def _thai_ipa_call(token: str) -> str:
-    """Transliterate a single Thai token to compact IPA, using the
-    detected best-available engine. Empty/whitespace tokens return ''.
+def _thai_ipa_call(token: str, ipa_engine: "tuple[str, str] | None" = None) -> str:
+    """Transliterate a single Thai token to compact IPA, using *ipa_engine*
+    (a ``_detect_thai_ipa_engine()`` result) or, if None, the detected
+    best-available engine. Empty/whitespace tokens return ''.
     """
-    func_name, engine = _detect_thai_ipa_engine()
+    func_name, engine = ipa_engine or _detect_thai_ipa_engine()
     if func_name == 'transliterate':
-        from pythainlp.transliterate import transliterate as _translit
-        raw = _translit(token, engine=engine)
+        raw = _thai_transliterate_cached(token, engine)
         return _compact_thaig2p(raw) if raw else ''
     # Fallback: thai2rom via romanize — loses tones but consonants right.
-    from pythainlp.transliterate import romanize as _thai_romanize
-    return _thai_romanize(token, engine=engine) or ''
+    return _thai_romanize_cached(token, engine) or ''
 
 
 def _make_thai_ipa_romanizer():
@@ -2949,9 +3209,14 @@ def _make_thai_ipa_romanizer():
         clean = _normalize_thai(_strip_ass(text))
         tokens = _thai_tokenize(clean)
         parts = []
+        # Resolved ONCE per line, at its first Thai token: the probe's failure
+        # backoff can expire mid-line, and resolving per token would then mix
+        # thai2rom and thaig2p output inside one (cached) line.
+        ipa_engine = None
         for token in tokens:
             if _has_thai(token):
-                ipa = _thai_ipa_call(token)
+                ipa_engine = ipa_engine or _detect_thai_ipa_engine()
+                ipa = _thai_ipa_call(token, ipa_engine)
                 if ipa:
                     parts.append(ipa)
             elif token.strip():
@@ -2970,11 +3235,13 @@ def _make_thai_ipa_annotation_func():
         clean = _normalize_thai(_strip_ass(text))
         tokens = _thai_tokenize(clean)
         spans = []
+        ipa_engine = None      # once per line — see _make_thai_ipa_romanizer
         for token in tokens:
             if not token.strip():
                 spans.append((token, None))
             elif _has_thai(token):
-                ipa = _thai_ipa_call(token)
+                ipa_engine = ipa_engine or _detect_thai_ipa_engine()
+                ipa = _thai_ipa_call(token, ipa_engine)
                 spans.append((token, ipa if ipa else None))
             else:
                 spans.append((token, None))
@@ -3034,7 +3301,10 @@ def get_annotation_func(lang_code: str, system: str = None):
 
     Returns None for languages without character-aligned annotations.
     """
-    system = normalize_phonetic_system(system)
+    # Only a system this language's engine actually offers survives (see
+    # effective_phonetic_system) — so "pinyin" on a Japanese / Korean / Thai
+    # code no longer hands back the CHINESE annotator.
+    system = effective_phonetic_system(lang_code, system)
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
     # Explicit system override — works for any Chinese variant
@@ -3053,14 +3323,15 @@ def get_annotation_func(lang_code: str, system: str = None):
         return _make_jyutping_annotation_func()
 
     if primary == "zh":
-        # Auto-detect from variant — same routing as get_romanizer:
+        # Auto-detect from variant (classify_chinese_variant) — same routing
+        # as get_romanizer:
         #   zh-HK → Jyutping (HK = Cantonese in practice)
-        #   zh-Hant / zh-TW → Zhuyin (Taiwan)
+        #   zh-Hant / zh-TW / zh-MO / zh-Hant-* → Zhuyin (Taiwan)
         #   everything else → Pinyin
-        lc = (lang_code or "").lower()
-        if lc == "zh-hk":
+        variant = classify_chinese_variant(lang_code)
+        if variant == "yue":
             return _make_jyutping_annotation_func()
-        if lc in ("zh-hant", "zh-tw"):
+        if variant == "zh-Hant":
             return _make_zhuyin_annotation_func()
         return _make_chinese_annotation_func()
 
@@ -3232,9 +3503,6 @@ def _japanese_tokens(spans: list, annotation_func) -> list:
     return tokens
 
 
-_TRADITIONAL_LANGS = {"zh-hant", "zh-tw", "zh-hk", "yue", "zh-yue"}
-
-
 def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
     """Group per-character Chinese spans into jieba words.  Spans are atomic
     characters over _strip_ass(text), so a jieba word of N chars maps to N
@@ -3242,7 +3510,12 @@ def _chinese_tokens(text: str, spans: list, lang_code: str) -> list:
     clean = _strip_ass(text)
     if len(spans) != len(clean):
         return []  # alignment broken (unexpected) — omit tokens, don't mis-map
-    traditional = (lang_code or "").lower() in _TRADITIONAL_LANGS
+    # Traditional-script text (zh-Hant, and Cantonese, written in Traditional
+    # characters) goes through the t2s bridge before jieba's Simplified dict.
+    # Decided by the SAME classifier as cache_lang — the routes pass cache_lang
+    # here, and an exact-string set used to send zh-Hant-TW / zh-MO / zh_TW
+    # through jieba unbridged (臺|灣的|颱|風季節).
+    traditional = classify_chinese_variant(lang_code) in ("zh-Hant", "yue")
     tokens = []
     offset = 0
     for w in _jieba_words(clean, traditional=traditional):
@@ -3862,13 +4135,16 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
         phonetic_system: Override for languages with multiple romanization
                          systems.  Thai: ``"rtgs"``, ``"paiboon"``, ``"ipa"``.
     """
-    phonetic_system = normalize_phonetic_system(phonetic_system)
+    # Only a system this language's engine actually offers survives; anything
+    # else (another family's system, junk) means the language default — the
+    # same resolution get_lang_config NAMES the cache key with.
+    phonetic_system = effective_phonetic_system(lang_code, phonetic_system)
     # Normalise: lower-case, extract primary subtag
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
     # Chunk R2 — Chinese (Pinyin / Zhuyin / Jyutping, jieba-segmented) ✅
-    # Variant defaults:
-    #   zh-Hant / zh-TW            → Zhuyin (Taiwan convention)
+    # Variant defaults (classify_chinese_variant):
+    #   zh-Hant / zh-TW / zh-MO    → Zhuyin (Taiwan convention)
     #   zh-HK                      → Jyutping (HK's spoken language is Cantonese;
     #                                practically every zh-HK-tagged subtitle track
     #                                carries Cantonese — see also language.py's
@@ -3876,21 +4152,21 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     #                                zh-HK as suspect-Cantonese)
     #   zh / zh-Hans / zh-CN / etc → Pinyin
     # Explicit phonetic_system ("pinyin" | "zhuyin" | "jyutping") always wins.
-    lc = (lang_code or "").lower()
     if primary == "zh":
-        sys = (phonetic_system or "").lower() or None
-        if sys == "jyutping":
+        variant = classify_chinese_variant(lang_code)
+        # Script of the TEXT, for the Mandarin romanizers' t2s bridge: zh-HK
+        # tracks are written in Traditional characters too.
+        script = 'zh-Hant' if variant in ('zh-Hant', 'yue') else 'zh-Hans'
+        if phonetic_system == "jyutping":
             return _make_jyutping_romanizer()
-        if sys == "zhuyin":
-            variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
-            return _make_zhuyin_romanizer(variant=variant)
-        if sys == "pinyin":
-            variant = 'zh-Hant' if lc in ('zh-hant', 'zh-tw', 'zh-hk') else 'zh-Hans'
-            return _make_pinyin_romanizer(variant=variant)
+        if phonetic_system == "zhuyin":
+            return _make_zhuyin_romanizer(variant=script)
+        if phonetic_system == "pinyin":
+            return _make_pinyin_romanizer(variant=script)
         # Auto-resolve.
-        if lc == "zh-hk":
+        if variant == "yue":
             return _make_jyutping_romanizer()
-        if lc in ('zh-hant', 'zh-tw'):
+        if variant == "zh-Hant":
             return _make_zhuyin_romanizer(variant='zh-Hant')
         return _make_pinyin_romanizer(variant='zh-Hans')
 

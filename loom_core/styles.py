@@ -1,6 +1,7 @@
 # app/styles.py
 from .romanize import (get_romanizer, get_annotation_func, get_japanese_pipeline,
-                       _apply_thai_word_boundaries, normalize_phonetic_system)
+                       _apply_thai_word_boundaries, effective_phonetic_system,
+                       classify_chinese_variant)
 
 FONT_LIST = [
     # Latin + Cyrillic (broad script coverage)
@@ -77,6 +78,13 @@ _ISO639_ALIAS = {
     "dan": "da",
     "tur": "tr",
     "ind": "id",
+    # Withdrawn ISO 639-1 codes YouTube still surfaces (the extension's
+    # lang-code.ts LANG_ALIASES already canonicalizes these client-side), and
+    # Matroska's 639-2/B Macedonian `mac` (/T `mkd` is above).  `iw` fell
+    # through as its own language, so a Hebrew track's romanization line came
+    # back EMPTY.
+    "iw": "he", "in": "id", "ji": "yi", "jw": "jv", "mo": "ro",
+    "mac": "mk",
 }
 
 # ---------------------------------------------------------------------------
@@ -229,10 +237,10 @@ def _font_for_script(lang_code: str) -> str:
     if primary == "yue":
         return "Noto Sans CJK HK"
     if primary == "zh" or (lang_code or "").lower().startswith("zh"):
-        lc = (lang_code or "").lower()
-        if lc in ("zh-hant", "zh-tw"):
+        variant = _chinese_variant(lang_code)
+        if variant == "zh-Hant":
             return "Noto Sans CJK TC"
-        if lc == "zh-hk":
+        if variant == "yue":       # zh-HK
             return "Noto Sans CJK HK"
         return "Noto Sans CJK SC"
     return _DEFAULT_FONT
@@ -253,19 +261,13 @@ def _chinese_variant(lang_code: str) -> str | None:
     Cantonese discriminator which already flags zh-HK as suspect.  Callers
     needing Mandarin-on-zh-HK can override via phonetic_system="pinyin"
     or "zhuyin".
+
+    Delegates to romanize.classify_chinese_variant — the ONE subtag-parsing
+    classifier every Chinese decision (cache_lang, names, font, engines, word
+    tokens) goes through, so extra subtags (zh-Hant-TW, zh-MO, zh_TW) can no
+    longer fall through to Simplified at some sites and not others.
     """
-    primary = (lang_code or "").lower().split("-")[0].split("_")[0]
-    if primary == "yue":
-        return "yue"
-    if primary != "zh":
-        return None
-    lc = (lang_code or "").lower()
-    if lc == "zh-hk":
-        return "yue"
-    if lc in ("zh-hant", "zh-tw"):
-        return "zh-Hant"
-    # zh, zh-hans, zh-cn, and bare "zh" default to Simplified
-    return "zh-Hans"
+    return classify_chinese_variant(lang_code)
 
 
 def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
@@ -274,7 +276,9 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
     Drives dynamic labels: "Furigana Style", "Pinyin Style", "Zhuyin Style",
     "Jyutping Style", etc.  Returns "Annotation" as generic fallback.
     """
-    phonetic_system = normalize_phonetic_system(phonetic_system)
+    # The same effective system get_annotation_func computes with — this name
+    # is half of the /annotate cache key (see effective_phonetic_system).
+    phonetic_system = effective_phonetic_system(lang_code, phonetic_system)
     if phonetic_system:
         _SYS_NAMES = {
             "pinyin": "Pinyin", "zhuyin": "Zhuyin", "jyutping": "Jyutping",
@@ -288,10 +292,10 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
     if primary == "yue":
         return "Jyutping"
     if primary == "zh":
-        lc = (lang_code or "").lower()
-        if lc == "zh-hk":
+        variant = _chinese_variant(lang_code)
+        if variant == "yue":        # zh-HK
             return "Jyutping"
-        if lc in ("zh-hant", "zh-tw"):
+        if variant == "zh-Hant":
             return "Zhuyin"
         return "Pinyin"
     if primary == "ko":
@@ -353,7 +357,13 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     chinese_variant : str | None
         One of "zh-Hans", "zh-Hant", "yue", or None for non-Chinese.
     """
-    phonetic_system = normalize_phonetic_system(phonetic_system)
+    # Resolve to the system this language's engine ACTUALLY offers (None = its
+    # default) before anything reads it: the romanization/annotation NAMES
+    # below become half of the result-cache key, and they must describe the
+    # engine get_romanizer/get_annotation_func pick from this same value.
+    # (A foreign-family system used to be named as the default while
+    # computing something else — see romanize.effective_phonetic_system.)
+    phonetic_system = effective_phonetic_system(lang_code, phonetic_system)
     # Normalize ISO 639-2 aliases (jpn/kor/tha/chi/cht/...) to BCP-47 once.
     # Downstream helpers (annotation_system_name, chinese_variant,
     # font_for_script) all key on the primary 2-letter subtag.
@@ -401,21 +411,21 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
         rom_name, confidence = _URDU_PHONETIC_META[phonetic_system]
 
     # Override romanization name/confidence for Chinese based on
-    # variant + phonetic_system.  Auto-resolution mirrors get_romanizer:
-    #   zh-HK            → Jyutping (HK = Cantonese in practice)
-    #   zh-Hant / zh-TW  → Zhuyin (Taiwan)
-    #   zh / zh-Hans / … → Pinyin
-    # Explicit phonetic_system always wins.
+    # variant + phonetic_system.  Auto-resolution mirrors get_romanizer
+    # (both via classify_chinese_variant):
+    #   zh-HK                    → Jyutping (HK = Cantonese in practice)
+    #   zh-Hant / zh-TW / zh-MO  → Zhuyin (Taiwan)
+    #   zh / zh-Hans / …         → Pinyin
+    # Explicit phonetic_system always wins.  After effective_phonetic_system
+    # it can only be pinyin / zhuyin / jyutping / None here, so every branch
+    # names exactly the romanizer get_romanizer returns.
     if primary == 'zh':
-        lc = (lang_code or "").lower()
-        is_traditional = lc in ('zh-hant', 'zh-tw')
-        is_hk = lc == 'zh-hk'
-        sys_norm = (phonetic_system or "").lower() or None
-        if sys_norm == 'jyutping' or (sys_norm is None and is_hk):
+        variant = _chinese_variant(lang_code)
+        if phonetic_system == 'jyutping' or (phonetic_system is None and variant == 'yue'):
             rom_name, confidence = ('Jyutping', 'high')
-        elif sys_norm == 'zhuyin' or (sys_norm is None and is_traditional):
+        elif phonetic_system == 'zhuyin' or (phonetic_system is None and variant == 'zh-Hant'):
             rom_name, confidence = ('Zhuyin (Bopomofo)', 'very_high')
-        elif sys_norm == 'pinyin' or sys_norm is None:
+        else:
             rom_name, confidence = ('Pinyin', 'very_high')
 
     # For Japanese: create one shared pipeline — single MeCab tagger instance

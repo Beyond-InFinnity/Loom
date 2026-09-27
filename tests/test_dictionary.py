@@ -1299,3 +1299,73 @@ class TestSurfaceOverrideGuards:
         assert got["comer"].gloss_lang == "es"
         assert got["casa"].gloss_lang == "en"          # per-word English fallback
         assert mem_store.lookup("es", ["comer"])["comer"].gloss_lang == "en"
+
+
+# --------------------------------------------------------------------------- #
+# Surface-vs-lemma grammar: show only what every reading agrees on
+# --------------------------------------------------------------------------- #
+
+def _noun_fo(gloss, *tags):
+    return {"gloss": [gloss], "pos": ["noun"], "misc": ["form-of", *tags]}
+
+
+class TestSurfaceGrammarIsShared:
+    """The grammar pill is context-free, so a surface that inflects the lemma
+    several ways may only show the grammar those readings share (real kaikki
+    shapes; before this, "They were" showed second-person singular and "It
+    flies away" showed the noun's plural)."""
+
+    def test_en_were_shows_only_the_shared_tense(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("en", "be", "biː", [{"gloss": ["to exist"]}], source="wiktextract")
+        mem_store.add("en", "were", "wɜː", [
+            _fo("second-person singular simple past indicative of be",
+                "indicative", "past", "second-person", "singular"),
+            _fo("plural simple past indicative of be", "indicative", "past", "plural"),
+        ], source="wiktextract")
+        r = _card(handler, Req, "en", "be", "were")
+        assert r.senses[0].gloss == ["to exist"]
+        assert r.grammar is not None and r.grammar.dict_form == "be"
+        assert [f.code for f in r.grammar.features] == ["past", "indicative"]
+
+    def test_en_flies_noun_and_verb_readings_show_no_pill(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("en", "fly", "flaɪ", [{"gloss": ["an insect"]}], source="wiktextract")
+        mem_store.add("en", "flies", "flaɪz", [
+            _noun_fo("plural of fly", "plural"),
+            _fo("third-person singular simple present indicative of fly",
+                "indicative", "present", "singular", "third-person"),
+        ], source="wiktextract")
+        r = _card(handler, Req, "en", "fly", "flies")
+        assert r.senses[0].gloss == ["an insect"]
+        assert r.grammar is None
+
+    def test_en_leaves_noun_verb_homograph_keeps_the_lemma(self, mem_store, define_handler):
+        # First sense inflects a DIFFERENT word (leaf) but a later VERB sense
+        # names the lemma: genuinely ambiguous, so keep HEAD's lemma answer.
+        handler, Req = define_handler
+        mem_store.add("en", "leaf", "liːf", [{"gloss": ["green organ of a plant"]}],
+                      source="wiktextract")
+        mem_store.add("en", "leave", "liːv", [{"gloss": ["to depart"]}], source="wiktextract")
+        mem_store.add("en", "leaves", "liːvz", [
+            _noun_fo("plural of leaf", "plural"),
+            _fo("third-person singular simple present indicative of leave",
+                "indicative", "present", "singular", "third-person"),
+        ], source="wiktextract")
+        r = _card(handler, Req, "en", "leave", "leaves")
+        assert r.senses[0].gloss == ["to depart"]
+        assert r.grammar is not None and r.grammar.dict_form == "leave"
+
+    def test_single_reading_keeps_its_full_grammar(self, mem_store, define_handler):
+        handler, Req = define_handler
+        mem_store.add("es", "comer", "koˈmeɾ", [{"gloss": ["to eat"]}], source="wiktextract")
+        mem_store.add("es", "comieron", "komiˈeɾon", [
+            _fo("third-person plural preterite indicative of comer",
+                "indicative", "plural", "preterite", "third-person"),
+        ], source="wiktextract")
+        # Surface ≠ lemma, so the surface entry is consulted; its one sense
+        # names the lemma, so nothing is intersected away.
+        r = _card(handler, Req, "es", "comer", "comieron")
+        assert r.senses[0].gloss == ["to eat"]
+        assert {f.code for f in r.grammar.features} == {
+            "preterite", "indicative", "third-person", "plural"}

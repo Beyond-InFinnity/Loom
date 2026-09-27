@@ -378,6 +378,11 @@ def define_batch(req: DefineRequest) -> DefineResponse:
         links.append(link)
         chosens.append(chosen)
         fo = _form_of(chosen, strict=use_surface)
+        if fo and use_surface:
+            # The override path is new behaviour, so it shows only the grammar
+            # every sense naming this target agrees on (_shared_link).  The
+            # ordinary path keeps its first-sense tags, unchanged from HEAD.
+            fo = _shared_link(chosen.senses, key(fo[0]).casefold()) or fo
         fo_targets.append(fo)
         if fo:
             lemma_keys.add(key(fo[0]))
@@ -599,7 +604,19 @@ def _surface_relation(surface_defn, lemma: str) -> tuple[str, Optional[tuple]]:
         first = _form_of_sense(senses[0], strict=True)
         if first is None:
             return "unknown", None
-        return ("links", first) if key(first[0]).casefold() == want else ("other", None)
+        if key(first[0]).casefold() == want:
+            return "links", _shared_link(senses, want)
+        # The first sense inflects ANOTHER word.  If a later VERB sense inflects
+        # the lemma while the first isn't a verb, the surface is a noun/verb
+        # homograph (en "leaves": plural of leaf / 3sg of leave) and nothing
+        # without context can pick; keep the lemma, i.e. exactly HEAD's answer.
+        # es "eres" still overrides: its first sense (… of ser) IS the verb, and
+        # the later sense naming the lemma ("plural of ere") is the noun.
+        if not _is_verb_sense(senses[0]) and any(
+            _is_verb_sense(s) and _names(s, want) for s in senses[1:]
+        ):
+            return "links", _shared_link(senses, want)
+        return "other", None
     unreadable = False
     for sense in senses[1:]:
         if not _is_form_of_sense(sense):
@@ -608,8 +625,45 @@ def _surface_relation(surface_defn, lemma: str) -> tuple[str, Optional[tuple]]:
         if fo is None:
             unreadable = True
         elif key(fo[0]).casefold() == want:
-            return "links", fo
+            return "links", _shared_link(senses, want)
     return ("unknown", None) if unreadable else ("other", None)
+
+
+def _is_verb_sense(sense) -> bool:
+    return any((p or "").lower() == "verb" for p in (sense.pos or ()))
+
+
+def _names(sense, want: str) -> bool:
+    """Is *sense* a readable form-of whose target is *want* (casefolded)?"""
+    fo = _form_of_sense(sense, strict=True)
+    return fo is not None and key(fo[0]).casefold() == want
+
+
+def _shared_link(senses, want: str) -> Optional[tuple]:
+    """(target, tags) for the form-of senses in *senses* that name *want*, where
+    tags keeps ONLY the grammar every such sense agrees on.
+
+    The grammar pill is context-free: taking the first matching sense's tags
+    put "second-person · singular" on "They were" and "plural" (the noun) on
+    "It flies away".  A surface that inflects the lemma several ways (were =
+    2sg past / plural past; flies = noun plural / verb 3sg) is only certain
+    about what those readings share (were → past · indicative; flies →
+    nothing), so show that and nothing more — a missing pill is fine, a wrong
+    one is not.  A sense with no recognised grammar tags asserts nothing and is
+    left out rather than emptying the intersection."""
+    target, feats = None, []
+    for sense in senses:
+        fo = _form_of_sense(sense, strict=True)
+        if fo is None or key(fo[0]).casefold() != want:
+            continue
+        target = target or fo[0]
+        gb = grammar_from_tags(fo[1], fo[0])
+        if gb is not None:
+            feats.append([f.code for f in gb.features])
+    if target is None:
+        return None
+    shared = [c for c in feats[0] if all(c in f for f in feats[1:])] if feats else []
+    return (target, shared)
 
 
 def _surface_choice(surface_defns: list, lemma: str) -> tuple:
@@ -645,9 +699,12 @@ def _surface_choice(surface_defns: list, lemma: str) -> tuple:
     relations = [(d, *_surface_relation(d, lemma)) for d in surface_defns]
     if not relations or any(kind == "unknown" for _, kind, _ in relations):
         return None, None
-    link = next((fo for _, kind, fo in relations if kind == "links"), None)
-    if link is not None:
-        return None, link
+    links = [fo for _, kind, fo in relations if kind == "links" and fo]
+    if links:
+        # Same rule as _shared_link, across the surface's entries (exact form
+        # and its lowercase fallback): only grammar they all agree on.
+        shared = [c for c in links[0][1] if all(c in tags for _, tags in links[1:])]
+        return None, (links[0][0], shared)
     return next((d for d, _, _ in relations if d.word == d.word.lower()),
                 relations[0][0]), None
 

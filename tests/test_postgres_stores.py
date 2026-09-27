@@ -504,6 +504,11 @@ class TestResultCachePoolContention:
         assert cache.get_many([b"k" * 32]) == {b"k" * 32: {"romanized": "neko"}}
 
     def test_contended_put_many_does_not_trip(self, fake_pool):
+        # put_many imports psycopg's Json adapter before borrowing a
+        # connection; without the driver (CI installs requirements.txt, not
+        # the web set) that ImportError is a real failure and trips, so the
+        # contention path can't be reached.
+        pytest.importorskip("psycopg")
         cache = self._cache()
         fake_pool.fail_connect = FakePoolTimeout("couldn't get a connection")
         cache.put_many([self._row()])

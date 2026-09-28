@@ -4,9 +4,9 @@ Central home for the env-overridable operational tunables added in the
 2026-07 hardening round: the request-cost caps (below) and the idle-recycle
 thresholds (consumed by loom_api/recycle.py).  The cost caps bound the work
 a single request can impose (bytes buffered, chars computed), complementing
-slowapi's request-COUNT limits in web.py — a count limiter alone permits
-~100 maximal 10M-char batches per minute per IP, i.e. ~113x CPU
-oversubscription (measured 2026-07: one maximal zh /romanize/batch ≈ 68 s
+the request-COUNT limits in ratelimit.py — a count limiter alone
+permits (at the 100/min limit of the time) ~100 maximal 10M-char batches
+per minute per IP, i.e. ~113x CPU oversubscription (measured 2026-07: one maximal zh /romanize/batch ≈ 68 s
 of GIL-bound CPU; ja ≈ 28 s).
 
 Defaults are set from the measured legitimate client envelope (2026-07

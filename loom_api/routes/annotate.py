@@ -15,7 +15,7 @@ plain romanize).
 POST /annotate/batch (5d-perf): one request with a list of texts that
 all share the same lang/system.  Cuts network volume on the browser
 extension's annotation flow from N requests to 1 — and burns one slot
-of the slowapi 100/min budget instead of N.  Used by the per-tab
+of the per-IP rate limit (ratelimit.py) instead of N.  Used by the per-tab
 activation flow to fetch a whole episode's annotations in one shot.
 """
 
@@ -223,7 +223,7 @@ def annotate(req: AnnotateRequest) -> AnnotateResponse:
 # Browser extension consumer: per-tab activation flow needs to fetch
 # annotations for an entire episode's worth of texts (~500-1000 unique
 # strings on a long video).  Doing N separate /annotate POSTs burns
-# the slowapi 100/min budget on the first request and produces a
+# the per-IP rate limit on the first request and produces a
 # constant trickle of network traffic across the whole video.  Batch
 # endpoint solves both: one HTTP request, one rate-limit slot, all
 # spans returned together.

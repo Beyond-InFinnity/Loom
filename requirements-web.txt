@@ -1,8 +1,10 @@
 # Slim dependency set for the production web API (loom_api.web).
 #
-# Scope: only what POST /romanize, POST /annotate, GET /language/config/{code},
-# and GET /health actually reach.  No video / no Playwright / no Streamlit /
-# no OCR / no Pillow / no fonttools / no ffmpeg.
+# Scope: only what loom_api.web serves (romanize/annotate + their batches,
+# /define, /styles, /corpus/capture, /language/config, /health).  No video /
+# no Playwright / no Streamlit / no OCR / no Pillow / no fonttools / no ffmpeg.
+# Only the direct dependencies are pinned; transitive ones (starlette, anyio,
+# setuptools, ...) still resolve fresh on every Railway build.
 #
 # Used by: Railway deploy at api.loom.nerv-analytic.ai.  Local dev devs
 # install requirements.txt instead so they get the full toolchain.

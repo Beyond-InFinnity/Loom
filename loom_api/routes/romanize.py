@@ -14,7 +14,7 @@ POST /romanize/batch (5e): one request with a list of texts that all
 share the same lang/system/long_vowel_mode.  Same motivation as
 /annotate/batch — the browser-extension activation flow needs an
 entire episode's romanizations up-front and a single request burns
-one slowapi slot instead of N.
+one rate-limit slot instead of N.
 """
 
 from typing import List, Optional

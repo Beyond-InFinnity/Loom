@@ -2,10 +2,9 @@
 
 Extracted into its own module — deliberately free of FastAPI/slowapi
 imports — so the origin policy can be unit-tested without standing up the
-full app.  Importing ``web.py`` pulls ``slowapi``, which lives only in
-``requirements-web.txt`` (the production deploy), not the CI
-``requirements.txt`` — so a TestClient test against the real app can't run
-in CI.  This module needs only the stdlib ``re``.
+full app.  (The original reason — importing ``web.py`` pulled ``slowapi``,
+which CI didn't install — went away when slowapi was replaced by
+``ratelimit.py`` on 2026-07-26.)  This module needs only the stdlib ``re``.
 
 The regression this guards: the browser extension's content-script fetches
 carry the *streaming site's* page origin on Chrome MV3 (Firefox MV2 bypasses

@@ -2,12 +2,17 @@
 
 This is what Railway runs at ``api.loom.nerv-analytic.ai``.  Unlike
 ``loom_api.main:app`` (which serves the desktop sidecar with the full
-file/job/video/mux surface), this app exposes ONLY pure text-processing:
+file/job/video/mux surface), this app exposes ONLY text processing plus
+the extension's data endpoints (see the include_router calls below):
 
-    GET  /health         — liveness probe
-    GET  /language/config/{code}  — wire-safe language metadata
-    POST /romanize       — text → romanized text
-    POST /annotate       — text → annotation spans + HTML
+    GET  /health, /                       — liveness
+    GET  /language/config/{code}          — wire-safe language metadata
+    POST /romanize, /romanize/batch       — text → romanized text
+    POST /annotate, /annotate/batch       — text → annotation spans (+ tokens)
+    POST /define/batch, GET /define/capabilities — per-word dictionary lookup
+    GET  /styles/presets, /styles/fonts   — color presets / font list
+    POST /corpus/capture                  — opt-in training-corpus capture
+    GET  /debug/echo                      — owner-gated header echo (404 otherwise)
 
 The browser does everything else client-side via ffmpeg.wasm + html2canvas
 + LoomGenerator (Steps 4c–4d), so the server's job is reduced to the two

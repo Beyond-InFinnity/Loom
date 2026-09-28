@@ -322,8 +322,8 @@ class ExportRunner:
         engine version.  Returns the number of texts replayed.
 
         ``auth_key`` (the owner bypass key) is required in practice for
-        large corpora — without it the public rate limit (100/min) throttles
-        the replay."""
+        large corpora — without it the public per-IP rate limit
+        (``LOOM_RATE_LIMIT``, default 30/minute) throttles the replay."""
         import urllib.request
 
         with self._pool.connection() as conn:

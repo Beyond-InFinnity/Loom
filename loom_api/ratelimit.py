@@ -7,7 +7,7 @@ that exposes no ``.endpoint``, so ``_find_route_handler`` returned None and
 ``_should_exempt`` short-circuited EVERY request.  It failed silently — no
 error, no log line, just 200s — and was only caught by bursting prod (250
 requests from one IP, zero 429s).  Loom registers every route via
-``include_router``, and ``requirements-web.txt`` pins nothing, so prod
+``include_router``, and ``requirements-web.txt`` pinned nothing then, so prod
 drifted onto 0.140 while a laptop still resolved 0.136 and enforced
 correctly.
 

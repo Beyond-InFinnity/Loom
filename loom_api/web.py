@@ -17,7 +17,8 @@ the extension's data endpoints (see the include_router calls below):
 The browser does everything else client-side via ffmpeg.wasm + html2canvas
 + LoomGenerator (Steps 4c–4d), so the server's job is reduced to the two
 calls that genuinely require a Python runtime: MeCab/fugashi, jieba +
-pypinyin, pythainlp, aksharamukha, korean-romanizer, cyrtranslit.
+pypinyin, pythainlp, aksharamukha, cyrtranslit, kiwipiepy, simplemma
+(Korean romanization is the in-house loom_core/korean_rr.py).
 
 Run locally:
     uvicorn loom_api.web:app --reload --port 8000

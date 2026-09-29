@@ -386,7 +386,7 @@ function Dropdown({
 function describeProcessing(c: LangSupport): string {
   if (c.family === "cjk-han") {
     if (c.chineseVariant === "simplified") return "Pinyin";
-    if (c.chineseVariant === "traditional") return "Zhuyin";
+    if (c.chineseVariant === "traditional") return "Pinyin";
     if (c.chineseVariant === "cantonese") return "Jyutping";
   }
   if (c.family === "kana") return "Romaji";

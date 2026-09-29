@@ -225,11 +225,11 @@ class TestChinesePolish:
         assert first_alpha.isupper()
 
     def test_traditional_zhuyin_punct_polished(self):
-        """zh-Hant default = Zhuyin.  Polish still rewrites CJK punctuation
+        """Zhuyin (opt-in on zh-Hant).  Polish still rewrites CJK punctuation
         to Latin and tidies whitespace, but does NOT capitalize (bopomofo
         has no case)."""
         from loom_core.romanize import get_romanizer
-        r = get_romanizer('zh-Hant')
+        r = get_romanizer('zh-Hant', 'zhuyin')
         out = r('你好，世界。')
         assert '，' not in out and '。' not in out
         # Bopomofo present, no Latin letters.

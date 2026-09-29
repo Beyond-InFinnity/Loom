@@ -419,7 +419,7 @@ class TestCacheLang:
         assert cache_lang("zh-Hant") == "zh-Hant"
         assert cache_lang("zh-TW") == "zh-Hant"
         assert cache_lang("cht") == "zh-Hant"
-        assert cache_lang("zh-Hant") != cache_lang("zh-Hans")   # Zhuyin vs Pinyin
+        assert cache_lang("zh-Hant") != cache_lang("zh-Hans")   # t2s-bridged vs plain jieba
 
     def test_cantonese_is_its_own_class(self):
         assert cache_lang("yue") == "yue"
@@ -457,7 +457,7 @@ class TestCacheLangDedupIntegration:
         handler, Req = romanize_handler
         handler(Req(texts=["中国"], lang_code="zh-Hans"))
         after_hans = compute_counter["n"]
-        # Traditional resolves to a DIFFERENT romanizer (Zhuyin) — must recompute.
+        # Traditional resolves to a different cache class (t2s-bridged Pinyin) — must recompute.
         handler(Req(texts=["中国"], lang_code="zh-Hant"))
         assert compute_counter["n"] > after_hans
 

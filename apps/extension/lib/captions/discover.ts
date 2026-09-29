@@ -141,7 +141,7 @@ export interface CaptionPayload {
   targetAnnotateEnabled: boolean;
   nativeAnnotateEnabled: boolean;
   /** Per-track phonetic-system override.  null = backend decides
-      (Hans→Pinyin, Hant→Zhuyin, yue→Jyutping).  Persisted. */
+      (Hans/Hant→Pinyin, yue→Jyutping; Zhuyin is opt-in).  Persisted. */
   targetPhoneticSystem: string | null;
   nativePhoneticSystem: string | null;
   /** Annotation span maps keyed by event text.  null when annotation

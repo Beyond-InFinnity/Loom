@@ -643,9 +643,7 @@ if st.session_state.native_sub_path and st.session_state.target_sub_path:
             # Phonetic system selector — default depends on variant
             if chinese_variant == "yue":
                 _phon_options = ["Jyutping"]
-            elif chinese_variant == "zh-Hant":
-                _phon_options = ["Zhuyin", "Pinyin"]
-            else:  # zh-Hans
+            else:  # Mandarin, Simplified or Traditional: Pinyin first, Zhuyin opt-in
                 _phon_options = ["Pinyin", "Zhuyin"]
             phonetic_system = st.selectbox(
                 "Phonetic Annotation System",

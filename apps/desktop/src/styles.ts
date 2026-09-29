@@ -188,23 +188,26 @@ export function isJapanese(code: string | undefined | null): boolean {
 
 export type PhoneticOption = { value: PhoneticSystem; label: string };
 
-// Cantonese → Jyutping-only; zh-Hant → Zhuyin-first; zh-Hans → Pinyin-first;
+// Cantonese → Jyutping-only; all other Chinese → Pinyin-first (Zhuyin opt-in);
 // Thai → Paiboon+/RTGS/IPA. Empty list ⇒ no selector for this language.
 export function phoneticOptions(code: string | undefined | null): PhoneticOption[] {
   const primary = primaryLang(code);
-  const lc = (code || "").toLowerCase();
   if (primary === "yue") return [{ value: "jyutping", label: "Jyutping" }];
   if (primary === "zh") {
-    const hant = lc === "zh-hant" || lc === "zh-tw" || lc === "zh-hk";
-    return hant
-      ? [
-          { value: "zhuyin", label: "Zhuyin" },
-          { value: "pinyin", label: "Pinyin" },
-        ]
-      : [
-          { value: "pinyin", label: "Pinyin" },
-          { value: "zhuyin", label: "Zhuyin" },
-        ];
+    // zh-HK with no script subtag is Cantonese server-side
+    // (classify_chinese_variant), so Jyutping comes first there.
+    const c = (code || "").toLowerCase();
+    if (/(^|[-_])hk($|[-_])/.test(c) && !/(^|[-_])han[st]($|[-_])/.test(c)) {
+      return [
+        { value: "jyutping", label: "Jyutping" },
+        { value: "pinyin", label: "Pinyin" },
+        { value: "zhuyin", label: "Zhuyin" },
+      ];
+    }
+    return [
+      { value: "pinyin", label: "Pinyin" },
+      { value: "zhuyin", label: "Zhuyin" },
+    ];
   }
   if (primary === "th") {
     return [

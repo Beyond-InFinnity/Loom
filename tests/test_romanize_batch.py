@@ -145,10 +145,26 @@ class TestPhoneticSystemOverride:
         # Pinyin = Latin letters with tone diacritics.
         assert any(c.isalpha() and c.isascii() for c in resp.results[0].romanized)
 
-    def test_zh_hant_default_yields_zhuyin(self, batch_handler):
+    def test_zh_hant_default_yields_pinyin(self, batch_handler):
         handler, Req = batch_handler
         resp = handler(Req(texts=["你好"], lang_code="zh-Hant"))
+        assert resp.romanization_name == "Pinyin"
         # Bopomofo block: U+3105..U+312F.
+        assert not any(0x3105 <= ord(c) <= 0x312F for c in resp.results[0].romanized)
+
+    def test_zh_hant_default_equals_explicit_pinyin(self, batch_handler):
+        # Default and explicit Pinyin share one cache key, so they must
+        # produce identical output.
+        handler, Req = batch_handler
+        texts = ["臺灣的颱風季節", "我喜歡看電影", "你好，世界。"]
+        d = handler(Req(texts=texts, lang_code="zh-Hant"))
+        e = handler(Req(texts=texts, lang_code="zh-Hant", phonetic_system="pinyin"))
+        assert d.romanization_name == e.romanization_name == "Pinyin"
+        assert [r.romanized for r in d.results] == [r.romanized for r in e.results]
+
+    def test_zh_hant_zhuyin_is_opt_in(self, batch_handler):
+        handler, Req = batch_handler
+        resp = handler(Req(texts=["你好"], lang_code="zh-Hant", phonetic_system="zhuyin"))
         assert any(0x3105 <= ord(c) <= 0x312F for c in resp.results[0].romanized)
 
     def test_yue_default_yields_jyutping(self, batch_handler):

@@ -159,22 +159,27 @@ class TestGetRomanizerVariant:
         result = rom("你好")
         assert "nǐhǎo" in result.lower()
 
-    def test_zh_hant_defaults_to_zhuyin(self):
-        """zh-Hant defaults to Zhuyin (Taiwan convention) per CLAUDE.md."""
+    def test_zh_hant_defaults_to_pinyin(self):
+        """zh-Hant defaults to Pinyin like Simplified (Taiwan uses Pinyin now);
+        Zhuyin is opt-in via phonetic_system."""
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-Hant')
         assert rom is not None
         result = rom("你好")
-        # ㄋㄧˇ ㄏㄠˇ — bopomofo characters, NOT pinyin "nǐhǎo"
-        assert "ㄋㄧ" in result, f"expected bopomofo, got {result!r}"
-        assert "ㄏㄠ" in result, f"expected bopomofo, got {result!r}"
+        assert "ǐ" in result and "ǎ" in result, f"expected pinyin, got {result!r}"
+        assert not any(0x3105 <= ord(c) <= 0x312F for c in result), result
 
-    def test_zh_tw_defaults_to_zhuyin(self):
+    def test_zh_tw_defaults_to_pinyin(self):
         from loom_core.romanize import get_romanizer
         rom = get_romanizer('zh-TW')
         assert rom is not None
         result = rom("你好")
-        assert "ㄋㄧ" in result, f"expected bopomofo for zh-TW, got {result!r}"
+        assert "ǐ" in result, f"expected pinyin for zh-TW, got {result!r}"
+
+    def test_zh_hant_zhuyin_is_opt_in(self):
+        from loom_core.romanize import get_romanizer
+        result = get_romanizer('zh-Hant', 'zhuyin')("你好")
+        assert "ㄋㄧ" in result and "ㄏㄠ" in result, f"expected bopomofo, got {result!r}"
 
     def test_zh_hant_pinyin_override(self):
         """Caller can force Pinyin on zh-Hant via phonetic_system."""

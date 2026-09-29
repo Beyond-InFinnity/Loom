@@ -214,8 +214,8 @@ function App() {
             next.annotation.fontname = meta.default_font;
           }
           // annotation.phonetic_system: default to the first option for
-          // the language (zh-Hant → zhuyin, zh-Hans → pinyin, yue →
-          // jyutping, th → paiboon). Keep the user's pick if it's still
+          // the language (Mandarin → pinyin, Cantonese/zh-HK → jyutping,
+          // th → paiboon). Keep the user's pick if it's still
           // a valid option for the new language, otherwise reset.
           const opts = phoneticOptions(lang);
           const current = next.annotation.phonetic_system ?? null;

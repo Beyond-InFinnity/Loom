@@ -217,7 +217,7 @@ def test_same_cache_key_always_means_same_output(kind):
 # orphans every cached row for that choice (a needless cold start).
 _VALID_ROMANIZATION_NAMES = [
     ("zh-Hans", None, "Pinyin"), ("zh-Hans", "zhuyin", "Zhuyin (Bopomofo)"),
-    ("zh-Hant", None, "Zhuyin (Bopomofo)"), ("zh-Hant", "pinyin", "Pinyin"),
+    ("zh-Hant", None, "Pinyin"), ("zh-Hant", "pinyin", "Pinyin"),
     ("zh-Hant", "jyutping", "Jyutping"), ("zh-HK", None, "Jyutping"),
     ("zh-HK", "pinyin", "Pinyin"), ("yue", None, "Jyutping"),
     ("yue", "pinyin", "Jyutping"),  # yue's romanize LINE is always Jyutping
@@ -237,7 +237,7 @@ def test_valid_choices_keep_their_romanization_name(lang, system, name):
 
 
 _VALID_ANNOTATION_NAMES = [
-    ("zh-Hans", None, "Pinyin"), ("zh-Hant", None, "Zhuyin"),
+    ("zh-Hans", None, "Pinyin"), ("zh-Hant", None, "Pinyin"),
     ("zh-Hant", "pinyin", "Pinyin"), ("zh-Hant", "jyutping", "Jyutping"),
     ("zh-HK", None, "Jyutping"), ("yue", None, "Jyutping"), ("yue", "pinyin", "Pinyin"),
     ("th", None, "Paiboon+"), ("th", "rtgs", "RTGS"), ("th", "ipa", "IPA"),

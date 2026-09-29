@@ -170,8 +170,9 @@ _LANG_SUBTAG_SPLIT = re.compile(r"[-_]")
 
 def classify_chinese_variant(lang_code: str | None) -> str | None:
     """Classify a lang code into its Chinese script variant: "zh-Hans"
-    (Simplified — Pinyin default), "zh-Hant" (Traditional — Zhuyin default,
-    and the Traditional->Simplified bridge in front of jieba), "yue"
+    (Simplified — Pinyin default), "zh-Hant" (Traditional — also Pinyin by
+    default, Zhuyin opt-in; drives the Traditional->Simplified bridge in front
+    of jieba), "yue"
     (Cantonese — Jyutping), or None for non-Chinese.
 
     THE one classifier: styles (cache_lang, names, default font) and this
@@ -1039,11 +1040,9 @@ def _make_zhuyin_romanizer(variant: str = None):
     Parameters
     ----------
     variant : str | None
-        ``"zh-Hant"`` for Traditional, anything else for Simplified.  Default
-        for Traditional Mandarin per CLAUDE.md's "Locked Architectural
-        Decisions" — Taiwan uses Zhuyin Fuhao (注音符號) as the primary
-        phonetic system, so a zh-Hant track gets bopomofo rather than pinyin
-        unless the caller explicitly overrides via ``phonetic_system="pinyin"``.
+        ``"zh-Hant"`` for Traditional, anything else for Simplified.  Zhuyin
+        is opt-in via ``phonetic_system="zhuyin"`` for any Mandarin variant;
+        Traditional Chinese defaults to Pinyin (Taiwan uses Pinyin now).
 
     Output convention
     -----------------
@@ -1884,8 +1883,8 @@ def _make_zhuyin_annotation_func():
 
     Identical structure to _make_chinese_annotation_func() but uses
     pypinyin's Style.BOPOMOFO output (e.g. ㄋㄧˇ instead of nǐ).
-    Default for Traditional Mandarin (zh-Hant / zh-TW) — Taiwan uses
-    Zhuyin Fuhao as its primary phonetic system.
+    Opt-in via phonetic_system="zhuyin" for any Mandarin variant;
+    Traditional Chinese defaults to Pinyin.
     """
     from pypinyin import pinyin as _pinyin, Style  # lazy import
 
@@ -3859,13 +3858,13 @@ def get_annotation_func(lang_code: str, system: str = None):
         # Auto-detect from variant (classify_chinese_variant) — same routing
         # as get_romanizer:
         #   zh-HK → Jyutping (HK = Cantonese in practice)
-        #   zh-Hant / zh-TW / zh-MO / zh-Hant-* → Zhuyin (Taiwan)
-        #   everything else → Pinyin
+        #   everything else → Pinyin, Traditional included (Taiwan uses
+        #   Pinyin now; Zhuyin is opt-in via phonetic_system).  The same
+        #   function an explicit "pinyin" request gets, so default and
+        #   explicit share one cache key with identical output.
         variant = classify_chinese_variant(lang_code)
         if variant == "yue":
             return _make_jyutping_annotation_func()
-        if variant == "zh-Hant":
-            return _make_zhuyin_annotation_func()
         return _make_chinese_annotation_func()
 
     # R4 — per-word/per-token annotation for alphabetic scripts
@@ -4802,7 +4801,8 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
 
     # Chunk R2 — Chinese (Pinyin / Zhuyin / Jyutping, jieba-segmented) ✅
     # Variant defaults (classify_chinese_variant):
-    #   zh-Hant / zh-TW / zh-MO    → Zhuyin (Taiwan convention)
+    #   zh-Hant / zh-TW / zh-MO    → Pinyin (Taiwan uses Pinyin now; Zhuyin is
+    #                                opt-in via phonetic_system)
     #   zh-HK                      → Jyutping (HK's spoken language is Cantonese;
     #                                practically every zh-HK-tagged subtitle track
     #                                carries Cantonese — see also language.py's
@@ -4824,9 +4824,9 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
         # Auto-resolve.
         if variant == "yue":
             return _make_jyutping_romanizer()
-        if variant == "zh-Hant":
-            return _make_zhuyin_romanizer(variant='zh-Hant')
-        return _make_pinyin_romanizer(variant='zh-Hans')
+        # Same romanizer as an explicit "pinyin" request (script = the text's
+        # script, so Traditional keeps the t2s bridge in front of jieba).
+        return _make_pinyin_romanizer(variant=script)
 
     # Chunk R2c — Cantonese Jyutping (pycantonese) ────────────────── ✅
     if primary == "yue":

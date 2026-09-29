@@ -295,8 +295,8 @@ def _annotation_system_name(lang_code: str, phonetic_system: str = None) -> str:
         variant = _chinese_variant(lang_code)
         if variant == "yue":        # zh-HK
             return "Jyutping"
-        if variant == "zh-Hant":
-            return "Zhuyin"
+        # Traditional defaults to Pinyin like Simplified: Taiwan uses Pinyin
+        # now, and Zhuyin is opt-in (an explicit phonetic_system).
         return "Pinyin"
     if primary == "ko":
         return "Romanization"
@@ -414,8 +414,8 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
     # variant + phonetic_system.  Auto-resolution mirrors get_romanizer
     # (both via classify_chinese_variant):
     #   zh-HK                    → Jyutping (HK = Cantonese in practice)
-    #   zh-Hant / zh-TW / zh-MO  → Zhuyin (Taiwan)
-    #   zh / zh-Hans / …         → Pinyin
+    #   everything else Chinese  → Pinyin, Traditional included (Taiwan uses
+    #                              Pinyin now; Zhuyin is opt-in)
     # Explicit phonetic_system always wins.  After effective_phonetic_system
     # it can only be pinyin / zhuyin / jyutping / None here, so every branch
     # names exactly the romanizer get_romanizer returns.
@@ -423,7 +423,7 @@ def get_lang_config(lang_code: str, phonetic_system: str = None) -> dict:
         variant = _chinese_variant(lang_code)
         if phonetic_system == 'jyutping' or (phonetic_system is None and variant == 'yue'):
             rom_name, confidence = ('Jyutping', 'high')
-        elif phonetic_system == 'zhuyin' or (phonetic_system is None and variant == 'zh-Hant'):
+        elif phonetic_system == 'zhuyin':
             rom_name, confidence = ('Zhuyin (Bopomofo)', 'very_high')
         else:
             rom_name, confidence = ('Pinyin', 'very_high')

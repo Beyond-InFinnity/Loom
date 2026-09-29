@@ -84,7 +84,7 @@ def test_styles_chinese_variant_is_the_same_classifier():
 
 _EXPECTED_DEFAULT_NAMES = {
     "zh-Hans": ("Pinyin", "Pinyin"),
-    "zh-Hant": ("Zhuyin (Bopomofo)", "Zhuyin"),
+    "zh-Hant": ("Pinyin", "Pinyin"),   # Taiwan uses Pinyin; Zhuyin is opt-in
     "yue": ("Jyutping", "Jyutping"),
 }
 
@@ -99,7 +99,8 @@ def test_names_variant_and_engine_follow_the_classifier(code):
     assert cfg["romanization_name"] == rom_name
     assert cfg["annotation_system_name"] == ann_name
     # The engine resolves the same way as the name: a zh-Hant-TW line reads
-    # exactly like a zh-Hant line (Zhuyin), not like zh-Hans (Pinyin).
+    # exactly like a zh-Hant line (Pinyin with the t2s jieba bridge), not
+    # like zh-Hans (no bridge, so Traditional text mis-segments).
     probe = "臺灣的颱風季節"
     ref = get_lang_config({"zh-Hans": "zh-Hans", "zh-Hant": "zh-Hant", "yue": "yue"}[variant])
     assert cfg["romanize_func"](probe) == ref["romanize_func"](probe)

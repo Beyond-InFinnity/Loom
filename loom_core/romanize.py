@@ -230,6 +230,22 @@ def classify_chinese_variant(lang_code: str | None) -> str | None:
     return "zh-Hans"
 
 
+def _mandarin_script(lang_code: str | None) -> str:
+    """Script of the TEXT, for the Mandarin (Pinyin / Zhuyin) engines' t2s
+    bridge: "zh-Hant" for the Traditional-script classes — zh-Hant AND yue
+    (zh-HK / Cantonese tracks are written in Traditional characters too, and
+    reach these engines via an explicit pinyin/zhuyin) — else "zh-Hans".
+
+    Shared by get_romanizer and get_annotation_func: the ruby and the line
+    read the same syllables only if they read the same text, and both are
+    cached under cache_lang, so the decision is made FROM cache_lang (alias-
+    normalized; identical to classify_chinese_variant for every zh-* code).
+    """
+    from .styles import cache_lang  # lazy: styles imports this module
+
+    return 'zh-Hant' if cache_lang(lang_code or "") in ('zh-Hant', 'yue') else 'zh-Hans'
+
+
 ENGINE_VERSIONS: dict[str, int] = {
     #   fr/it v4: an elided proclitic's LEMMA is now the full word it stands
     #       for (qu'->que, l'->le, d'->di) instead of the bare letter, which
@@ -297,14 +313,20 @@ ENGINE_VERSIONS: dict[str, int] = {
     #   fr v5 / it v5: elided-clitic lemmas — it m'/t'/s'/n'/v' -> mi/ti/si/ne/
     #       vi (was the bare letter), fr s' before a word merely starting 'il'
     #       (s'illumine) -> se (was si).
+    #   zh v6 / yue v7 (2026-09-30): Mandarin readings come from the WORD, not
+    #       the lone character.  The per-character ruby (and the zh-Hant line)
+    #       read each hanzi alone, so polyphones were wrong: 銀行 yín xíng
+    #       (háng), 音樂 lè (yuè), 睡覺 jué (jiào); ordinal 一 keeps its citation
+    #       tone (第一个 dì yī gè).  yue too: explicit pinyin/zhuyin on yue/zh-HK
+    #       codes runs the same Mandarin code and is cached under 'yue'.
     #   (zh-Hant +1 lives in _ENGINE_VERSION_VARIANT_BUMPS below: poisoned
     #   (zh-Hant, 'Pinyin') rows, without cold-starting zh-Hans.  Explicit-
     #   Jyutping rows under zh-Hans are NOT flushed — their only change is
     #   syllable grouping/whitespace, and a 'zh' bump would recompute every
     #   Mandarin row to fix a niche setting.)
     "ja": 8,
-    "zh": 5,
-    "yue": 6,
+    "zh": 6,
+    "yue": 7,
     "th": 2,
     "ko": 4,
     "es": 3,
@@ -950,68 +972,40 @@ def hepburn_from_kana(kana: str) -> tuple[str, str]:
     )
 
 
-def _make_pinyin_romanizer(variant: str = None):
-    """Return a Chinese pinyin romanizer with word-segmented output.
+def _make_mandarin_romanizer(variant, style_name: str, joiner: str, capitalize: bool):
+    """Shared body of the Pinyin and Zhuyin line romanizers.
 
-    Uses jieba for word segmentation so that multi-character words are grouped
-    (e.g. "nǐhǎo shìjiè" instead of "nǐ hǎo shì jiè").
+    Word boundaries AND every syllable come from _mandarin_readings — the SAME
+    per-character readings the ruby (_make_chinese_annotation_func /
+    _make_zhuyin_annotation_func) shows, so the line and the ruby can never
+    read one character two ways.  Only the formatting differs: a word's
+    syllables are glued with *joiner*, words are space-separated.
 
-    Parameters
-    ----------
-    variant : str | None
-        Chinese variant: ``"zh-Hant"`` for Traditional, ``"zh-Hans"`` or None
-        for Simplified.  When Traditional, text is converted to Simplified via
-        OpenCC for jieba segmentation (jieba's dictionary is Simplified-oriented),
-        then word boundaries are mapped back to the original Traditional text
-        for pypinyin processing.
-
-    Behaviour
-    ---------
     * ASS override tags and line-break markers are stripped before processing.
-    * jieba.cut() provides word boundaries.
     * CJK punctuation segments pass through so the Romanized layer preserves
       sentence boundaries; _polish_romaji() converts them to Latin equivalents
       (。 → ., ， → ,, etc.) at the tail.
-    * For each CJK word, pypinyin syllables are joined without spaces within
-      the word, then words are joined with spaces.
-    * Non-CJK segments (Latin, numerals) pass through unchanged.
+    * Non-CJK segments (Latin, numerals) pass through unchanged; a non-hanzi
+      run INSIDE a jieba word (A股) is rendered by pypinyin exactly as when
+      the whole word was handed to it.
     """
-    from pypinyin import pinyin as _pinyin, Style  # lazy import
-    import jieba  # lazy import
+    from pypinyin import Style  # lazy import
+    import jieba  # noqa: F401 — lazy import; a missing dep fails here, as before
 
-    # Suppress jieba's noisy initialization log to stderr
-    import logging as _logging
-    _logging.getLogger('jieba').setLevel(_logging.WARNING)
-
-    # For Traditional Chinese: convert to Simplified for jieba segmentation
-    _t2s = None
-    if variant == 'zh-Hant':
-        import opencc  # lazy import
-        _t2s = opencc.OpenCC('t2s')
+    style = getattr(Style, style_name)
+    traditional = variant == 'zh-Hant'
+    if traditional:
+        _get_t2s()  # build the bridge now: a missing opencc fails here, as before
 
     def romanize(text: str) -> str:
         if not text:
             return ''
         clean = _strip_ass(text)
-
-        # For Traditional: convert to Simplified for segmentation, then map
-        # word boundaries back to original Traditional text for pypinyin.
-        if _t2s is not None:
-            simplified = _t2s.convert(clean)
-            seg_words = list(jieba.cut(simplified))
-            # Map segment lengths back to original Traditional characters.
-            # Simplified and Traditional have 1:1 character correspondence
-            # (OpenCC t2s never changes string length for CJK text).
-            words = []
-            pos = 0
-            for sw in seg_words:
-                words.append(clean[pos:pos + len(sw)])
-                pos += len(sw)
-        else:
-            words = list(jieba.cut(clean))
-
+        words, readings = _mandarin_readings(clean, traditional=traditional, style=style)
         parts = []
+        end = 0
         for word in words:
+            start, end = end, end + len(word)
             if not word.strip():
                 continue
             if _is_cjk_punct_segment(word):
@@ -1019,23 +1013,46 @@ def _make_pinyin_romanizer(variant: str = None):
                 # sentence boundaries through to Latin equivalents.
                 parts.append(word)
                 continue
-            # Check if word contains any CJK characters
             if any(_is_cjk(c) for c in word):
-                syllables = [s[0] for s in _pinyin(word, style=Style.TONE, errors='default')]
-                parts.append(''.join(syllables))
+                parts.append(joiner.join(
+                    _mandarin_word_syllables(word, readings[start:end], style)))
             else:
                 parts.append(word.strip())
-        return _polish_romaji(' '.join(p for p in parts if p), capitalize=True)
+        return _polish_romaji(' '.join(p for p in parts if p), capitalize=capitalize)
 
     return romanize
+
+
+def _make_pinyin_romanizer(variant: str = None):
+    """Return a Chinese pinyin romanizer with word-segmented output.
+
+    Uses jieba for word segmentation so that multi-character words are grouped
+    (e.g. "nǐhǎo shìjiè" instead of "nǐ hǎo shì jiè"), and reads every
+    character in its word's context (银行 → yínháng, not yínxíng).
+
+    Parameters
+    ----------
+    variant : str | None
+        Chinese variant: ``"zh-Hant"`` for Traditional, ``"zh-Hans"`` or None
+        for Simplified.  When Traditional, the line is segmented AND read on
+        its OpenCC Simplified form — jieba's dictionary and pypinyin's phrase
+        data are both Simplified-oriented; reading the Traditional characters
+        themselves gave 銀行 → Yínxíng, 重慶 → Zhòngqìng — with every bridged
+        reading checked against the original character (_mandarin_readings).
+
+    Syllables within a word are joined without spaces, words are joined with
+    spaces; see _make_mandarin_romanizer for punctuation / non-CJK handling.
+    """
+    return _make_mandarin_romanizer(variant, 'TONE', '', capitalize=True)
 
 
 def _make_zhuyin_romanizer(variant: str = None):
     """Return a Chinese Zhuyin (Bopomofo) romanizer with word-segmented output.
 
     Sibling of ``_make_pinyin_romanizer`` — same pipeline (jieba segmentation
-    + optional Trad→Simp mapping), but emits Style.BOPOMOFO so the Romanized
-    layer renders with bopomofo glyphs (e.g. "ㄋㄧˇ ㄏㄠˇ ㄕˋ ㄐㄧㄝˋ" for "你好世界").
+    + optional Trad→Simp bridge, same context-aware syllables), but emits
+    Style.BOPOMOFO so the Romanized layer renders with bopomofo glyphs (e.g.
+    "ㄋㄧˇ ㄏㄠˇ ㄕˋ ㄐㄧㄝˋ" for "你好世界").
 
     Parameters
     ----------
@@ -1056,52 +1073,7 @@ def _make_zhuyin_romanizer(variant: str = None):
     still runs to convert CJK punctuation (。 → ., ， → ,) and tidy
     whitespace before closing punctuation.
     """
-    from pypinyin import pinyin as _pinyin, Style  # lazy import
-    import jieba  # lazy import
-
-    import logging as _logging
-    _logging.getLogger('jieba').setLevel(_logging.WARNING)
-
-    _t2s = None
-    if variant == 'zh-Hant':
-        import opencc  # lazy import
-        _t2s = opencc.OpenCC('t2s')
-
-    def romanize(text: str) -> str:
-        if not text:
-            return ''
-        clean = _strip_ass(text)
-
-        if _t2s is not None:
-            simplified = _t2s.convert(clean)
-            seg_words = list(jieba.cut(simplified))
-            words = []
-            pos = 0
-            for sw in seg_words:
-                words.append(clean[pos:pos + len(sw)])
-                pos += len(sw)
-        else:
-            words = list(jieba.cut(clean))
-
-        parts = []
-        for word in words:
-            if not word.strip():
-                continue
-            if _is_cjk_punct_segment(word):
-                parts.append(word)
-                continue
-            if any(_is_cjk(c) for c in word):
-                # Space-separate syllables within the word — each bopomofo
-                # syllable is a vertical stack, glued syllables become an
-                # ambiguous taller stack.
-                syllables = [s[0] for s in _pinyin(word, style=Style.BOPOMOFO, errors='default')]
-                parts.append(' '.join(syllables))
-            else:
-                parts.append(word.strip())
-
-        return _polish_romaji(' '.join(p for p in parts if p), capitalize=False)
-
-    return romanize
+    return _make_mandarin_romanizer(variant, 'BOPOMOFO', ' ', capitalize=False)
 
 
 _shared_ja_tagger = None
@@ -1846,60 +1818,63 @@ def _is_cjk(char: str) -> bool:
     return 0x4e00 <= cp <= 0x9fff or 0x3400 <= cp <= 0x4dbf
 
 
-def _make_chinese_annotation_func():
-    """Return a Chinese per-character annotation span producer.
+def _make_chinese_annotation_func(variant: str = None):
+    """Return a Chinese per-character Pinyin annotation span producer.
 
-    Each CJK character is paired with its tone-marked pinyin reading.
-    Non-CJK characters (punctuation, numerals, Latin) pass through with
+    Each CJK character is paired with its tone-marked pinyin reading IN WORD
+    CONTEXT — 银行 → (银, yín) (行, háng), 睡觉 → (睡, shuì) (觉, jiào) —
+    the same syllable the Pinyin line gives that character (both come from
+    _mandarin_readings).  Looking each character up alone, as this used to,
+    gave every polyphone pypinyin's default reading whatever word it was in
+    (银行 yín xíng, 重庆 zhòng, 音乐 lè, 便宜 biàn yí).  Non-CJK characters
+    (punctuation, numerals, Latin, whitespace) pass through with
     reading=None — they need no annotation.
 
-    pypinyin is imported lazily so users who never select a Chinese track are
-    not affected by a missing installation.
+    ``variant="zh-Hant"`` reads Traditional text through the Simplified bridge
+    (see _mandarin_readings); anything else reads the text as-is.  The span
+    structure is one span per character of the ASS-stripped text, exactly as
+    before — the client groups words by span index.
+
+    pypinyin/jieba are imported lazily so users who never select a Chinese
+    track are not affected by a missing installation.
 
     The returned callable has the signature::
 
         get_spans(text: str) -> list[(str, str | None)]
     """
-    from pypinyin import pinyin as _pinyin, Style  # lazy import
-
-    def get_spans(text: str) -> list:
-        if not text:
-            return []
-        clean = _strip_ass(text)
-        spans = []
-        for char in clean:
-            if _is_cjk(char):
-                py = _pinyin(char, style=Style.TONE, errors='default')[0][0]
-                spans.append((char, py))
-            else:
-                spans.append((char, None))
-        return spans
-
-    return get_spans
+    return _make_mandarin_annotation_func(variant, 'TONE')
 
 
-def _make_zhuyin_annotation_func():
+def _make_zhuyin_annotation_func(variant: str = None):
     """Return a Chinese per-character Zhuyin (Bopomofo) annotation span producer.
 
     Identical structure to _make_chinese_annotation_func() but uses
-    pypinyin's Style.BOPOMOFO output (e.g. ㄋㄧˇ instead of nǐ).
+    pypinyin's Style.BOPOMOFO output (e.g. ㄋㄧˇ instead of nǐ) — the same
+    context-aware syllable the Zhuyin line gives each character.
     Opt-in via phonetic_system="zhuyin" for any Mandarin variant;
     Traditional Chinese defaults to Pinyin.
     """
-    from pypinyin import pinyin as _pinyin, Style  # lazy import
+    return _make_mandarin_annotation_func(variant, 'BOPOMOFO')
+
+
+def _make_mandarin_annotation_func(variant, style_name: str):
+    """Shared body of the Pinyin and Zhuyin annotators: one (char, reading)
+    span per character of the ASS-stripped text, the reading taken verbatim
+    from _mandarin_readings (None for anything but a CJK ideograph)."""
+    from pypinyin import Style  # lazy import
+    import jieba  # noqa: F401 — lazy import; fail at construction, like the romanizer
+
+    style = getattr(Style, style_name)
+    traditional = variant == 'zh-Hant'
+    if traditional:
+        _get_t2s()  # build the bridge now: a missing opencc fails here
 
     def get_spans(text: str) -> list:
         if not text:
             return []
         clean = _strip_ass(text)
-        spans = []
-        for char in clean:
-            if _is_cjk(char):
-                zy = _pinyin(char, style=Style.BOPOMOFO, errors='default')[0][0]
-                spans.append((char, zy))
-            else:
-                spans.append((char, None))
-        return spans
+        _words, readings = _mandarin_readings(clean, traditional=traditional, style=style)
+        return list(zip(clean, readings))
 
     return get_spans
 
@@ -3812,7 +3787,8 @@ def get_annotation_func(lang_code: str, system: str = None):
     Each tuple is (original_text, reading_or_None).  A non-None reading is
     returned only when the token needs annotation:
       - Japanese: kanji tokens get hiragana readings (token-aligned)
-      - Chinese (Mandarin): each hanzi gets pinyin or Zhuyin (character-aligned)
+      - Chinese (Mandarin): each hanzi gets pinyin or Zhuyin (character-aligned,
+        read in its jieba word's context — the romanization line's syllable)
       - Chinese (Cantonese): each hanzi gets Jyutping (character-aligned)
 
     Hiragana, katakana, Latin, punctuation, and non-CJK characters always
@@ -3839,11 +3815,14 @@ def get_annotation_func(lang_code: str, system: str = None):
     system = effective_phonetic_system(lang_code, system)
     primary = (lang_code or "").lower().split("-")[0].split("_")[0]
 
-    # Explicit system override — works for any Chinese variant
+    # Explicit system override — works for any Chinese variant.  The Mandarin
+    # annotators read Traditional text through the same t2s bridge as the
+    # line (same _mandarin_script decision as get_romanizer), so the ruby and
+    # the line give every character the same context-aware syllable.
     if system == "pinyin":
-        return _make_chinese_annotation_func()
+        return _make_chinese_annotation_func(variant=_mandarin_script(lang_code))
     if system == "zhuyin":
-        return _make_zhuyin_annotation_func()
+        return _make_zhuyin_annotation_func(variant=_mandarin_script(lang_code))
     if system == "jyutping":
         return _make_jyutping_annotation_func()
 
@@ -3865,7 +3844,7 @@ def get_annotation_func(lang_code: str, system: str = None):
         variant = classify_chinese_variant(lang_code)
         if variant == "yue":
             return _make_jyutping_annotation_func()
-        return _make_chinese_annotation_func()
+        return _make_chinese_annotation_func(variant=_mandarin_script(lang_code))
 
     # R4 — per-word/per-token annotation for alphabetic scripts
     if primary == "ko":
@@ -3918,28 +3897,308 @@ def _get_t2s():
     return _t2s_converter
 
 
-def _jieba_words(clean: str, *, traditional: bool = False) -> list:
-    """Word boundaries for `clean` as surface slices of the ORIGINAL text.
+def _zh_segment(clean: str, *, traditional: bool) -> tuple:
+    """``(words, lookup)`` for a Mandarin line — THE segmentation shared by the
+    ruby, the romanization line and the word tokens.
 
-    Mirrors the segmentation inside _make_pinyin_romanizer (incl. the
-    Traditional→Simplified round-trip that maps boundaries back onto the
-    original characters) but kept SEPARATE so the live romanize output is never
-    touched.  Concatenation of the returned words == `clean`."""
+    ``words`` are jieba words as surface slices of `clean` (concatenation ==
+    `clean`).  ``lookup`` is the text readings are looked up on, aligned 1:1
+    with `clean`: `clean` itself for Simplified; for Traditional, its OpenCC
+    t2s form — jieba's dictionary AND pypinyin's phrase data are both
+    Simplified-oriented (pypinyin reads 銀行 yín xíng but 银行 yín háng).
+
+    Mapping the Simplified words back onto the original characters by length
+    is only sound while t2s preserves length.  Every entry in the bundled
+    OpenCC t2s tables does (checked 2026-09: 4113 characters + 277 phrases,
+    all same-length), but that is a property of a data file, not a
+    guarantee: if the converted line ever differs in length, the bridge is
+    unprovable and the Traditional text is segmented and read AS-IS
+    (``lookup`` None) — never mapped with shifted boundaries, which would
+    hand a word, and its readings, to the wrong characters.
+
+    Memoized for subtitle-sized lines: /annotate computes the ruby AND the
+    word tokens from this for every line, and the extension then asks
+    /romanize for the same lines — one t2s + jieba pass serves all three.
+    Pure function of its arguments (nothing mutates the jieba / OpenCC
+    dictionaries at runtime); ``words`` is a tuple so a cached value can't be
+    mutated by a caller."""
+    if len(clean) <= _ZH_SEGMENT_MEMO_MAX_CHARS:
+        return _zh_segment_memo(clean, traditional)
+    return _zh_segment_compute(clean, traditional)
+
+
+# Memo bounds for the Mandarin reading path (_zh_segment, _hanzi_run_readings,
+# _bridged_reading_ok, _hanzi_readings_tone3).  Measured growth, both
+# scripts, Pinyin + Zhuyin: realistic input (the 2474-line regression corpus
+# plus 12k random-hanzi lines) ~7.6 MB traced (tracemalloc); adversarial
+# input that fills EVERY memo to maxsize (1024 unique 256-character lines of
+# one-hanzi words + 10k unique 16-hanzi runs) ~10 MB traced, ~+18 MB RSS
+# (HEAD, with no memos, +1 MB on the same input).  Bounded either way — the
+# lru_cache maxsizes are the bound, not the input.  An episode is
+# ~500-1000 unique lines, so the segmentation memo holds one (the /annotate →
+# /romanize pair the extension sends lands on the same worker); lines longer than
+# _ZH_SEGMENT_MEMO_MAX_CHARS skip it (a subtitle line is ~10-40 characters,
+# the per-item API cap is 5000), and runs longer than
+# _HANZI_RUN_MEMO_MAX_CHARS skip theirs (a run lives inside one jieba word).
+_ZH_SEGMENT_MEMO_MAX_CHARS = 256
+_HANZI_RUN_MEMO_MAX_CHARS = 16
+
+
+@functools.lru_cache(maxsize=1024)
+def _zh_segment_memo(clean: str, traditional: bool) -> tuple:
+    return _zh_segment_compute(clean, traditional)
+
+
+def _zh_segment_compute(clean: str, traditional: bool) -> tuple:
     if not clean:
-        return []
+        return (), clean
     import jieba  # lazy
     import logging as _logging
     _logging.getLogger('jieba').setLevel(_logging.WARNING)
-    if traditional:
-        simplified = _get_t2s().convert(clean)
-        seg = list(jieba.cut(simplified))
-        words = []
-        pos = 0
-        for sw in seg:
-            words.append(clean[pos:pos + len(sw)])
-            pos += len(sw)
-        return words
-    return list(jieba.cut(clean))
+    if not traditional:
+        return tuple(jieba.cut(clean)), clean
+    simplified = _get_t2s().convert(clean)
+    if len(simplified) != len(clean):
+        return tuple(jieba.cut(clean)), None
+    words = []
+    pos = 0
+    for sw in jieba.cut(simplified):
+        words.append(clean[pos:pos + len(sw)])
+        pos += len(sw)
+    return tuple(words), simplified
+
+
+def _jieba_words(clean: str, *, traditional: bool = False) -> list:
+    """Word boundaries for `clean` as surface slices of the ORIGINAL text —
+    the word tokens' segmentation, which is by construction the one the ruby
+    and the romanization line use (_zh_segment, incl. the Traditional→
+    Simplified bridge).  Concatenation of the returned words == `clean`."""
+    return list(_zh_segment(clean, traditional=traditional)[0])
+
+
+@functools.lru_cache(maxsize=4096)
+def _hanzi_readings_tone3(char: str) -> frozenset:
+    """Every reading pypinyin knows for *char*, as TONE3 with the neutral tone
+    written 5 (行 → {xing2, hang2, heng2, xing4, hang4}).  Empty when pypinyin
+    has no data for the character.  Cached: the set of hanzi is bounded."""
+    from pypinyin import pinyin, Style  # lazy
+    try:
+        got = pinyin(char, style=Style.TONE3, heteronym=True,
+                     neutral_tone_with_five=True, errors='ignore')
+    except Exception:  # noqa: BLE001 — unknown → no proof, caller falls back
+        return frozenset()
+    return frozenset(got[0]) if got else frozenset()
+
+
+def _bridged_reading_ok(orig: str, simp: str, reading: str) -> bool:
+    """May *reading* — the context reading of *simp*, the t2s image of *orig*
+    — be shown over the ORIGINAL character?
+
+    Only if it is a reading the original character actually has.  t2s merges
+    characters that are read differently: 隻 (zhī only) → 只, whose own default
+    is zhǐ; 鬥 (dòu) → 斗 (dǒu/dòu).  The Simplified context is what fixes
+    銀行/重慶/音樂, but a reading that belongs only to the MERGED character
+    must never be put over the Traditional one.  A neutral tone is accepted
+    when the original has that syllable in any tone — phrase data
+    neutralizes (便宜 pián yi, 頭髮 tóu fa) where per-character lists rarely
+    carry the neutral form.  No data for the original → no proof → False.
+
+    Known trade-off (accepted): "a reading the original has" includes rare
+    ones, so where no phrase drives the Simplified run, a Traditional
+    character takes the Simplified character's DEFAULT whenever it is merely
+    listed for the original — 捱 ái → āi (挨's default), 紮 zā → zhā in
+    紮馬尾, literary 興 "mood" xìng → xīng, a lone 僕 pú → pū.  Across the ~100
+    characters where the two defaults differ and the bridged one is accepted,
+    the switch is mostly an improvement (麽 me, 蔔 bo, 閡 hé, 柵 zhà, 匱 kuì,
+    綏 suí, 興奮 xīng), and 頗 → pǒ is the Taiwan-standard reading (ㄆㄛˇ; pō
+    is the mainland one).  Telling "phrase-driven" from "default" would need
+    pypinyin's own phrase segmentation; a per-character exception list would
+    be curation, not a rule.
+
+    Memoized: the (original, image, reading) triples of a real episode are a
+    small, heavily repeated set, and the TONE3 conversion is most of the cost."""
+    if orig == simp:
+        return True
+    return _bridged_reading_ok_memo(orig, simp, reading)
+
+
+@functools.lru_cache(maxsize=4096)
+def _bridged_reading_ok_memo(orig: str, simp: str, reading: str) -> bool:
+    own = _hanzi_readings_tone3(orig)
+    if not own:
+        return False
+    try:
+        from pypinyin.contrib.tone_convert import to_tone3  # lazy
+        t3 = to_tone3(reading, neutral_tone_with_five=True)
+    except Exception:  # noqa: BLE001 — not a pinyin syllable → no proof
+        return False
+    if t3 in own:
+        return True
+    return t3.endswith('5') and t3[:-1] in {r[:-1] for r in own}
+
+
+def _hanzi_run_readings(run: str, style) -> list:
+    """One reading per character of an all-hanzi *run*, read as ONE unit so
+    pypinyin's phrase data applies (银行 → yín háng).  If pypinyin does not
+    return exactly one item per character (nothing observed does; it is the
+    alignment the callers index by), the run is read character by character
+    instead — the pre-context behaviour, never a shifted reading.
+
+    Memoized per (run, style): runs are words (我们, 什么, 这个 …) and repeat
+    constantly, and pypinyin — Zhuyin especially — is the bulk of the cost."""
+    if len(run) <= _HANZI_RUN_MEMO_MAX_CHARS:
+        return _hanzi_run_readings_memo(run, style)
+    return _hanzi_run_readings_compute(run, style)
+
+
+@functools.lru_cache(maxsize=8192)
+def _hanzi_run_readings_memo(run: str, style) -> tuple:
+    return _hanzi_run_readings_compute(run, style)
+
+
+def _hanzi_run_readings_compute(run: str, style) -> tuple:
+    from pypinyin import pinyin  # lazy
+    items = pinyin(run, style=style, errors='default')
+    if len(items) == len(run):
+        got = [item[0] for item in items]
+    else:
+        got = [pinyin(ch, style=style, errors='default')[0][0] for ch in run]
+    return tuple(_ordinal_yi_citation(run, got, style))
+
+
+# 一 as a number being counted or an ordinal is never tone-sandhied (第一个
+# dì yī gè, 十一点 shí yī diǎn, 一月份 yī yuè fèn "January") — but pypinyin
+# sandhis it in exactly those places: it reads a run with its OWN phrase
+# matching, so inside the jieba word 第一个 it matches the phrase 一个 (yígè,
+# "one of") and puts cardinal sandhi on an ordinal, and a few of its phrase
+# entries carry the error themselves (第一名 yì, 十一点 yì, 第一次世界大战 yí,
+# 一月(份) yí, 一年级 yì, 一等奖 yì).  The per-character ruby this replaced read
+# every 一 alone and so always showed yī there; these two rules restore the
+# citation tone for those positions only, in the shared readings (ruby AND
+# line):
+#   - 一 directly after 第 or a numeral character IN THE SAME RUN (one jieba
+#     word) — 第一个, 十一个, 二十一个, 第一代, 第十一个, 第一百零一个.  The
+#     same-run condition is load-bearing: 千万|一定 ("be sure to") and
+#     他们三|一起 end a jieba word on 万/三, and their 一 is a cardinal whose
+#     sandhi (yídìng, yìqǐ) is right.  A coefficient 一 after a numeral
+#     (一千一百, where pypinyin's data mixes yī and yì for the two 一) gets
+#     its citation tone too — the dictionary form, never a wrong reading.
+#   - a run that STARTS with one of the unambiguously ordinal words below
+#     (January as 一月份/一月底, first grade, first prize, and the counting
+#     idiom 一五一十 yī wǔ yī shí — its second 一 the first rule covers).
+#     Run-initial only: 月复一月 ("month after month") is one month each
+#     time, yí yuè.
+#     Bare 一月 is deliberately NOT listed: it is January in 明年一月 but
+#     "one month" in 不出一月 / 一月之内 / 看看的一月 (costume dramas and
+#     literary text), and jieba gives both the same word; it keeps
+#     pypinyin's yí, as the Simplified line always printed.
+# Everything else — 一个 yí, 一定 yí, 一起 yì, 一样 yī — keeps pypinyin's
+# phrase tones, which the Simplified line has always printed.  Simplified and
+# Traditional forms are both listed: a Traditional run is normally read on
+# its t2s form, but falls back to its own characters when the bridge can't be
+# proven (_mandarin_readings).
+_ORDINAL_YI_AFTER = frozenset('第零二三四五六七八九十百千万萬亿億')
+_ORDINAL_YI_WORDS = ('一月份', '一月底', '一年级', '一年級', '一等奖', '一等獎', '一五一十')
+
+
+def _ordinal_yi_citation(run: str, readings: list, style) -> list:
+    """*readings* (one per character of *run*) with every ordinal / counted
+    一 set to its citation reading (yī / ㄧ) — see _ORDINAL_YI_AFTER."""
+    if '一' not in run:
+        return readings
+    citation = None
+    for k, ch in enumerate(run):
+        if ch != '一':
+            continue
+        if (k > 0 and run[k - 1] in _ORDINAL_YI_AFTER) or (
+                k == 0 and run.startswith(_ORDINAL_YI_WORDS)):
+            if citation is None:
+                from pypinyin import pinyin  # lazy
+                citation = pinyin('一', style=style, errors='default')[0][0]
+            readings[k] = citation
+    return readings
+
+
+def _mandarin_readings(clean: str, *, traditional: bool, style) -> tuple:
+    """``(words, readings)`` for Mandarin Pinyin / Zhuyin — ONE reading per
+    character of `clean`, chosen from WORD context.
+
+    THE single source of Mandarin syllables: the per-character ruby
+    (_make_mandarin_annotation_func) shows ``readings`` as-is and the
+    romanization line (_make_mandarin_romanizer) formats the very same list
+    word by word, so the two can never disagree about a character.
+
+    ``words`` is the jieba segmentation (_zh_segment); ``readings[i]`` is the
+    reading of ``clean[i]`` for a CJK ideograph (_is_cjk) and None for
+    everything else — punctuation, Latin, digits, whitespace — exactly the
+    characters the per-character ruby always annotated.
+
+    Each maximal run of ideographs inside a jieba word is read as a unit by
+    pypinyin (phrase data: 行 is háng in 银行, xíng in 行走).  Tones are what
+    pypinyin's data gives for that word — citation tones, except where its
+    PHRASE entries themselves encode 一/不 sandhi (一定 yí, 不要 bú, but
+    一样 yī): no sandhi rule is applied on top.  That is what the Simplified
+    line always printed, and the ruby now agrees with it — with ONE
+    correction to pypinyin's data, applied to the shared readings so the
+    line gets it too: an ordinal / counted 一 (第一个, 十一点, 一月份) keeps
+    its citation tone (_ordinal_yi_citation).
+
+    Traditional (``traditional=True``) is read on its t2s Simplified form,
+    run by run, and a run's bridged readings are used only when EVERY
+    character that t2s changed may take its reading
+    (_bridged_reading_ok); otherwise the run is read on its original
+    characters — which is also what an unprovable bridge (_zh_segment:
+    ``lookup`` None) gets for the whole line.  Either way a reading is only
+    ever computed for, and placed on, its own character."""
+    from pypinyin import Style  # lazy
+    words, lookup = _zh_segment(clean, traditional=traditional)
+    readings = [None] * len(clean)
+    end = 0
+    for word in words:
+        i, end = end, end + len(word)
+        while i < end:
+            if not _is_cjk(clean[i]):
+                i += 1
+                continue
+            j = i
+            while j < end and _is_cjk(clean[j]):
+                j += 1
+            run = clean[i:j]
+            src = lookup[i:j] if lookup is not None else run
+            if src == run:
+                got = _hanzi_run_readings(run, style)
+            else:
+                tone = _hanzi_run_readings(src, Style.TONE)
+                if all(_bridged_reading_ok(o, s, r) for o, s, r in zip(run, src, tone)):
+                    got = tone if style == Style.TONE else _hanzi_run_readings(src, style)
+                else:
+                    got = _hanzi_run_readings(run, style)
+            readings[i:j] = got
+            i = j
+    return words, readings
+
+
+def _mandarin_word_syllables(word: str, word_readings: list, style) -> list:
+    """The line's syllables for one jieba *word* containing ideographs: the
+    context readings for its ideographs (the ruby's, verbatim), and for any
+    non-ideograph run inside the word (A股, 〇) what pypinyin renders it as —
+    what the line printed when it handed pypinyin the whole word."""
+    from pypinyin import pinyin  # lazy
+    out = []
+    n = len(word)
+    i = 0
+    while i < n:
+        j = i
+        if _is_cjk(word[i]):
+            while j < n and _is_cjk(word[j]):
+                j += 1
+            out.extend(word_readings[i:j])
+        else:
+            while j < n and not _is_cjk(word[j]):
+                j += 1
+            out.extend(item[0] for item in pinyin(word[i:j], style=style, errors='default'))
+        i = j
+    return out
 
 
 def _is_lookupable_word(s: str) -> bool:
@@ -4813,8 +5072,9 @@ def get_romanizer(lang_code: str, phonetic_system: str = None):
     if primary == "zh":
         variant = classify_chinese_variant(lang_code)
         # Script of the TEXT, for the Mandarin romanizers' t2s bridge: zh-HK
-        # tracks are written in Traditional characters too.
-        script = 'zh-Hant' if variant in ('zh-Hant', 'yue') else 'zh-Hans'
+        # tracks are written in Traditional characters too.  Shared with
+        # get_annotation_func, so the ruby takes the same bridge decision.
+        script = _mandarin_script(lang_code)
         if phonetic_system == "jyutping":
             return _make_jyutping_romanizer()
         if phonetic_system == "zhuyin":

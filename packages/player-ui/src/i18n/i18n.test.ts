@@ -12,6 +12,9 @@ import { es } from "./strings/es";
 import { it as itTable } from "./strings/it";
 import { uk } from "./strings/uk";
 import { ru } from "./strings/ru";
+import { pt } from "./strings/pt";
+import { pl } from "./strings/pl";
+import { vi } from "./strings/vi";
 import { initUiLocale, t, languageName } from "./index";
 
 const LOCALES = {
@@ -26,6 +29,9 @@ const LOCALES = {
   it: itTable,
   uk,
   ru,
+  pt,
+  pl,
+  vi,
 } as const;
 const enKeys = Object.keys(en) as StringKey[];
 

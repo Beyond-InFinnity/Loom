@@ -4,6 +4,7 @@
 // fallback for any unsupported browser language.
 export const SUPPORTED_UI_LOCALES = [
   "en", "ja", "zh", "zh-Hant", "yue", "ko", "de", "fr", "es", "it", "uk", "ru",
+  "pt", "pl", "vi",
 ] as const;
 
 export type UiLocale = (typeof SUPPORTED_UI_LOCALES)[number];
@@ -49,7 +50,7 @@ export function setUiLocaleProvider(
 }
 
 /** The host's RAW BCP-47 UI language (e.g. "de-AT"), unmapped — for consumers
-    whose language space is broader than the 12 chrome locales (the dictionary
+    whose language space is broader than the 15 chrome locales (the dictionary
     gloss default).  Null when unregistered/unavailable. */
 export function hostLocaleRaw(): string | null {
   try {
@@ -78,5 +79,7 @@ export function resolveUiLocale(raw?: string | null): UiLocale {
   const primary = subtags[0] ?? "";
   if (primary === "yue" || subtags.includes("yue")) return "yue";
   if (ZH_PRIMARIES.has(primary)) return classifyChinese(subtags);
+  // Portuguese has one table (Brazilian); pt-PT and other regions share it
+  // through the primary-subtag match below.
   return SUPPORTED.has(primary) ? (primary as UiLocale) : "en";
 }

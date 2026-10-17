@@ -111,6 +111,9 @@ export default defineConfig({
                 id: dev
                   ? "loom-dev@nerv-analytic.ai"
                   : "loom@nerv-analytic.ai",
+                // Built-in data consent requires Firefox desktop 140+.
+                // https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
+                strict_min_version: "140.0",
                 data_collection_permissions: {
                   required: ["websiteContent"],
                 },

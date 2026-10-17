@@ -92,13 +92,17 @@ def test_state_tracks_in_flight():
     assert s.snapshot()[1] == 1
 
 
-def test_leave_advances_last_activity():
+def test_leave_advances_last_activity(monkeypatch):
+    # A 10 ms sleep can leave Windows' monotonic clock on the same tick.
+    # Control elapsed time so this tests bookkeeping, not clock resolution.
+    now = 1000.0
+    monkeypatch.setattr(recycle.time, "monotonic", lambda: now)
     s = RecycleState()
-    first = s.snapshot()[0]
+    assert s.snapshot()[0] == now
     s.enter()
-    time.sleep(0.01)
+    now = 1001.0
     s.leave()
-    assert s.snapshot()[0] > first
+    assert s.snapshot() == (now, 0)
 
 
 # ---------------------------------------------------------------------------

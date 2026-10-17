@@ -15,6 +15,14 @@ describe("resolveUiLocale", () => {
     expect(resolveUiLocale("de-AT")).toBe("de");
     expect(resolveUiLocale("uk")).toBe("uk");
     expect(resolveUiLocale("ru-RU")).toBe("ru");
+    expect(resolveUiLocale("pl-PL")).toBe("pl");
+    expect(resolveUiLocale("vi-VN")).toBe("vi");
+  });
+
+  it("routes every Portuguese region to the one pt table", () => {
+    for (const c of ["pt", "pt-BR", "pt-PT", "pt_BR", "pt-AO"]) {
+      expect(resolveUiLocale(c)).toBe("pt");
+    }
   });
 
   it("routes Simplified-script Chinese to the zh table", () => {
@@ -38,7 +46,7 @@ describe("resolveUiLocale", () => {
   });
 
   it("falls back to English for unsupported languages", () => {
-    expect(resolveUiLocale("pt-BR")).toBe("en");
+    expect(resolveUiLocale("nl-NL")).toBe("en");
     expect(resolveUiLocale("th")).toBe("en");
     expect(resolveUiLocale("")).toBe("en");
   });

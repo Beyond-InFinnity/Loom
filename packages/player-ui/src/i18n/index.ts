@@ -11,6 +11,9 @@ import { es } from "./strings/es";
 import { it } from "./strings/it";
 import { uk } from "./strings/uk";
 import { ru } from "./strings/ru";
+import { pt } from "./strings/pt";
+import { pl } from "./strings/pl";
+import { vi } from "./strings/vi";
 
 export type { StringKey, LocaleTable } from "./strings/en";
 export type { UiLocale } from "./resolve";
@@ -28,6 +31,9 @@ const TABLES: Record<UiLocale, LocaleTable> = {
   it,
   uk,
   ru,
+  pt,
+  pl,
+  vi,
 };
 
 let activeLocale: UiLocale = "en";

@@ -13,9 +13,46 @@ on:
   push:
     branches: [main, monorepo-restructure]
   pull_request:
-    branches: [main]
+    branches: [main, monorepo-restructure]
 
 jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # Ignore developer endpoint overrides when producing release artifacts.
+      LOOM_API_BASE: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Generate extension types
+        run: npm --workspace apps/extension exec -- wxt prepare
+      - name: Type-check extension, shared UI and desktop frontend
+        run: |
+          npm --workspace apps/extension run compile
+          npm exec -- tsc -p packages/player-ui/tsconfig.json
+          npm exec -- tsc --noEmit -p apps/desktop/tsconfig.json
+      - name: Extension and shared UI tests
+        run: npm --workspace apps/extension test -- --maxWorkers=2
+      - name: Manifest guard regression tests
+        run: node --test scripts/check-extension-manifest.test.mjs
+      - name: Check generated API types against committed schema
+        run: |
+          npm exec --workspace packages/api-client -- openapi-typescript openapi.json -o src/types.ts
+          git diff --exit-code -- packages/api-client/src/types.ts
+      - name: Build and check production Firefox and Chrome manifests
+        run: |
+          npm --workspace apps/extension run build:firefox:prod
+          node scripts/check-extension-manifest.mjs firefox
+          npm --workspace apps/extension run build:chrome:prod
+          node scripts/check-extension-manifest.mjs chrome
+
   test:
     strategy:
       fail-fast: false  # one OS failing shouldn't cancel the others

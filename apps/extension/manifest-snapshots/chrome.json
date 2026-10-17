@@ -1,0 +1,134 @@
+{
+  "manifest_version": 3,
+  "name": "Loom",
+  "description": "Dual subtitles with romanization for foreign-language video on YouTube, Netflix, Prime Video, iQIYI, and WeTV.",
+  "icons": {
+    "16": "icons/prod/16.png",
+    "32": "icons/prod/32.png",
+    "48": "icons/prod/48.png",
+    "96": "icons/prod/96.png",
+    "128": "icons/prod/128.png"
+  },
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.netflix.com/*",
+    "*://*.nflxvideo.net/*",
+    "*://*.iq.com/*",
+    "*://*.iqiyi.com/*",
+    "*://*.wetv.vip/*",
+    "*://*.wetvinfo.com/*",
+    "*://*.video.qq.com/*",
+    "*://*.myqcloud.com/*",
+    "*://*.primevideo.com/*",
+    "*://*.pv-cdn.net/*",
+    "https://api.loom.nerv-analytic.ai/*"
+  ],
+  "action": {
+    "default_title": "Loom",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/content.js"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.iq.com/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "content-scripts/iqiyi-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.iq.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/iqiyi.js"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "content-scripts/netflix-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/netflix.js"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.primevideo.com/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "content-scripts/prime-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.primevideo.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/prime.js"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.wetv.vip/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "content-scripts/wetv-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.wetv.vip/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/wetv.js"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "content-scripts/yt-main.js"
+      ],
+      "world": "MAIN"
+    }
+  ]
+}
